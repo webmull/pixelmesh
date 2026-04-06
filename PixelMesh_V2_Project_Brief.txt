@@ -1,0 +1,134 @@
+PixelMesh V2 — Blinking-Based Coordination
+Project Brief & Engineering Requirements
+
+0. Inputs & Reference Material
+
+PixelMesh (V1 / Current Implementation)
+Repo: /Users/adam/desktop/glowex
+Purpose:
+- Existing architecture (server, client, controller)
+- WebSocket communication model
+- Effects system
+- u-space (normalised coordinate system)
+- Homography-based calibration
+
+PixelMesh V2 (New Implementation Target — TO BE CREATED)
+Repo: [THIS WILL BE CREATED AS PART OF THIS WORK]
+Purpose:
+- Implement blinking-based device identification
+- Combine controller and detection into a single tool
+- Extend PixelMesh V1 architecture (not replace it)
+Expectations:
+- Reuse as much of PixelMesh V1 as possible
+- Do not rewrite working components unnecessarily
+- Introduce new components only where required
+
+Reference Project — Seb Lee-Delisle (PixelPhones)
+Repo / Examples: /Users/adam/desktop/pixelphones
+Key Concepts:
+- Devices identified via emitted light
+- Manchester encoding (transition-based)
+- Identity derived from temporal patterns
+Important:
+- Use as inspiration, not direct implementation
+- Adapt to PixelMesh architecture
+
+1. Implementation Principle (Critical)
+Start with a minimal working implementation before expanding features
+
+2. What This Is
+PixelMesh coordinates multiple devices into a distributed display.
+Each device renders visuals locally using shared time and behaviour.
+
+3. What It’s Trying to Solve
+- Coordination without streaming
+- Synchronisation across unreliable systems
+- Organisation without manual setup
+
+4. Core Model — u-space
+(u, v) ∈ [0,1]
+Devices are stored and tracked in u-space.
+Spatial mapping is optional.
+
+5. System Components
+Client:
+- WebSocket connection
+- Blink emission
+- Effect rendering
+
+Server:
+- Device ID assignment
+- Global time
+- Effect broadcasting
+
+Controller:
+- Camera capture
+- Light detection
+- Signal decoding
+- Optional spatial mapping
+- Operator controls
+
+6. Controller Behaviour
+Passive Mode:
+- Detection off
+- Shows camera + clients
+
+Detection Mode:
+- Key triggered
+- Runs detection pipeline
+
+Calibration Mode:
+- Key triggered
+- Computes u-space mapping
+
+7. Controller Responsibilities
+- Show connected clients
+- Trigger effects
+- Toggle detection
+- Run calibration
+
+8. Device Identification
+Devices emit unique blinking signals encoding device_id.
+
+9. Detection Pipeline
+- Capture frame
+- Grayscale
+- Threshold
+- Blob detection
+- Tracking
+- Decode signal
+
+10. Signal Decoding
+Output:
+device_id, confidence_score, last_seen
+
+11. Time Synchronisation
+- RTT-based offset
+- Global time usage
+
+12. Effects System
+effect(device_id, t, optional(u, v))
+
+13. Simulation
+- Simulate devices
+- Inject noise and drift
+
+14. Reuse from V1
+Reuse:
+- WebSockets
+- Effects
+- u-space
+Replace:
+- Apriltags → light detection
+
+15. Success Criteria
+- Devices identifiable via blinking
+- No calibration required
+- Effects consistent
+- Controller supports all key functions
+
+16. Guiding Principles
+- Time over position
+- Detection over configuration
+- Fast join over precision
+- Robustness over perfection

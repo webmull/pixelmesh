@@ -1,0 +1,285 @@
+"""
+PixelMesh V2 — Blink Detector (grid-sampler, variance-gated)
+
+Samples raw brightness at every grid_step pixels.  The key discriminant is
+*recent standard deviation* over ~1.5 seconds, not max-min over 15 seconds.
+
+Why:
+  - Blinking cell (0↔1 at 5 Hz):  recent_std ≈ 0.35
+  - Scrolling chat / slowly changing UI: recent_std ≈ 0.01-0.05
+  - Animated favicon (small amplitude): recent_std ≈ 0.05-0.12
+  - Static text/background: recent_std ≈ 0.00-0.02
+
+process_frame() returns (detections, DebugImages).
+"""
+
+import time
+import math
+import cv2
+import numpy as np
+from dataclasses import dataclass, field
+
+from blink_encoder import decode_phases, CYCLE_LEN, PHASE_MS
+
+from log import log
+
+DEFAULTS = dict(
+    grid_step       = 40,    # px: distance between grid sample points
+    history_seconds = 35.0,  # seconds of brightness history to keep (≥ 2 cycles at PHASE_MS=500ms)
+    decode_interval = 0.5,   # seconds between decode attempts per point
+    min_history     = 150,   # unused — decode gate is now time-based (_MIN_HISTORY_SECS)
+    min_recent_std  = 0.18,  # std of recent window required to attempt decode
+    recent_n        = 24,    # samples in the recent window (~1.6s at 15fps)
+    brightness_pct  = 80,    # percentile for brightness sample in patch
+    sample_radius   = 20,    # px: radius around grid point to sample
+    roi_top_frac    = 0.20,  # fraction of frame height to skip from top
+    roi_left_frac   = 0.00,  # fraction of frame width to skip from left
+    log_interval    = 3.0,   # seconds between diagnostic log lines
+)
+
+
+@dataclass
+class DebugImages:
+    gray:     np.ndarray | None = None   # raw grayscale
+    contrast: np.ndarray | None = None   # per-grid-point recent-std heatmap
+
+
+@dataclass
+class DetectedDevice:
+    blink_id:   int
+    cx_px:      float
+    cy_px:      float
+    confidence: float
+
+
+@dataclass
+class _GridPoint:
+    px: int
+    py: int
+    history:             list  = field(default_factory=list)  # [(ts, brightness)]
+    decoded_id:          int | None = None
+    confidence:          float = 0.0
+    last_decode_attempt: float = 0.0
+    decode_fail_reason:  str  = ""
+    recent_std:          float = 0.0  # updated each decode cycle
+
+    def add_sample(self, brightness, ts, history_seconds):
+        self.history.append((ts, brightness))
+        if len(self.history) % 60 == 0:
+            cutoff = ts - history_seconds
+            self.history = [(t, b) for t, b in self.history if t >= cutoff]
+
+    def try_decode(self, ts, cfg):
+        if ts - self.last_decode_attempt < cfg["decode_interval"]:
+            return
+        self.last_decode_attempt = ts
+
+        vals = [b for _, b in self.history]
+        n = cfg["recent_n"]
+
+        # Always compute recent_std so the overlay can show amber dots
+        if len(vals) < n:
+            self.recent_std = 0.0
+            self.decode_fail_reason = f"hist={len(vals)}<{n}"
+            return
+
+        recent = vals[-n:]
+        self.recent_std = float(np.std(recent))
+
+        # Gate 1: must be actively blinking NOW
+        if self.recent_std < cfg["min_recent_std"]:
+            self.decode_fail_reason = f"std={self.recent_std:.3f}<{cfg['min_recent_std']}"
+            return
+
+
+        result = decode_phases(self.history)
+        if result is not None:
+            self.decoded_id, self.confidence = result
+            self.decode_fail_reason = ""
+        else:
+            lo, hi = min(vals), max(vals)
+            self.decode_fail_reason = (
+                f"no_decode hist={len(vals)} std={self.recent_std:.2f} "
+                f"range={hi-lo:.2f}"
+            )
+
+
+class BlinkDetector:
+    def __init__(self):
+        self._points:      list[_GridPoint] = []
+        self.last_results: list[DetectedDevice] = []
+        self.cfg           = dict(DEFAULTS)
+        self._grid_shape   = (0, 0, 0, 0)
+        self._last_log_ts  = 0.0
+
+    # ---------------------------------------------------------------- #
+
+    def _rebuild_grid(self, h, w):
+        cfg     = self.cfg
+        roi_top  = int(h * cfg["roi_top_frac"])
+        roi_left = int(w * cfg["roi_left_frac"])
+        step    = cfg["grid_step"]
+        xs = list(range(roi_left + step // 2, w, step))
+        ys = list(range(roi_top  + step // 2, h, step))
+        shape = (roi_top, roi_left, len(ys), len(xs))
+        if shape == self._grid_shape and self._points:
+            return
+        self._grid_shape = shape
+        old_map = {(p.px, p.py): p for p in self._points}
+        self._points = []
+        for py in ys:
+            for px in xs:
+                self._points.append(old_map.get((px, py)) or _GridPoint(px=px, py=py))
+
+    # ---------------------------------------------------------------- #
+
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        ts: float | None = None,
+    ) -> tuple[list[DetectedDevice], DebugImages]:
+
+        if ts is None:
+            ts = time.time()
+
+        cfg  = self.cfg
+        h, w = frame.shape[:2]
+
+        # 1. Raw grayscale — no CLAHE (it would compress the white/black contrast
+        #    we rely on, making the blink amplitude appear smaller)
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+        # 2. Rebuild grid if frame size or ROI changed
+        self._rebuild_grid(h, w)
+
+        r   = cfg["sample_radius"]
+        pct = cfg["brightness_pct"]
+
+        # 3. Sample brightness at every grid point
+        for pt in self._points:
+            x0 = max(pt.px - r, 0); x1 = min(pt.px + r, w)
+            y0 = max(pt.py - r, 0); y1 = min(pt.py + r, h)
+            roi = gray[y0:y1, x0:x1]
+            b = float(np.percentile(roi, pct)) / 255.0 if roi.size > 0 else 0.0
+            pt.add_sample(b, ts, cfg["history_seconds"])
+
+        # 4. Attempt decode on high-variance points
+        for pt in self._points:
+            pt.try_decode(ts, cfg)
+
+        # 5. Collect best DetectedDevice per blink_id
+        id_map: dict[int, DetectedDevice] = {}
+        for pt in self._points:
+            if pt.decoded_id is None:
+                continue
+            existing = id_map.get(pt.decoded_id)
+            if existing is None or pt.confidence > existing.confidence:
+                id_map[pt.decoded_id] = DetectedDevice(
+                    blink_id=pt.decoded_id,
+                    cx_px=float(pt.px),
+                    cy_px=float(pt.py),
+                    confidence=pt.confidence,
+                )
+
+        self.last_results = list(id_map.values())
+
+        # 6. Diagnostic logging
+        if ts - self._last_log_ts >= cfg["log_interval"]:
+            self._last_log_ts = ts
+            self._log_diagnostics()
+
+        # 7. Build recent-std heatmap
+        dbg_img = self._std_heatmap(h, w)
+        return self.last_results, DebugImages(gray=gray, contrast=dbg_img)
+
+    # ---------------------------------------------------------------- #
+
+    def _log_diagnostics(self):
+        cfg = self.cfg
+        active = [p for p in self._points if len(p.history) >= cfg["min_history"]]
+        if not active:
+            log.info("[blink] no points with enough history yet")
+            return
+
+        # Sort by recent_std descending
+        by_std = sorted(active, key=lambda p: p.recent_std, reverse=True)
+        max_std = by_std[0].recent_std
+        n_above = sum(1 for p in active if p.recent_std >= cfg["min_recent_std"])
+        decoded = [p for p in active if p.decoded_id is not None]
+
+        log.info(
+            f"[blink] pts={len(active)} above_gate={n_above} "
+            f"max_std={max_std:.3f} decoded={len(decoded)}"
+        )
+        for p in by_std[:5]:
+            status = (
+                f"ID={p.decoded_id} conf={p.confidence:.2f}"
+                if p.decoded_id is not None
+                else p.decode_fail_reason or "pending"
+            )
+            log.info(
+                f"  ({p.px:4d},{p.py:4d}) std={p.recent_std:.3f} "
+                f"hist={len(p.history)} → {status}"
+            )
+
+    def _std_heatmap(self, h, w):
+        img = np.zeros((h, w), dtype=np.uint8)
+        for pt in self._points:
+            v = int(min(pt.recent_std * 3.0, 1.0) * 255)
+            if v < 10:
+                continue
+            cv2.circle(img, (pt.px, pt.py), self.cfg["grid_step"] // 2 - 2, v, -1)
+        return img
+
+    # ---------------------------------------------------------------- #
+
+    def draw_overlay(self, frame: np.ndarray) -> np.ndarray:
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        # Only render decoded points — one small sparkline + ID label each
+        SPARK_W   = 30   # number of samples shown
+        SPARK_H   = 10   # pixel height of sparkline
+        SPARK_GAP = 4    # px gap between circle edge and sparkline
+
+        for pt in self._points:
+            if pt.decoded_id is None:
+                continue
+
+            px, py = pt.px, pt.py
+
+            # Small dot at the grid point
+            cv2.circle(frame, (px, py), 4, (0, 220, 80), -1)
+
+            # ID label
+            cv2.putText(frame, f"{pt.decoded_id}",
+                        (px + 8, py + 4), font, 0.35, (80, 255, 80), 1, cv2.LINE_AA)
+
+            # Sparkline of recent brightness samples
+            vals = [b for _, b in pt.history[-SPARK_W:]]
+            if len(vals) >= 2:
+                lo, hi = min(vals), max(vals)
+                rng = hi - lo if hi - lo > 0.01 else 1.0
+                sx0 = px + 8 + 14          # start x (after ID text)
+                sy0 = py + SPARK_H // 2    # centre y
+                pts_spark = []
+                for i, v in enumerate(vals):
+                    sx = sx0 + i
+                    sy = sy0 + int((1.0 - (v - lo) / rng) * SPARK_H) - SPARK_H // 2
+                    pts_spark.append((sx, sy))
+                for i in range(len(pts_spark) - 1):
+                    cv2.line(frame, pts_spark[i], pts_spark[i + 1], (0, 180, 60), 1)
+
+        return frame
+
+    def get_blobs(self):
+        return self._points
+
+    def reset(self):
+        for pt in self._points:
+            pt.history.clear()
+            pt.decoded_id = None
+            pt.confidence = 0.0
+            pt.last_decode_attempt = 0.0
+            pt.decode_fail_reason = ""
+            pt.recent_std = 0.0
+        self.last_results.clear()
