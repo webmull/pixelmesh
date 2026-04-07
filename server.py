@@ -12,11 +12,26 @@ Differences from V1:
 
 import time
 import asyncio
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Block patterns commonly probed by bots
+_BLOCKED = (
+    ".git", ".env", ".htaccess", "wp-", "phpmy", "admin.php",
+    "config.php", "setup.php", ".aws", ".ssh", "passwd",
+)
+
+class BlockBotsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path.lower()
+        if any(b in path for b in _BLOCKED):
+            return Response(status_code=404)
+        return await call_next(request)
 
 app = FastAPI()
+app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", StaticFiles(directory="public"), name="public")
 
 # ------------------------------------------------------------------ #
