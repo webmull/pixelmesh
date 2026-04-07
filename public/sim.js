@@ -20,12 +20,28 @@ function encodeId(blinkId) {
 
 // ------------------------------------------------- //
 
-const grid      = document.getElementById("grid");
-const wsStatus  = document.getElementById("wsStatus");
-const statusEl  = document.getElementById("status");
+const grid     = document.getElementById("grid");
+const wsStatus = document.getElementById("wsStatus");
 
-let clients = [];
+let clients   = [];
 let animFrame = null;
+
+function updateWsStatus() {
+  if (clients.length === 0) {
+    wsStatus.textContent = "idle";
+    wsStatus.className   = "";
+    return;
+  }
+  const open = clients.filter(c => c.ws && c.ws.readyState === WebSocket.OPEN).length;
+  wsStatus.textContent = `${open} / ${clients.length} connected`;
+  if (open === clients.length) {
+    wsStatus.className = "connected";
+  } else if (open > 0) {
+    wsStatus.className = "partial";
+  } else {
+    wsStatus.className = "";
+  }
+}
 
 class SimClient {
   constructor(idx) {
@@ -56,7 +72,7 @@ class SimClient {
     // DOM
     this.cell = document.createElement("div");
     this.cell.className = "cell";
-    this.cell.innerHTML = `<div class="id">?</div><div class="label">${this.deviceId.slice(0,12)}</div>`;
+    this.cell.innerHTML = `<div class="dot"></div><div class="id">?</div><div class="label">${this.deviceId.slice(0,12)}</div>`;
     this.idEl = this.cell.querySelector(".id");
     grid.appendChild(this.cell);
 
@@ -87,12 +103,14 @@ class SimClient {
     this.ws = new WebSocket(`${proto}://${location.host}/ws`);
 
     this.ws.onopen = () => {
+      this.cell.classList.replace("ws-closed", "ws-open") || this.cell.classList.add("ws-open");
       this.ws.send(JSON.stringify({ type: "hello", device_id: this.deviceId }));
       this.ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
       setInterval(() => {
         if (this.ws.readyState === WebSocket.OPEN)
           this.ws.send(JSON.stringify({ type: "ping" }));
       }, 15000);
+      updateWsStatus();
     };
 
     this.ws.onmessage = (ev) => {
@@ -146,7 +164,11 @@ class SimClient {
       }
     };
 
-    this.ws.onclose = () => setTimeout(() => this.connect(), 1000);
+    this.ws.onclose = () => {
+      this.cell.classList.replace("ws-open", "ws-closed") || this.cell.classList.add("ws-closed");
+      updateWsStatus();
+      setTimeout(() => this.connect(), 1000);
+    };
   }
 
   serverNow() { return Date.now() + this.clockOffset; }
@@ -239,12 +261,12 @@ function start() {
   }
 
   animFrame = requestAnimationFrame(render);
-  statusEl.textContent = `Running ${n} simulated clients.`;
+  updateWsStatus();
 }
 
 function stopSim() {
   if (animFrame) cancelAnimationFrame(animFrame);
   clients.forEach(c => c.destroy());
   clients = [];
-  statusEl.textContent = "";
+  updateWsStatus();
 }

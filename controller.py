@@ -290,7 +290,7 @@ def switch_camera_next(holder: dict):
 
 def camera_scan_worker():
     cams   = find_cameras(8)
-    labels = [f"Camera {i}" for i in cams]
+    labels = [f"Camera {i}" for i in cams] or ["No cameras found"]
     lmap   = {f"Camera {i}": i for i in cams}
 
     with state.lock:
@@ -435,12 +435,14 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=6)
                 dpg.add_separator()
                 dpg.add_text("Camera")
-                with state.lock:
-                    items = state.camera_listbox_items or ["Scanning…"]
-                dpg.add_combo(items=items, default_value=items[0],
+                dpg.add_combo(items=["No cameras — click Scan"],
+                              default_value="No cameras — click Scan",
                               label="", tag="camera_selector",
                               callback=lambda s, a, u: on_camera_selected(a, u),
                               user_data=holder, width=-1)
+                dpg.add_button(label="Scan Cameras",
+                               callback=lambda: threading.Thread(target=camera_scan_worker, daemon=True).start(),
+                               width=-1)
                 dpg.add_button(label="Switch Camera  [K]",
                                callback=lambda: switch_camera_next(holder), width=-1)
 
@@ -502,7 +504,6 @@ def main():
 
     setup_ui(holder)
 
-    threading.Thread(target=camera_scan_worker, daemon=True).start()
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
 
     delay = 1.0 / TARGET_FPS
