@@ -6,7 +6,7 @@
 // ------------------------------------------------------------------ //
 
 const NUM_BITS  = 5;
-const PHASE_MS  = 200;
+const PHASE_MS  = 450;
 const NUM_GUARD = 6;   // dark guard frames before Manchester data
 
 function encodeId(blinkId) {

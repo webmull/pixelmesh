@@ -14,6 +14,16 @@ import time
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response as StarletteResponse
+
+
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"]        = "no-cache"
+        response.headers["Expires"]       = "0"
+        return response
 from fastapi.responses import FileResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -32,7 +42,7 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI()
 app.add_middleware(BlockBotsMiddleware)
-app.mount("/public", StaticFiles(directory="public"), name="public")
+app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
 
 # ------------------------------------------------------------------ #
 # Mode constants                                                       #
@@ -324,11 +334,17 @@ async def sweep_bar():
 # Static                                                               #
 # ------------------------------------------------------------------ #
 
+_NO_CACHE = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 @app.get("/")
 async def index():
-    return FileResponse("public/app.html")
+    return FileResponse("public/app.html", headers=_NO_CACHE)
 
 
 @app.get("/sim")
 async def sim():
-    return FileResponse("public/sim.html")
+    return FileResponse("public/sim.html", headers=_NO_CACHE)

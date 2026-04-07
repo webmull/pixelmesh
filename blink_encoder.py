@@ -111,12 +111,12 @@ def _try_decode_at_threshold(
             continue
 
         # Estimate when the Manchester data starts.
-        # The first guard frame arrives ~half a phase after the guard phase began,
-        # so: t_manchester ≈ times[run_start] - phase_secs/2 + NUM_GUARD * phase_secs
-        #                   = times[run_start] + (NUM_GUARD - 0.5) * phase_secs
-        # Try three offsets to handle timing uncertainty.
-        for t_offset in (0.0, -0.25, 0.25, -0.5, 0.5):
-            t_manchester = times[run_start] + (NUM_GUARD - 0.5 + t_offset) * phase_secs
+        # Anchor from the END of the dark run (times[run_end-1]) rather than
+        # the start: phones arrive mid-cycle so we often only see the TAIL of
+        # the guard, making run_start unreliable.  The last guard frame is
+        # always ~0.5 phase before Manchester begins.
+        for t_offset in (-0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75):
+            t_manchester = times[run_end - 1] + (0.5 + t_offset) * phase_secs
 
             bits  = []
             valid = True
