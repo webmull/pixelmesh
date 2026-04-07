@@ -162,6 +162,7 @@ while true; do
       ;;
     q|Q)
       header
+      kill_all
       echo "  ${DIM}bye.${RESET}"
       echo ""
       exit 0
