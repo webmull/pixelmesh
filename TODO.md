@@ -10,6 +10,9 @@
 - [ ] Update `blink_encoder.py` and `sim.js` to match
 - [ ] Re-tune `PHASE_MS` alongside bit increase to keep cycle time reasonable
 
+## Detection / Showtime
+- [ ] When a detection run ends, any connected devices that were never detected should not receive effects — send them back to idle/dark state rather than playing showtime
+
 ## Brighton Dome Deployment
 - [ ] Plan two-camera setup — one from stage (front half), one from FOH (back half)
 - [ ] Test detection at distance — assess grid_step tuning for small apparent phone size

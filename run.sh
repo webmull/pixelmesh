@@ -11,6 +11,7 @@ C=$'\e[0;36m'  W=$'\e[0;37m'  B=$'\e[1;34m'
 DIM=$'\e[2m'   BOLD=$'\e[1m'  RESET=$'\e[0m'
 
 THEME="dark"   # default
+LAST_STARTED=""
 
 # ─────────────────────────────────────────────
 #  ASCII header
@@ -65,10 +66,21 @@ status_line() {
   [[ -n $ctl ]] && ctl_s="${G}running${RESET} ${DIM}(pid $ctl)${RESET}"
   [[ -n $ngk ]] && ngk_s="${G}running${RESET} ${DIM}(pid $ngk)${RESET}"
 
-  echo "  ${W}server     ${RESET}$srv_s"
+  local clients=""
+  if [[ -n $srv ]]; then
+    local count
+    count=$(curl -s --max-time 1 http://localhost:8000/admin/clients 2>/dev/null | grep -o '"clients":[0-9]*' | grep -o '[0-9]*')
+    [[ -n $count ]] && clients="  ${DIM}(${count} connected)${RESET}"
+  fi
+
+  echo "  ${W}server     ${RESET}$srv_s$clients"
   echo "  ${W}controller ${RESET}$ctl_s"
   echo "  ${W}ngrok      ${RESET}$ngk_s"
   echo ""
+  if [[ -n $LAST_STARTED ]]; then
+    echo "  ${DIM}last started  $LAST_STARTED${RESET}"
+    echo ""
+  fi
   echo "  ${DIM}local  → http://localhost:8000${RESET}"
   echo "  ${DIM}public → https://local.pixelmesh.live${RESET}"
   echo "  ${DIM}sim    → https://local.pixelmesh.live/sim${RESET}"
@@ -107,6 +119,7 @@ start_all() {
   python3 controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
   sleep 1
 
+  LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"
   sleep 1
 }
