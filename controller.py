@@ -61,11 +61,47 @@ ui_queue: Queue = Queue()
 # Camera helpers
 # ------------------------------------------------------------------ #
 
+# Names that indicate virtual / software / continuity cameras to exclude
+_VIRTUAL_CAM_NAMES = (
+    "iphone", "ipad", "continuity", "virtual", "facetime",
+    "obs", "snap camera", "mmhmm", "camo", "reincubate", "ndisourcevirtualcam",
+)
+
+def _avfoundation_device_names() -> dict[int, str]:
+    """Use ffmpeg to list AVFoundation video devices → {index: name}."""
+    import subprocess, re
+    try:
+        import shutil
+        ffmpeg = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+        result = subprocess.run(
+            [ffmpeg, "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+            capture_output=True, text=True, timeout=5,
+        )
+        output = result.stderr  # ffmpeg lists devices on stderr
+        devices = {}
+        for line in output.splitlines():
+            if "audio devices" in line.lower():
+                break  # stop before audio section — indices overlap with video
+            m = re.search(r"\[(\d+)\]\s+(.+)", line)
+            if m:
+                devices[int(m.group(1))] = m.group(2).strip()
+        return devices
+    except Exception:
+        return {}
+
+
 def find_cameras(max_idx: int = 8) -> list[int]:
-    found = []
+    names  = _avfoundation_device_names()
+    found  = []
     for i in range(max_idx):
+        name = names.get(i, "").lower()
+        if any(v in name for v in _VIRTUAL_CAM_NAMES):
+            log.info(f"[camera] skipping virtual camera [{i}] {names.get(i)}")
+            continue
         cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
         if cap.isOpened():
+            label = names.get(i, f"Camera {i}")
+            log.info(f"[camera] found [{i}] {label}")
             found.append(i)
             cap.release()
     return found
@@ -288,10 +324,11 @@ def switch_camera_next(holder: dict):
         state.status_text = f"Camera {cams[idx]}"
 
 
-def camera_scan_worker():
+def camera_scan_worker(holder=None):
+    names  = _avfoundation_device_names()
     cams   = find_cameras(8)
-    labels = [f"Camera {i}" for i in cams] or ["No cameras found"]
-    lmap   = {f"Camera {i}": i for i in cams}
+    labels = [names.get(i, f"Camera {i}") for i in cams] or ["No cameras found"]
+    lmap   = {names.get(i, f"Camera {i}"): i for i in cams}
 
     with state.lock:
         state.cameras                = cams
@@ -299,6 +336,22 @@ def camera_scan_worker():
         state.camera_label_to_index  = lmap
 
     safe_set("camera_selector_items", labels)
+    log.info(f"[camera] scan complete: {labels}")
+
+    # Auto-open first USB camera found
+    if holder is not None and cams:
+        first_label = labels[0]
+        idx = lmap.get(first_label)
+        if idx is not None:
+            cap = open_camera(idx)
+            if cap:
+                old = holder.get("cap")
+                if old:
+                    old.release()
+                holder["cap"] = cap
+                with state.lock:
+                    state.selected_camera_idx = idx
+                log.info(f"[camera] auto-opened {first_label}")
 
 
 # ------------------------------------------------------------------ #
@@ -435,14 +488,13 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=6)
                 dpg.add_separator()
                 dpg.add_text("Camera")
-                dpg.add_combo(items=["No cameras — click Scan"],
-                              default_value="No cameras — click Scan",
-                              label="", tag="camera_selector",
-                              callback=lambda s, a, u: on_camera_selected(a, u),
-                              user_data=holder, width=-1)
+                dpg.add_listbox(items=["click Scan"],
+                                tag="camera_selector",
+                                callback=lambda s, a, u: on_camera_selected(a, u),
+                                user_data=holder, width=-1, num_items=4)
                 dpg.add_button(label="Scan Cameras",
-                               callback=lambda: threading.Thread(target=camera_scan_worker, daemon=True).start(),
-                               width=-1)
+                               callback=lambda s, a, u: threading.Thread(target=camera_scan_worker, args=(u,), daemon=True).start(),
+                               user_data=holder, width=-1)
                 dpg.add_button(label="Switch Camera  [K]",
                                callback=lambda: switch_camera_next(holder), width=-1)
 
@@ -546,7 +598,12 @@ def main():
                     if detecting:
                         ts_now = time.time()
                         results, dbg_imgs = detector.process_frame(raw, ts_now)
-                        detector.draw_overlay(canvas)
+                        with state.lock:
+                            _scale  = state.last_render_scale
+                            _crop_x = state.last_crop_x
+                            _crop_y = getattr(state, "last_crop_y", 0)
+                        detector.draw_overlay(canvas, scale=_scale,
+                                              crop_x=_crop_x, crop_y=_crop_y)
 
                         with state.lock:
                             state.last_detections      = results
@@ -617,14 +674,12 @@ def main():
                 try:
                     if tag == "camera_selector_items":
                         dpg.configure_item("camera_selector", items=value)
-                        with state.lock:
-                            cur_items = state.camera_listbox_items
-                        if cur_items:
-                            dpg.set_value("camera_selector", cur_items[0])
+                        if value:
+                            dpg.set_value("camera_selector", value[0])
                     else:
                         dpg.set_value(tag, value)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.info(f"[ui] queue error tag={tag} err={e}")
 
             dpg.render_dearpygui_frame()
 

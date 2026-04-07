@@ -233,41 +233,70 @@ class BlinkDetector:
 
     # ---------------------------------------------------------------- #
 
-    def draw_overlay(self, frame: np.ndarray) -> np.ndarray:
-        font = cv2.FONT_HERSHEY_SIMPLEX
+    def draw_overlay(
+        self,
+        frame: np.ndarray,
+        scale: float = 1.0,
+        crop_x: int = 0,
+        crop_y: int = 0,
+    ) -> np.ndarray:
+        font      = cv2.FONT_HERSHEY_SIMPLEX
+        min_std   = self.cfg["min_recent_std"]
 
-        # Only render decoded points — one small sparkline + ID label each
-        SPARK_W   = 30   # number of samples shown
-        SPARK_H   = 10   # pixel height of sparkline
-        SPARK_GAP = 4    # px gap between circle edge and sparkline
+        def to_canvas(raw_x: int, raw_y: int) -> tuple[int, int]:
+            return (int(raw_x * scale) - crop_x, int(raw_y * scale) - crop_y)
+
+        # Track which decoded IDs have already been drawn (one label per ID)
+        drawn_ids: set[int] = set()
 
         for pt in self._points:
-            if pt.decoded_id is None:
+            px, py = to_canvas(pt.px, pt.py)
+
+            if pt.decoded_id is not None:
+                # Draw only the first (highest-std) instance of each ID
+                if pt.decoded_id in drawn_ids:
+                    continue
+                drawn_ids.add(pt.decoded_id)
+
+                # Small green dot + ID label, nothing else
+                cv2.circle(frame, (px, py), 4, (0, 220, 80), -1)
+                cv2.putText(frame, str(pt.decoded_id),
+                            (px + 8, py + 5), font, 0.45, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(frame, str(pt.decoded_id),
+                            (px + 8, py + 5), font, 0.45, (80, 255, 80), 1, cv2.LINE_AA)
+
+        # Actively blinking but not yet decoded — show a scrolling binary stream.
+        # Filter: must swing from near-zero (dark phase) to bright (white phase).
+        # Deduplicate by proximity so one phone = one stream, not one per grid pt.
+        STREAM_N      = 12
+        CLUSTER_R     = 120   # px — grid points within this distance = same phone
+        candidates = sorted(
+            (p for p in self._points
+             if (p.decoded_id is None
+                 and p.recent_std >= min_std
+                 and p.history
+                 and max(b for _, b in p.history[-STREAM_N:]) > 0.5
+                 and min(b for _, b in p.history[-STREAM_N:]) < 0.15)),
+            key=lambda p: p.recent_std,
+            reverse=True,
+        )
+
+        seen_canvas: list[tuple[int, int]] = []
+        for pt in candidates:
+            cx, cy = to_canvas(pt.px, pt.py)
+            if any(abs(cx - ex) < CLUSTER_R and abs(cy - ey) < CLUSTER_R
+                   for ex, ey in seen_canvas):
                 continue
+            seen_canvas.append((cx, cy))
 
-            px, py = pt.px, pt.py
-
-            # Small dot at the grid point
-            cv2.circle(frame, (px, py), 4, (0, 220, 80), -1)
-
-            # ID label
-            cv2.putText(frame, f"{pt.decoded_id}",
-                        (px + 8, py + 4), font, 0.35, (80, 255, 80), 1, cv2.LINE_AA)
-
-            # Sparkline of recent brightness samples
-            vals = [b for _, b in pt.history[-SPARK_W:]]
-            if len(vals) >= 2:
-                lo, hi = min(vals), max(vals)
-                rng = hi - lo if hi - lo > 0.01 else 1.0
-                sx0 = px + 8 + 14          # start x (after ID text)
-                sy0 = py + SPARK_H // 2    # centre y
-                pts_spark = []
-                for i, v in enumerate(vals):
-                    sx = sx0 + i
-                    sy = sy0 + int((1.0 - (v - lo) / rng) * SPARK_H) - SPARK_H // 2
-                    pts_spark.append((sx, sy))
-                for i in range(len(pts_spark) - 1):
-                    cv2.line(frame, pts_spark[i], pts_spark[i + 1], (0, 180, 60), 1)
+            vals = [b for _, b in pt.history[-STREAM_N:]]
+            lo, hi = min(vals), max(vals)
+            rng  = hi - lo if hi - lo > 0.01 else 1.0
+            bits = "".join("1" if (b - lo) / rng >= 0.5 else "0" for b in vals)
+            cv2.putText(frame, bits, (cx - 24, cy - 6),
+                        font, 0.28, (0, 0, 0), 2, cv2.LINE_AA)
+            cv2.putText(frame, bits, (cx - 24, cy - 6),
+                        font, 0.28, (0, 220, 220), 1, cv2.LINE_AA)
 
         return frame
 
