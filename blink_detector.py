@@ -293,10 +293,10 @@ class BlinkDetector:
             lo, hi = min(vals), max(vals)
             rng  = hi - lo if hi - lo > 0.01 else 1.0
             bits = "".join("1" if (b - lo) / rng >= 0.5 else "0" for b in vals)
-            cv2.putText(frame, bits, (cx - 24, cy - 6),
+            cv2.putText(frame, bits, (cx + 12, cy + 4),
                         font, 0.28, (0, 0, 0), 2, cv2.LINE_AA)
-            cv2.putText(frame, bits, (cx - 24, cy - 6),
-                        font, 0.28, (0, 220, 220), 1, cv2.LINE_AA)
+            cv2.putText(frame, bits, (cx + 12, cy + 4),
+                        font, 0.28, (255, 255, 255), 1, cv2.LINE_AA)
 
         return frame
 
