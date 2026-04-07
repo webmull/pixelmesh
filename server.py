@@ -311,9 +311,9 @@ async def sweep_bar():
 
 @app.get("/")
 async def index():
-    return FileResponse("public/index.html")
-
-
-@app.get("/app")
-async def client_app():
     return FileResponse("public/app.html")
+
+
+@app.get("/sim")
+async def sim():
+    return FileResponse("public/sim.html")
