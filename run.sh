@@ -14,6 +14,31 @@ THEME="dark"   # default
 LAST_STARTED=""
 
 # ─────────────────────────────────────────────
+#  Cache busting
+# ─────────────────────────────────────────────
+BUST_MARKER="__CACHE_BUST__"
+BUST_FILES=(public/app.html public/sim.html)
+
+inject_cache_bust() {
+  local guid
+  guid=$(python3 -c "import uuid; print(uuid.uuid4().hex)")
+  for f in "${BUST_FILES[@]}"; do
+    sed -i '' "s/${BUST_MARKER}/${guid}/g" "$f"
+  done
+}
+
+restore_cache_bust() {
+  for f in "${BUST_FILES[@]}"; do
+    sed -i '' "s/v=[a-f0-9]\{32\}/v=${BUST_MARKER}/g" "$f"
+  done
+}
+
+# Restore marker if script exits for any reason
+trap 'restore_cache_bust' EXIT
+
+inject_cache_bust
+
+# ─────────────────────────────────────────────
 #  ASCII header
 # ─────────────────────────────────────────────
 header() {
@@ -93,12 +118,18 @@ status_line() {
 kill_all() {
   echo "${Y}→ Stopping all processes...${RESET}"
   lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
-  pkill -f "uvicorn server:app" 2>/dev/null || true
-  pkill -f "controller.py"      2>/dev/null || true
-  pkill -f "ngrok"              2>/dev/null || true
-  sleep 0.5
+  pkill -9 -f "uvicorn"    2>/dev/null || true
+  pkill -9 -f "controller.py" 2>/dev/null || true
+  pkill -9 -f "ngrok"      2>/dev/null || true
+
+  # Wait until port 8000 is actually free (up to 5s)
+  local i=0
+  while lsof -ti tcp:8000 &>/dev/null && (( i < 10 )); do
+    sleep 0.5; (( i++ ))
+  done
+
   echo "${G}  done.${RESET}"
-  sleep 0.8
+  sleep 0.3
 }
 
 start_all() {
@@ -123,6 +154,14 @@ start_all() {
   echo "${G}  all started.${RESET}"
   sleep 1
 }
+
+# ─────────────────────────────────────────────
+#  Auto-start on launch
+# ─────────────────────────────────────────────
+if [[ -z $(pid_of_server) && -z $(pid_of_controller) && -z $(pid_of_ngrok) ]]; then
+  header
+  start_all
+fi
 
 # ─────────────────────────────────────────────
 #  Menu loop
