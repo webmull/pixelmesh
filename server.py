@@ -2,7 +2,7 @@
 PixelMesh V2 — Server
 
 Differences from V1:
-- Devices are assigned a small integer blink_id (0-31) instead of a tag image ID.
+- Devices are assigned a small integer blink_id (0-255) instead of a tag image ID.
 - Positions come from the controller's blink detection, not AprilTag calibration.
 - No tag-image or projection endpoints.
 - Adds /admin/positions  (controller posts detected blink_id → u,v)
@@ -84,7 +84,7 @@ blink_assignments: dict[str, int]       = {}   # device_uuid → blink_id
 positions:         dict[str, dict]      = {}   # device_uuid → {"u", "v"}
 last_seen:         dict[str, float]     = {}   # device_uuid → timestamp
 
-available_blinks = list(range(32))            # pool of unassigned blink IDs
+available_blinks = list(range(256))           # pool of unassigned blink IDs
 
 HEARTBEAT_TIMEOUT = 30   # seconds
 
