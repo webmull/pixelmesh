@@ -12,15 +12,15 @@ Signal structure per cycle:
 
   Total phases = 6 + (1 + numBits + numBits + 1) × 2
                = 6 + (2 + numBits×2)×2
-  For numBits=8: 6 + 36 = 42 phases × PHASE_MS ms each
+  For numBits=9: 4 + 40 = 44 phases × 300ms each = 13.2s
 
 Decoder is time-based: uses actual frame timestamps and PHASE_MS as the
 ground truth for phase boundaries, so it works correctly at any camera fps.
 """
 
-NUM_BITS  = 8        # supports IDs 0-255
-PHASE_MS  = 450      # milliseconds per screen phase
-NUM_GUARD = 6        # dark guard frames before Manchester data
+NUM_BITS  = 9        # supports IDs 0-511
+PHASE_MS  = 300      # milliseconds per screen phase
+NUM_GUARD = 4        # dark guard frames before Manchester data
 
 # Total Manchester bits: start(1) + data(N) + data(N) + end(1) = 2+2N
 _MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 12
