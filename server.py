@@ -73,6 +73,9 @@ BUILD_ID = _build_id()
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
 
+# Whether the controller has actively started detection (distinct from mode).
+detection_active = False
+
 # ------------------------------------------------------------------ #
 # State                                                                #
 # ------------------------------------------------------------------ #
@@ -181,16 +184,18 @@ async def websocket_endpoint(ws: WebSocket):
                 else:
                     blink_id = blink_assignments[device_id]
 
-                pos = positions.get(device_id, {"u": 0.0, "v": 0.0})
+                known_pos = positions.get(device_id)
+                pos = known_pos or {"u": 0.0, "v": 0.0}
 
                 # Build ID first — client reloads immediately if stale
                 await ws.send_json({"type": "server_hello", "build_id": BUILD_ID})
 
                 await ws.send_json({
-                    "type":     "assigned",
-                    "blink_id": blink_id,
-                    "u":        pos["u"],
-                    "v":        pos["v"],
+                    "type":       "assigned",
+                    "blink_id":   blink_id,
+                    "u":          pos["u"],
+                    "v":          pos["v"],
+                    "calibrated": known_pos is not None,
                 })
 
                 # Sync current mode / effect so reconnecting clients aren't lost
@@ -198,6 +203,8 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json(current_effect_state)
                 else:
                     await ws.send_json({"type": "mode", "mode": mode})
+                    if detection_active:
+                        await ws.send_json({"type": "detection_started"})
 
             elif data.get("type") == "sync_ping":
                 if device_id:
@@ -239,7 +246,9 @@ async def blink_map():
 @app.post("/admin/detect")
 async def detect(payload: dict):
     """Controller signals detection start/stop."""
+    global detection_active
     detecting = payload.get("detecting", True)
+    detection_active = detecting
     if detecting:
         await set_mode(MODE_DETECTION)
         await broadcast({"type": "detection_started"})
@@ -288,8 +297,9 @@ async def update_positions(payload: dict):
 
 @app.post("/admin/reset")
 async def reset():
-    global current_effect_state
+    global current_effect_state, detection_active
     current_effect_state = None
+    detection_active = False
     await set_mode(MODE_DETECTION)
     await broadcast({"type": "reset"})
     return {"ok": True}
