@@ -54,6 +54,8 @@ class SimClient {
     this.u          = 0;
     this.v          = 0;
     this.clockOffset = 0;
+    this.syncSamples = [];
+    this.syncTimer   = null;
     this.detected   = false;
 
     this.currentEffect  = null;
@@ -104,7 +106,6 @@ class SimClient {
     this.ws.onopen = () => {
       this.cell.classList.replace("ws-closed", "ws-open") || this.cell.classList.add("ws-open");
       this.ws.send(JSON.stringify({ type: "hello", device_id: this.deviceId }));
-      this.ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
       setInterval(() => {
         if (this.ws.readyState === WebSocket.OPEN)
           this.ws.send(JSON.stringify({ type: "ping" }));
@@ -131,9 +132,26 @@ class SimClient {
       }
 
       if (msg.type === "sync_pong") {
-        const now = Date.now();
-        const rtt = now - msg.client_time;
-        this.clockOffset = msg.server_time - (msg.client_time + rtt / 2);
+        const now    = Date.now();
+        const rtt    = now - msg.client_time;
+        const offset = msg.server_time - (msg.client_time + rtt / 2);
+        this.syncSamples.push({ rtt, offset });
+        if (this.syncSamples.length > 8) this.syncSamples.shift();
+        const best = this.syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
+        this.clockOffset = this.clockOffset * 0.75 + best.offset * 0.25;
+      }
+
+      if (msg.type === "sync_start") {
+        if (!this.syncTimer) {
+          this._sendSyncPing();
+          this.syncTimer = setInterval(() => this._sendSyncPing(), 5000);
+        }
+      }
+
+      if (msg.type === "sync_stop") {
+        if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
+        this.syncSamples  = [];
+        this.clockOffset  = 0;
       }
 
       if (msg.type === "update_position") {
@@ -143,6 +161,8 @@ class SimClient {
       }
 
       if (msg.type === "detection_started") {
+        const stagger = this.blinkId !== null ? (this.blinkId % this.phases.length) * PHASE_MS : 0;
+        this.startMs = Date.now() - (NUM_GUARD * PHASE_MS) - stagger;
         this.mode     = "DETECTION";
         this.detected = false;
       }
@@ -175,9 +195,16 @@ class SimClient {
 
     this.ws.onclose = () => {
       this.cell.classList.replace("ws-open", "ws-closed") || this.cell.classList.add("ws-closed");
+      if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
+      this.syncSamples = [];
       updateWsStatus();
       setTimeout(() => this.connect(), 1000);
     };
+  }
+
+  _sendSyncPing() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN)
+      this.ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
   }
 
   serverNow() { return Date.now() + this.clockOffset; }
@@ -232,6 +259,7 @@ class SimClient {
   }
 
   destroy() {
+    if (this.syncTimer) { clearInterval(this.syncTimer); this.syncTimer = null; }
     if (this.ws) { this.ws.onclose = null; try { this.ws.close(); } catch {} this.ws = null; }
     this.cell.remove();
   }

@@ -285,24 +285,27 @@ class BlinkDetector:
                     continue
                 drawn_ids.add(pt.decoded_id)
 
-                # Small green dot + ID label, nothing else
-                cv2.circle(frame, (px, py), 4, (0, 220, 80), -1)
+                # Green dot + bold ID label
+                cv2.circle(frame, (px, py), 7, (0, 220, 80), -1)
                 cv2.putText(frame, str(pt.decoded_id),
-                            (px + 8, py + 5), font, 0.45, (0, 0, 0), 3, cv2.LINE_AA)
+                            (px + 12, py + 7), font, 0.9, (0, 0, 0), 5, cv2.LINE_AA)
                 cv2.putText(frame, str(pt.decoded_id),
-                            (px + 8, py + 5), font, 0.45, (80, 255, 80), 1, cv2.LINE_AA)
+                            (px + 12, py + 7), font, 0.9, (80, 255, 80), 2, cv2.LINE_AA)
 
         # Actively blinking but not yet decoded — show a scrolling binary stream.
         # Filter: must swing from near-zero (dark phase) to bright (white phase).
         # Deduplicate by proximity so one phone = one stream, not one per grid pt.
-        STREAM_N      = 12
+        STREAM_DISPLAY_N = 12
+        # Check window must span past the guard (NUM_GUARD phases × ~3 frames/phase at 11fps ≈ 13 frames)
+        # so the max-min check includes pre-guard Manchester frames and doesn't drop to zero.
+        STREAM_CHECK_N = 22
         CLUSTER_R     = 120   # px — grid points within this distance = same phone
         candidates = sorted(
             (p for p in self._points
              if (p.recent_std >= min_std
                  and p.history
-                 and (max(b for _, b in p.history[-STREAM_N:])
-                      - min(b for _, b in p.history[-STREAM_N:])) > min_std * 1.2)),
+                 and (max(b for _, b in p.history[-STREAM_CHECK_N:])
+                      - min(b for _, b in p.history[-STREAM_CHECK_N:])) > min_std * 1.2)),
             key=lambda p: p.recent_std,
             reverse=True,
         )
@@ -318,7 +321,7 @@ class BlinkDetector:
             if pt.decoded_id is not None and pt.decoded_id in drawn_ids:
                 continue
 
-            vals = [b for _, b in pt.history[-STREAM_N:]]
+            vals = [b for _, b in pt.history[-STREAM_DISPLAY_N:]]
             lo, hi = min(vals), max(vals)
             rng  = hi - lo if hi - lo > 0.01 else 1.0
             bits = "".join("1" if (b - lo) / rng >= 0.5 else "0" for b in vals)

@@ -89,6 +89,30 @@ let connectWatchdog = null;
 let heartbeatTimer  = null;
 let wakeLock        = null;
 
+// ---- Adaptive clock sync ----
+const SYNC_INTERVAL_MS  = 5000;   // ping every 5s while sync is active
+const SYNC_BUFFER_SIZE  = 8;      // keep last N samples
+const SYNC_EMA_ALPHA    = 0.25;   // smoothing factor toward new best estimate
+let syncTimer           = null;
+let syncSamples         = [];     // [{rtt, offset}, ...]
+
+function startSync() {
+  if (syncTimer) return;
+  _sendSyncPing();
+  syncTimer = setInterval(_sendSyncPing, SYNC_INTERVAL_MS);
+}
+
+function stopSync() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  syncSamples  = [];
+  clockOffset  = 0;
+}
+
+function _sendSyncPing() {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
+}
+
 // ------------------------------------------------------------------ //
 // Wake lock
 // ------------------------------------------------------------------ //
@@ -147,7 +171,6 @@ function connect() {
     reconnectDelay = 500;
 
     ws.send(JSON.stringify({ type: "hello", device_id: deviceId }));
-    ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
 
     requestWakeLock();
     startHeartbeat();
@@ -163,6 +186,7 @@ function connect() {
     clearTimeout(connectWatchdog);
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    stopSync();
     goBlack();
     setStatus("reconnecting…");
     setTimeout(connect, reconnectDelay);
@@ -225,11 +249,19 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "sync_pong") {
-    const now = Date.now();
-    const rtt = now - msg.client_time;
-    clockOffset = msg.server_time - (msg.client_time + rtt / 2);
+    const now    = Date.now();
+    const rtt    = now - msg.client_time;
+    const offset = msg.server_time - (msg.client_time + rtt / 2);
+    syncSamples.push({ rtt, offset });
+    if (syncSamples.length > SYNC_BUFFER_SIZE) syncSamples.shift();
+    // Best estimate = sample with lowest RTT (least network jitter)
+    const best = syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
+    clockOffset = clockOffset * (1 - SYNC_EMA_ALPHA) + best.offset * SYNC_EMA_ALPHA;
     return;
   }
+
+  if (msg.type === "sync_start") { startSync(); return; }
+  if (msg.type === "sync_stop")  { stopSync();  return; }
 
   if (msg.type === "update_position") {
     myU        = msg.u ?? myU;
@@ -241,6 +273,10 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "detection_started") {
+    // Reset cycle so Manchester data shows immediately (skip past guard phases).
+    // Stagger by blink ID so devices don't all flash in sync.
+    const stagger = myBlinkId !== null ? (myBlinkId % myBlinkPhases.length) * PHASE_MS : 0;
+    blinkStartMs = Date.now() - (NUM_GUARD * PHASE_MS) - stagger;
     phoneState  = PS.BLINKING;
     missedStart = 0;
     return;

@@ -254,7 +254,7 @@ def update_ui_from_state():
 
     safe_set("status_text",     status)
     safe_set("clients_text",    f"Clients: {clients}")
-    safe_set("detect_text",     f"Detection: {'ON' if detecting else 'OFF'}")
+    safe_set("detect_text",     f"Detection: {'ON' if detecting else 'OFF'}  |  Sync: {'ON' if state.syncing else 'OFF'}")
     safe_set("det_count_text",  f"Blobs decoded: {n_det}")
     safe_set("effect_text",     f"Effect: {effect}")
     safe_set("debug_text",      dbg_label)
@@ -263,6 +263,14 @@ def update_ui_from_state():
 # ------------------------------------------------------------------ #
 # Actions
 # ------------------------------------------------------------------ #
+
+def toggle_sync():
+    with state.lock:
+        state.syncing = not state.syncing
+        val = state.syncing
+    post_json_async("/admin/sync", {"sync": val})
+    set_status(f"Clock sync {'ON' if val else 'OFF'}")
+
 
 def toggle_detection():
     with state.lock:
@@ -314,6 +322,7 @@ def reset_server():
     detector.reset()
     with state.lock:
         state.calibrated_positions.clear()
+        state.syncing = False
     set_status("Reset sent")
 
 
@@ -492,6 +501,8 @@ def setup_ui(holder: dict):
                 dpg.add_text("Detection")
                 dpg.add_button(label="Toggle Detection  [D]",
                                callback=toggle_detection, width=-1)
+                dpg.add_button(label="Toggle Clock Sync",
+                               callback=toggle_sync, width=-1)
                 dpg.add_button(label="Toggle ID Overlays  [O]",
                                callback=toggle_device_overlay, width=-1)
                 dpg.add_button(label="Toggle Debug Capture  [G]",

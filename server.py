@@ -76,6 +76,9 @@ current_effect_state: dict | None = None
 # Whether the controller has actively started detection (distinct from mode).
 detection_active = False
 
+# Whether the controller has enabled clock sync.
+sync_active = False
+
 # ------------------------------------------------------------------ #
 # State                                                                #
 # ------------------------------------------------------------------ #
@@ -206,6 +209,9 @@ async def websocket_endpoint(ws: WebSocket):
                     if detection_active:
                         await ws.send_json({"type": "detection_started"})
 
+                if sync_active:
+                    await ws.send_json({"type": "sync_start"})
+
             elif data.get("type") == "sync_ping":
                 if device_id:
                     last_seen[device_id] = time.time()
@@ -295,11 +301,22 @@ async def update_positions(payload: dict):
 # Admin — reset                                                        #
 # ------------------------------------------------------------------ #
 
+@app.post("/admin/sync")
+async def sync(payload: dict):
+    """Controller enables/disables adaptive clock sync on all clients."""
+    global sync_active
+    sync_active = payload.get("sync", True)
+    msg_type = "sync_start" if sync_active else "sync_stop"
+    await broadcast({"type": msg_type})
+    return {"ok": True}
+
+
 @app.post("/admin/reset")
 async def reset():
-    global current_effect_state, detection_active
+    global current_effect_state, detection_active, sync_active
     current_effect_state = None
     detection_active = False
+    sync_active = False
     await set_mode(MODE_DETECTION)
     await broadcast({"type": "reset"})
     return {"ok": True}
