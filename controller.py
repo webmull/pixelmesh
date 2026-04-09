@@ -591,16 +591,18 @@ def main():
                             frame_counter = getattr(state, "_frame_counter", 0) + 1
                             state._frame_counter = frame_counter
 
-                        # Debug capture (throttled)
-                        if dbg_cap.active and frame_counter % DEBUG_SAVE_EVERY == 0:
-                            dbg_cap.save_frame(
-                                raw=raw,
-                                gray=dbg_imgs.gray,
-                                thresh=dbg_imgs.contrast if dbg_imgs.contrast is not None else np.zeros_like(dbg_imgs.gray),
-                                overlay=canvas.copy(),
-                                blobs=detector.get_blobs(),
-                                detections=results,
-                            )
+                        # Debug capture
+                        if dbg_cap.active:
+                            dbg_cap.record_frame(canvas)   # every frame → video
+                            if frame_counter % DEBUG_SAVE_EVERY == 0:
+                                dbg_cap.save_frame(
+                                    raw=raw,
+                                    gray=dbg_imgs.gray,
+                                    thresh=dbg_imgs.contrast if dbg_imgs.contrast is not None else np.zeros_like(dbg_imgs.gray),
+                                    overlay=canvas.copy(),
+                                    blobs=detector.get_blobs(),
+                                    detections=results,
+                                )
 
                         if results:
                             h_raw, w_raw = raw.shape[:2]

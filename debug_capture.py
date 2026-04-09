@@ -2,12 +2,16 @@
 PixelMesh V2 — Debug Capture
 
 Each call to start_run() creates a new timestamped subfolder under debug/.
-Saves raw frame, grayscale, threshold mask, overlay, and a JSON summary per frame.
+Per-frame JPEGs and JSONs go into a frames/ subfolder.
+The overlay video is written as overlay.mp4 (H.264) by piping raw frames to
+ffmpeg in real-time — no intermediate file, no codec dependency in OpenCV.
 """
 
 import os
 import json
 import time
+import shutil
+import subprocess
 import cv2
 import numpy as np
 from datetime import datetime
@@ -15,23 +19,33 @@ from log import log
 
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
 
+_FFMPEG = (
+    shutil.which("ffmpeg")
+    or "/opt/homebrew/bin/ffmpeg"
+    or "/usr/local/bin/ffmpeg"
+)
+
 
 class DebugCapture:
     def __init__(self):
-        self.run_dir   = None
-        self.frame_idx = 0
-        self.active    = False
-        self._manifest = []   # list of per-frame summaries for final report
+        self.run_dir    = None
+        self.frames_dir = None
+        self.frame_idx  = 0
+        self.active     = False
+        self._manifest  = []
+        self._ffmpeg_proc: subprocess.Popen | None = None
 
     # ---------------------------------------------------------------- #
 
     def start_run(self) -> str:
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir   = os.path.join(DEBUG_DIR, ts)
-        self.frame_idx = 0
-        self._manifest = []
-        self.active    = True
-        os.makedirs(self.run_dir, exist_ok=True)
+        self.run_dir    = os.path.join(DEBUG_DIR, ts)
+        self.frames_dir = os.path.join(self.run_dir, "frames")
+        self.frame_idx  = 0
+        self._manifest  = []
+        self.active     = True
+        self._ffmpeg_proc = None   # opened lazily on first record_frame
+        os.makedirs(self.frames_dir, exist_ok=True)
         log.info(f"[debug] run started → {self.run_dir}")
         return self.run_dir
 
@@ -39,7 +53,15 @@ class DebugCapture:
         if not self.active:
             return
         self.active = False
-        # Write manifest summary
+        if self._ffmpeg_proc is not None:
+            try:
+                self._ffmpeg_proc.stdin.close()
+                self._ffmpeg_proc.wait(timeout=30)
+                log.info(f"[debug] video → {self.run_dir}/overlay.mp4")
+            except Exception as e:
+                log.warning(f"[debug] ffmpeg close error: {e}")
+                self._ffmpeg_proc.kill()
+            self._ffmpeg_proc = None
         summary_path = os.path.join(self.run_dir, "summary.json")
         with open(summary_path, "w") as f:
             json.dump({
@@ -51,53 +73,84 @@ class DebugCapture:
 
     # ---------------------------------------------------------------- #
 
+    def record_frame(self, overlay: np.ndarray):
+        """Pipe one overlay frame to ffmpeg → overlay.mp4 (every frame, not throttled)."""
+        if not self.active:
+            return
+        if self._ffmpeg_proc is None:
+            if not os.path.isfile(_FFMPEG):
+                return
+            h, w = overlay.shape[:2]
+            mp4_path = os.path.join(self.run_dir, "overlay.mp4")
+            self._ffmpeg_proc = subprocess.Popen(
+                [
+                    _FFMPEG, "-y",
+                    "-f", "rawvideo", "-vcodec", "rawvideo",
+                    "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", "30",
+                    "-i", "pipe:0",
+                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-movflags", "+faststart",
+                    mp4_path,
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            log.info(f"[debug] ffmpeg pipe opened → {mp4_path} ({w}×{h})")
+        try:
+            self._ffmpeg_proc.stdin.write(overlay.tobytes())
+        except BrokenPipeError:
+            log.warning("[debug] ffmpeg pipe broken")
+            self._ffmpeg_proc = None
+
+    # ---------------------------------------------------------------- #
+
     def save_frame(
         self,
-        raw:      np.ndarray,          # original BGR camera frame
-        gray:     np.ndarray,          # grayscale
-        thresh:   np.ndarray,          # contrast heatmap (replaces old binary thresh)
-        overlay:  np.ndarray,          # annotated preview canvas (BGR)
-        blobs:    list,                # list of _GridPoint objects
-        detections: list,              # list of DetectedDevice
+        raw:        np.ndarray,
+        gray:       np.ndarray,
+        thresh:     np.ndarray,
+        overlay:    np.ndarray,
+        blobs:      list,
+        detections: list,
     ):
         if not self.active:
             return
 
         i   = self.frame_idx
-        pfx = os.path.join(self.run_dir, f"{i:04d}")
+        pfx = os.path.join(self.frames_dir, f"{i:04d}")
         self.frame_idx += 1
 
         # --- Save images (downscale raw to keep file sizes small) ---
         small_raw = cv2.resize(raw, (960, 540))
-        cv2.imwrite(f"{pfx}_raw.jpg",    small_raw,  [cv2.IMWRITE_JPEG_QUALITY, 80])
-        cv2.imwrite(f"{pfx}_gray.jpg",   cv2.resize(gray, (960, 540)))
+        cv2.imwrite(f"{pfx}_raw.jpg",      small_raw,  [cv2.IMWRITE_JPEG_QUALITY, 80])
+        cv2.imwrite(f"{pfx}_gray.jpg",     cv2.resize(gray, (960, 540)))
         cv2.imwrite(f"{pfx}_contrast.jpg", cv2.resize(thresh, (960, 540)))
-        cv2.imwrite(f"{pfx}_overlay.jpg", overlay,   [cv2.IMWRITE_JPEG_QUALITY, 85])
+        cv2.imwrite(f"{pfx}_overlay.jpg",  overlay,    [cv2.IMWRITE_JPEG_QUALITY, 85])
 
-        # --- Histogram of grayscale (for threshold tuning) ---
+        # --- Histogram of grayscale ---
         hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten().tolist()
 
-        # --- JSON frame summary (only include interesting grid points) ---
+        # --- JSON frame summary (only interesting grid points) ---
         blob_data = []
         for pt in blobs:
             vals = [round(v, 3) for _, v in pt.history]
             if not vals:
                 continue
-            lo = min(vals)
-            hi = max(vals)
+            lo, hi = min(vals), max(vals)
             contrast = hi - lo
             if contrast < 0.03 and pt.decoded_id is None:
-                continue   # skip flat/uninteresting points to keep JSON small
+                continue
             blob_data.append({
-                "px":           pt.px,
-                "py":           pt.py,
-                "history_len":  len(vals),
+                "px":               pt.px,
+                "py":               pt.py,
+                "history_len":      len(vals),
                 "brightness_range": [lo, hi],
-                "contrast":     round(contrast, 3),
-                "last_20":      vals[-20:],
-                "decoded_id":   pt.decoded_id,
-                "confidence":   round(pt.confidence, 3),
-                "fail":         pt.decode_fail_reason,
+                "contrast":         round(contrast, 3),
+                "last_20":          vals[-20:],
+                "decoded_id":       pt.decoded_id,
+                "confidence":       round(pt.confidence, 3),
+                "fail":             pt.decode_fail_reason,
             })
 
         det_data = [
@@ -106,20 +159,18 @@ class DebugCapture:
             for d in detections
         ]
 
-        frame_summary = {
-            "frame":       i,
-            "timestamp":   time.time(),
-            "grid_points": blob_data,
-            "detections":  det_data,
-            "active_points": int((thresh > 0).sum()),
-            "gray_hist_peak_bin": int(np.argmax(hist)),
-        }
-
         with open(f"{pfx}.json", "w") as f:
-            json.dump(frame_summary, f, indent=2)
+            json.dump({
+                "frame":              i,
+                "timestamp":          time.time(),
+                "grid_points":        blob_data,
+                "detections":         det_data,
+                "active_points":      int((thresh > 0).sum()),
+                "gray_hist_peak_bin": int(np.argmax(hist)),
+            }, f, indent=2)
 
         self._manifest.append({
-            "frame":      i,
+            "frame":       i,
             "grid_points": len(blob_data),
-            "detections": det_data,
+            "detections":  det_data,
         })

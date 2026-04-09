@@ -77,14 +77,9 @@ class _GridPoint:
         vals = [b for _, b in self.history]
         n = cfg["recent_n"]
 
-        # Always compute recent_std so the overlay can show amber dots
         if len(vals) < n:
-            self.recent_std = 0.0
             self.decode_fail_reason = f"hist={len(vals)}<{n}"
             return
-
-        recent = vals[-n:]
-        self.recent_std = float(np.std(recent))
 
         # Gate 1: must be actively blinking NOW
         if self.recent_std < cfg["min_recent_std"]:
@@ -159,14 +154,32 @@ class BlinkDetector:
 
         r   = cfg["sample_radius"]
         pct = cfg["brightness_pct"]
+        n   = cfg["recent_n"]
 
-        # 3. Sample brightness at every grid point
-        for pt in self._points:
-            x0 = max(pt.px - r, 0); x1 = min(pt.px + r, w)
-            y0 = max(pt.py - r, 0); y1 = min(pt.py + r, h)
-            roi = gray[y0:y1, x0:x1]
-            b = float(np.percentile(roi, pct)) / 255.0 if roi.size > 0 else 0.0
-            pt.add_sample(b, ts, cfg["history_seconds"])
+        # 3. Sample brightness — vectorised across all grid points.
+        #    Pad so every point gets a full 2r×2r patch regardless of position.
+        gray_pad = np.pad(gray, r, mode="edge")
+        side = 2 * r
+        patches = np.stack([
+            gray_pad[pt.py: pt.py + side, pt.px: pt.px + side]
+            for pt in self._points
+        ])  # (N, side, side)
+        brightnesses = np.percentile(
+            patches.reshape(len(self._points), -1), pct, axis=1
+        ) / 255.0  # (N,)
+
+        for pt, b in zip(self._points, brightnesses):
+            pt.add_sample(float(b), ts, cfg["history_seconds"])
+
+        # Update recent_std for all points in one vectorised pass.
+        # Collect last-n history for every point that has enough samples.
+        recent_mat = np.array([
+            [bv for _, bv in pt.history[-n:]]
+            if len(pt.history) >= n else None
+            for pt in self._points
+        ], dtype=object)
+        for pt, row in zip(self._points, recent_mat):
+            pt.recent_std = float(np.std(row)) if row is not None else 0.0
 
         # 4. Adapt gate to current noise floor (p90 of all recent_std values).
         #    Most points are background, so p90 ≈ scene noise regardless of exposure.
@@ -291,7 +304,7 @@ class BlinkDetector:
              if (p.recent_std >= min_std
                  and p.history
                  and (max(b for _, b in p.history[-STREAM_N:])
-                      - min(b for _, b in p.history[-STREAM_N:])) > min_std * 2)),
+                      - min(b for _, b in p.history[-STREAM_N:])) > min_std * 1.2)),
             key=lambda p: p.recent_std,
             reverse=True,
         )
