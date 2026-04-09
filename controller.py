@@ -241,8 +241,6 @@ def toggle_detection():
 
     if val:
         detector.reset()
-        with state.lock:
-            state.showtime_boost = False
         post_json_async("/admin/detect", {"detecting": True})
         set_status("Detection ON")
     else:
@@ -285,16 +283,32 @@ def reset_server():
     set_status("Reset sent")
 
 
-def trigger_effect(name: str, path: str):
-    post_json_async(path, {})
+_effect_params = {
+    "color":         [255, 255, 255],
+    "speed":         0.4,
+    "spatial_freq":  1.5,
+    "bpm":           100.0,
+    "angle":         0.0,
+}
+
+
+def trigger_effect(name: str):
+    p = _effect_params
+    payload = {
+        "name":        name,
+        "speed":       p["speed"],
+        "spatial_freq": p["spatial_freq"],
+        "bpm":         p["bpm"],
+        "angle":       p["angle"],
+        "color_r":     int(p["color"][0]),
+        "color_g":     int(p["color"][1]),
+        "color_b":     int(p["color"][2]),
+    }
+    post_json_async("/admin/effect/fire", payload)
     with state.lock:
         state.current_effect = name
-        state.showtime_boost  = True
     set_status(f"Effect: {name}")
 
-
-def ripple_at_uv(u: float, v: float):
-    post_json_async("/admin/proof/click", {"u": u, "v": v})
 
 
 # ------------------------------------------------------------------ #
@@ -360,27 +374,6 @@ def camera_scan_worker(holder=None):
                 log.info(f"[camera] auto-opened {preferred}")
 
 
-# ------------------------------------------------------------------ #
-# Preview click → ripple
-# ------------------------------------------------------------------ #
-
-def handle_preview_click(mouse_pos):
-    try:
-        img_item = dpg.get_item_rect_size("preview_image")
-        img_pos  = dpg.get_item_rect_min("preview_image")
-        if img_item[0] <= 0 or img_item[1] <= 0:
-            return
-
-        rel_x = mouse_pos[0] - img_pos[0]
-        rel_y = mouse_pos[1] - img_pos[1]
-
-        u = max(0.0, min(1.0, rel_x / img_item[0]))
-        v = max(0.0, min(1.0, rel_y / img_item[1]))
-
-        ripple_at_uv(u, v)
-    except Exception:
-        pass
-
 
 # ------------------------------------------------------------------ #
 # Key handler
@@ -407,19 +400,19 @@ def on_key_press(key, holder):
         toggle_debug()
 
     elif key == dpg.mvKey_1:
-        trigger_effect("wave", "/admin/proof/wave")
+        trigger_effect("wave")
 
     elif key == dpg.mvKey_2:
-        trigger_effect("gradient", "/admin/proof/gradient")
+        trigger_effect("gradient")
 
     elif key == dpg.mvKey_3:
-        trigger_effect("binary", "/admin/proof/binary")
+        trigger_effect("binary_wave")
 
     elif key == dpg.mvKey_4:
-        trigger_effect("pulse", "/admin/proof/pulse")
+        trigger_effect("pulse")
 
     elif key == dpg.mvKey_5:
-        trigger_effect("sweep_bar", "/admin/proof/sweep_bar")
+        trigger_effect("sweep_bar")
 
 
 # ------------------------------------------------------------------ #
@@ -437,10 +430,6 @@ def setup_ui(holder: dict):
     with dpg.handler_registry():
         dpg.add_key_press_handler(
             callback=lambda s, a: on_key_press(a, holder)
-        )
-        dpg.add_mouse_click_handler(
-            button=dpg.mvMouseButton_Left,
-            callback=lambda s, a: handle_preview_click(dpg.get_mouse_pos(local=False))
         )
 
     with dpg.window(tag="main_window", label=WINDOW_TITLE,
@@ -473,20 +462,65 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=6)
                 dpg.add_text("Effects")
                 dpg.add_button(label="1  Wave",
-                               callback=lambda: trigger_effect("wave", "/admin/proof/wave"),
+                               callback=lambda: trigger_effect("wave"),
                                width=-1)
                 dpg.add_button(label="2  Gradient",
-                               callback=lambda: trigger_effect("gradient", "/admin/proof/gradient"),
+                               callback=lambda: trigger_effect("gradient"),
                                width=-1)
                 dpg.add_button(label="3  Binary Wave",
-                               callback=lambda: trigger_effect("binary", "/admin/proof/binary"),
+                               callback=lambda: trigger_effect("binary_wave"),
                                width=-1)
                 dpg.add_button(label="4  Pulse",
-                               callback=lambda: trigger_effect("pulse", "/admin/proof/pulse"),
+                               callback=lambda: trigger_effect("pulse"),
                                width=-1)
                 dpg.add_button(label="5  Sweep Bar",
-                               callback=lambda: trigger_effect("sweep_bar", "/admin/proof/sweep_bar"),
+                               callback=lambda: trigger_effect("sweep_bar"),
                                width=-1)
+
+                dpg.add_spacer(height=4)
+                dpg.add_text("Effect Settings", color=(200, 200, 200))
+                dpg.add_color_edit(
+                    label="Colour",
+                    tag="fx_color",
+                    default_value=(255, 255, 255, 255),
+                    no_alpha=True,
+                    width=-1,
+                    callback=lambda s, v: _effect_params.update({"color": list(v[:3])}),
+                )
+                dpg.add_slider_float(
+                    label="Speed",
+                    tag="fx_speed",
+                    default_value=0.4,
+                    min_value=0.05, max_value=4.0,
+                    width=-1,
+                    callback=lambda s, v: _effect_params.update({"speed": v}),
+                )
+                dpg.add_slider_float(
+                    label="Direction",
+                    tag="fx_angle",
+                    default_value=0.0,
+                    min_value=0.0, max_value=360.0,
+                    format="%.0f°",
+                    width=-1,
+                    callback=lambda s, v: _effect_params.update({"angle": v}),
+                )
+                dpg.add_slider_float(
+                    label="BPM  (pulse)",
+                    tag="fx_bpm",
+                    default_value=100.0,
+                    min_value=20.0, max_value=300.0,
+                    format="%.0f",
+                    width=-1,
+                    callback=lambda s, v: _effect_params.update({"bpm": v}),
+                )
+                dpg.add_slider_float(
+                    label="Density",
+                    tag="fx_spatial",
+                    default_value=1.5,
+                    min_value=0.5, max_value=8.0,
+                    width=-1,
+                    callback=lambda s, v: _effect_params.update({"spatial_freq": v}),
+                )
 
                 dpg.add_spacer(height=6)
                 dpg.add_button(label="Reset Server  [R]",
@@ -568,12 +602,9 @@ def main():
                         blackout   = state.blackout_camera
                         detecting  = state.detecting
                         show_ov    = state.show_device_overlay
-                        boost      = state.showtime_boost
 
                     if blackout:
                         canvas[:] = 0
-                    elif boost:
-                        canvas = cv2.convertScaleAbs(canvas, alpha=3.0, beta=30)
 
                     if detecting:
                         ts_now = time.time()

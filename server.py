@@ -10,7 +10,9 @@ Differences from V1:
 - Adds /admin/detect     (controller signals detection on/off; server tells clients)
 """
 
+import os
 import time
+import hashlib
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
@@ -51,6 +53,25 @@ MODE_DETECTION = "DETECTION"     # clients blink their ID
 MODE_SHOWTIME  = "SHOWTIME"      # clients render effects
 
 mode = MODE_DETECTION
+
+# Hash of client-facing static files — changes when code is deployed.
+# Clients reload automatically when this differs from what they loaded with.
+def _build_id() -> str:
+    h = hashlib.md5()
+    base = os.path.join(os.path.dirname(__file__), "public")
+    # Only hash app.js — app.html is modified by run.sh cache-busting on every start
+    for fname in ("app.js",):
+        try:
+            with open(os.path.join(base, fname), "rb") as f:
+                h.update(f.read())
+        except OSError:
+            pass
+    return h.hexdigest()[:10]
+
+BUILD_ID = _build_id()
+
+# Last-broadcast effect, replayed to clients that connect mid-session.
+current_effect_state: dict | None = None
 
 # ------------------------------------------------------------------ #
 # State                                                                #
@@ -127,6 +148,11 @@ async def startup_event():
     asyncio.create_task(reap_dead_clients())
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    await broadcast({"type": "shutdown"})
+
+
 # ------------------------------------------------------------------ #
 # WebSocket                                                            #
 # ------------------------------------------------------------------ #
@@ -157,6 +183,9 @@ async def websocket_endpoint(ws: WebSocket):
 
                 pos = positions.get(device_id, {"u": 0.0, "v": 0.0})
 
+                # Build ID first — client reloads immediately if stale
+                await ws.send_json({"type": "server_hello", "build_id": BUILD_ID})
+
                 await ws.send_json({
                     "type":     "assigned",
                     "blink_id": blink_id,
@@ -164,8 +193,11 @@ async def websocket_endpoint(ws: WebSocket):
                     "v":        pos["v"],
                 })
 
-                # Tell the client which mode we're currently in
-                await ws.send_json({"type": "mode", "mode": mode})
+                # Sync current mode / effect so reconnecting clients aren't lost
+                if mode == MODE_SHOWTIME and current_effect_state:
+                    await ws.send_json(current_effect_state)
+                else:
+                    await ws.send_json({"type": "mode", "mode": mode})
 
             elif data.get("type") == "sync_ping":
                 if device_id:
@@ -210,6 +242,9 @@ async def detect(payload: dict):
     detecting = payload.get("detecting", True)
     if detecting:
         await set_mode(MODE_DETECTION)
+        await broadcast({"type": "detection_started"})
+    else:
+        await broadcast({"type": "detection_ended"})
     return {"ok": True}
 
 
@@ -253,6 +288,8 @@ async def update_positions(payload: dict):
 
 @app.post("/admin/reset")
 async def reset():
+    global current_effect_state
+    current_effect_state = None
     await set_mode(MODE_DETECTION)
     await broadcast({"type": "reset"})
     return {"ok": True}
@@ -263,13 +300,33 @@ async def reset():
 # ------------------------------------------------------------------ #
 
 async def start_effect(effect_name: str, params: dict):
+    global current_effect_state
     await set_mode(MODE_SHOWTIME)
-    await broadcast({
+    msg = {
         "type":       "effect",
         "effect":     effect_name,
         "start_time": int(time.time() * 1000),
         **params,
-    })
+    }
+    current_effect_state = msg
+    await broadcast(msg)
+
+
+@app.post("/admin/effect/fire")
+async def effect_fire(payload: dict):
+    name = payload.get("name", "wave")
+    params = {k: v for k, v in payload.items() if k != "name"}
+    if name == "sweep_bar":
+        devices = []
+        for device_id in connections:
+            pos = positions.get(device_id)
+            if pos:
+                devices.append((device_id, pos["u"]))
+        devices.sort(key=lambda x: x[1])
+        params.setdefault("device_order", [d for d, _ in devices])
+        params.setdefault("dwell", 0.18)
+    await start_effect(name, params)
+    return {"ok": True}
 
 
 @app.post("/admin/proof/wave")
@@ -295,15 +352,6 @@ async def pulse():
     await start_effect("pulse", {"bpm": 100})
     return {"ok": True}
 
-
-@app.post("/admin/proof/click")
-async def click(payload: dict):
-    await start_effect("click_ripple", {
-        "origin_u": payload.get("u", 0.5),
-        "origin_v": payload.get("v", 0.5),
-        "speed":    1.0,
-    })
-    return {"ok": True}
 
 
 @app.post("/admin/proof/sweep_bar")
