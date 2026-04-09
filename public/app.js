@@ -5,9 +5,9 @@
 // Blink encoding (mirrors blink_encoder.py)
 // ------------------------------------------------------------------ //
 
-const NUM_BITS  = 8;
-const PHASE_MS  = 450;
-const NUM_GUARD = 6;   // dark guard frames before Manchester data
+const NUM_BITS  = 9;
+const PHASE_MS  = 300;
+const NUM_GUARD = 4;   // dark guard frames before Manchester data
 
 function encodeId(blinkId) {
   // Structure: [6 dark guard] + Manchester("1" + id_bits + id_bits + "0")

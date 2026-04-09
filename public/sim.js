@@ -3,9 +3,9 @@
 // and blinking their assigned blink_id.
 // Useful for testing the server and the blink detection pipeline.
 
-const NUM_BITS  = 8;
-const PHASE_MS  = 450;
-const NUM_GUARD = 6;
+const NUM_BITS  = 9;
+const PHASE_MS  = 300;
+const NUM_GUARD = 4;
 
 function encodeId(blinkId) {
   const bits = blinkId.toString(2).padStart(NUM_BITS, '0');

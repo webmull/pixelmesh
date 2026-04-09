@@ -56,6 +56,30 @@ dbg_cap  = DebugCapture()
 DEBUG_SAVE_EVERY = 6
 ui_queue: Queue = Queue()
 
+# Detection timing
+_detection_start_time: float = 0.0
+_detected_ids: set = set()   # blink_ids seen this detection session
+_timing_log_path: str = ""
+
+import os as _os
+
+_CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "calibration_logs")
+
+def _open_timing_log():
+    global _timing_log_path
+    _os.makedirs(_CALIBRATION_LOG_DIR, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    _timing_log_path = _os.path.join(_CALIBRATION_LOG_DIR, f"{stamp}.log")
+    with open(_timing_log_path, "w") as f:
+        f.write(f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
+
+def _log_timing(line: str):
+    if not _timing_log_path:
+        return
+    with open(_timing_log_path, "a") as f:
+        f.write(line + "\n")
+
 
 # ------------------------------------------------------------------ #
 # Camera helpers
@@ -246,8 +270,12 @@ def toggle_detection():
         val = state.detecting
 
     if val:
+        global _detection_start_time, _detected_ids
+        _detection_start_time = time.time()
+        _detected_ids = set()
         detector.reset()
         post_json_async("/admin/detect", {"detecting": True})
+        _open_timing_log()
         set_status("Detection ON")
     else:
         post_json_async("/admin/detect", {"detecting": False})
@@ -657,6 +685,10 @@ def main():
                                     state.calibrated_positions[det.blink_id] = {
                                         "u": u, "v": v
                                     }
+                                if det.blink_id not in _detected_ids:
+                                    _detected_ids.add(det.blink_id)
+                                    elapsed = time.time() - _detection_start_time
+                                    _log_timing(f"{det.blink_id:>10}  {elapsed:>14.2f}s  {det.confidence:>12.3f}")
                             post_json_async("/admin/positions", {"positions": positions})
 
                     if show_ov:

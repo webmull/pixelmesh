@@ -25,8 +25,8 @@ from log import log
 
 DEFAULTS = dict(
     grid_step       = 30,    # px: distance between grid sample points
-    history_seconds = 35.0,  # seconds of brightness history to keep (≥ 2 cycles at PHASE_MS=500ms)
-    decode_interval = 0.5,   # seconds between decode attempts per point
+    history_seconds = 30.0,  # seconds of brightness history to keep (≥ 2 full cycles)
+    decode_interval = 0.2,   # seconds between decode attempts per point
     min_history     = 150,   # unused — decode gate is now time-based (_MIN_HISTORY_SECS)
     min_recent_std  = 0.10,  # initial gate — overridden adaptively after warmup
     recent_n        = 24,    # samples in the recent window (~1.6s at 15fps)

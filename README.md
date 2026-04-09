@@ -9,7 +9,7 @@ Built for live events. Designed for Brighton Dome.
 ## How it works
 
 1. A device opens `https://local.pixelmesh.live` in their browser
-2. The server assigns it a unique **blink ID** (0–255)
+2. The server assigns it a unique **blink ID** (0–511)
 3. The device's screen blinks a Manchester-encoded pattern at 450ms per phase
 4. A camera pointed at the audience captures the screen
 5. The controller decodes each blinking screen and maps it to a position (u, v) in the room
@@ -49,6 +49,7 @@ Logs are written to:
 - `/tmp/pixelmesh-ngrok.log`
 - `/tmp/pixelmesh-controller.log`
 - `debug/pixelmesh.log` (blink detection diagnostics)
+- `calibration_logs/YYYYMMDD_HHMMSS.log` (time-to-detect per device, one file per detection run)
 
 ---
 
@@ -185,9 +186,9 @@ Each device blinks one full cycle continuously:
 [ 6 dark guard phases ]  [ Manchester(start + ID + ID + end) ]
 ```
 
-- **PHASE_MS** `450ms` — duration of each screen phase
-- **NUM_BITS** `8` — supports IDs 0–255
-- **Cycle length** `42 phases × 450ms = 18.9s`
+- **PHASE_MS** `300ms` — duration of each screen phase
+- **NUM_BITS** `9` — supports IDs 0–511
+- **Cycle length** `44 phases × 300ms = 13.2s`
 - Manchester: bit `1` → `[bright, dark]`, bit `0` → `[dark, bright]`
 - ID is transmitted twice per cycle for error checking
 
@@ -205,8 +206,8 @@ Key parameters in `blink_detector.py`:
 | `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor |
 | `recent_n` | `24` | Samples in recent window (~1.6s at 15fps) |
 | `sample_radius` | `30px` | Patch radius around each grid point |
-| `history_seconds` | `35.0` | Rolling brightness history per point |
-| `decode_interval` | `0.5s` | Time between decode attempts per point |
+| `history_seconds` | `30.0` | Rolling brightness history per point |
+| `decode_interval` | `0.2s` | Time between decode attempts per point |
 | `brightness_pct` | `80` | Percentile used when sampling a patch (suppresses noise) |
 
 The variance gate adapts every frame: `gate = p75(all point stds) × 5`, EMA-smoothed with α=0.02. This tracks exposure changes automatically — no manual tuning needed when switching cameras or lighting conditions.
@@ -215,5 +216,4 @@ The variance gate adapts every frame: `gate = p75(all point stds) × 5`, EMA-smo
 
 ## Planned
 
-- Reduce `PHASE_MS` once camera delivers true 30fps
 - Two-camera setup for Brighton Dome stalls coverage
