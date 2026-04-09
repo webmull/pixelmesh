@@ -34,7 +34,7 @@ from state import AppState, PREVIEW_WIDTH, PREVIEW_HEIGHT
 from camera import apply_gamma, apply_contrast, apply_sharpen
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
-from network import post_json, post_json_async, fetch_client_count
+from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
 
 # ------------------------------------------------------------------ #
@@ -63,7 +63,7 @@ _timing_log_path: str = ""
 
 import os as _os
 
-_CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "calibration_logs")
+_CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calibration_logs")
 
 def _open_timing_log():
     global _timing_log_path
@@ -503,6 +503,12 @@ def setup_ui(holder: dict):
                                callback=toggle_detection, width=-1)
                 dpg.add_button(label="Toggle Clock Sync",
                                callback=toggle_sync, width=-1)
+                dpg.add_button(label="Sync Debug Panel",
+                               callback=lambda: dpg.configure_item(
+                                   "sync_debug_window",
+                                   show=not dpg.is_item_shown("sync_debug_window")
+                               ),
+                               width=-1)
                 dpg.add_button(label="Toggle ID Overlays  [O]",
                                callback=toggle_device_overlay, width=-1)
                 dpg.add_button(label="Toggle Debug Capture  [G]",
@@ -579,6 +585,27 @@ def setup_ui(holder: dict):
                 dpg.add_image("camera_texture", tag="preview_image",
                               width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
 
+    # ---- Sync debug window (hidden by default) ----
+    with dpg.window(tag="sync_debug_window", label="Clock Sync Stats",
+                    width=640, height=340, pos=(340, 60), show=False,
+                    no_collapse=False):
+        dpg.add_text("", tag="sync_status_line", color=(160, 160, 160))
+        dpg.add_text(
+            "RTT = round-trip ping time (lower = better network).  "
+            "Offset = estimated clock difference vs server (ms); near 0 = well-synced.",
+            color=(120, 120, 120),
+            wrap=620,
+        )
+        dpg.add_spacer(height=4)
+        dpg.add_text("Blink ID  Device        RTT(ms)  Offset(ms)  Samples  Age(s)",
+                     color=(180, 180, 180))
+        dpg.add_separator()
+        dpg.add_text("No sync data — enable Clock Sync and wait for clients to report.",
+                     tag="sync_no_data", color=(120, 120, 120))
+        # Placeholder rows — up to 32 shown; extra rows hidden
+        for i in range(32):
+            dpg.add_text("", tag=f"sync_row_{i}", show=False)
+
     dpg.create_viewport(title=WINDOW_TITLE, width=1660, height=780)
     dpg.setup_dearpygui()
     dpg.show_viewport()
@@ -613,6 +640,7 @@ def main():
     setup_ui(holder)
 
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
+    threading.Thread(target=poll_sync_stats, daemon=True).start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
 
     delay = 1.0 / TARGET_FPS
@@ -734,6 +762,27 @@ def main():
             # Drain UI queue
             while not ui_queue.empty():
                 tag, value = ui_queue.get()
+                if tag == "_sync_stats_rows":
+                    rows = value
+                    ts = time.strftime("%H:%M:%S")
+                    dpg.set_value("sync_status_line",
+                                  f"Last updated: {ts}  |  {len(rows)} device(s)")
+                    dpg.configure_item("sync_no_data", show=(len(rows) == 0))
+                    for i in range(32):
+                        if i < len(rows):
+                            r = rows[i]
+                            rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "—"
+                            off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "—"
+                            line = (f"{str(r['blink_id']):>8}  "
+                                    f"{r['device_id']:<12}  "
+                                    f"{rtt:>7}  {off:>10}  "
+                                    f"{r['samples']:>7}  {r['age_s']:>6}")
+                            dpg.set_value(f"sync_row_{i}", line)
+                            dpg.configure_item(f"sync_row_{i}", show=True)
+                        else:
+                            dpg.set_value(f"sync_row_{i}", "")
+                            dpg.configure_item(f"sync_row_{i}", show=False)
+                    continue
                 try:
                     dpg.set_value(tag, value)
                 except Exception as e:
@@ -757,6 +806,18 @@ def poll_clients():
     while state.running:
         fetch_client_count(state)
         time.sleep(CLIENT_FETCH_SECS)
+
+
+def poll_sync_stats():
+    """Background thread: fetch /admin/sync_stats every 2s and refresh the debug table."""
+    while state.running:
+        time.sleep(2.0)
+        data = fetch_json("/admin/sync_stats")
+        if data is None:
+            continue
+        rows = data.get("stats", [])
+        # Rebuild table rows in DearPyGui (must run on main thread via ui_queue)
+        ui_queue.put(("_sync_stats_rows", rows))
 
 
 if __name__ == "__main__":
