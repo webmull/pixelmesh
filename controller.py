@@ -92,11 +92,17 @@ def _avfoundation_device_names() -> dict[int, str]:
 
 def find_cameras(max_idx: int = 8) -> list[int]:
     names  = _avfoundation_device_names()
+    no_names = not names   # ffmpeg failed — we have no name info
     found  = []
     for i in range(max_idx):
         name = names.get(i, "").lower()
         if any(v in name for v in _VIRTUAL_CAM_NAMES):
             log.info(f"[camera] skipping virtual camera [{i}] {names.get(i)}")
+            continue
+        # When ffmpeg can't list devices, skip index 0 — on macOS it's always
+        # the built-in FaceTime/iSight camera which we never want as the default.
+        if no_names and i == 0:
+            log.info("[camera] skipping index 0 (no name info, assumed built-in)")
             continue
         cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
         if cap.isOpened():
@@ -358,7 +364,7 @@ def camera_scan_worker(holder=None):
     # Auto-open Facecam 4K if present, otherwise first camera found
     if holder is not None and cams:
         preferred = next(
-            (l for l in labels if "facecam" in l.lower()),
+            (l for l in labels if "facecam" in l.lower() or "elgato" in l.lower()),
             labels[0],
         )
         idx = lmap.get(preferred)

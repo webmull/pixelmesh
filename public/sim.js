@@ -3,7 +3,7 @@
 // and blinking their assigned blink_id.
 // Useful for testing the server and the blink detection pipeline.
 
-const NUM_BITS  = 5;
+const NUM_BITS  = 8;
 const PHASE_MS  = 450;
 const NUM_GUARD = 6;
 
@@ -50,12 +50,11 @@ class SimClient {
     this.blinkId    = null;
     this.phases     = [];
     this.startMs    = 0;
-    this.mode       = "DETECTION";
+    this.mode       = "WAITING";
     this.u          = 0;
     this.v          = 0;
     this.clockOffset = 0;
     this.detected   = false;
-    this.detectedAt = 0;
 
     this.currentEffect  = null;
     this.effectStartTime = 0;
@@ -116,12 +115,18 @@ class SimClient {
     this.ws.onmessage = (ev) => {
       const msg = JSON.parse(ev.data);
 
+      if (msg.type === "shutdown") {
+        this.mode = "WAITING";
+        this.phases = [];
+      }
+
       if (msg.type === "assigned") {
         this.blinkId = msg.blink_id;
         this.u       = msg.u ?? 0;
         this.v       = msg.v ?? 0;
         this.phases  = encodeId(this.blinkId);
         this.startMs = Date.now();
+        this.mode    = "WAITING";
         this.idEl.textContent = this.blinkId;
       }
 
@@ -134,16 +139,12 @@ class SimClient {
       if (msg.type === "update_position") {
         this.u = msg.u ?? this.u;
         this.v = msg.v ?? this.v;
-        this.detected   = true;
-        this.detectedAt = Date.now();
-      }
-
-      if (msg.type === "mode") {
-        this.mode = msg.mode;
+        this.detected = true;
       }
 
       if (msg.type === "detection_started") {
-        this.mode = "DETECTION";
+        this.mode     = "DETECTION";
+        this.detected = false;
       }
 
       if (msg.type === "detection_ended") {
@@ -151,28 +152,24 @@ class SimClient {
       }
 
       if (msg.type === "effect") {
-        this.mode           = "SHOWTIME";
-        this.currentEffect  = msg.effect;
+        this.mode            = "SHOWTIME";
+        this.currentEffect   = msg.effect;
         this.effectStartTime = msg.start_time;
-        this.effectSpeed    = msg.speed ?? 0.3;
+        this.effectSpeed     = msg.speed ?? 0.3;
         this.effectSpatialFreq = msg.spatial_freq ?? 1.5;
-        this.effectBpm      = msg.bpm ?? 100;
-        this.effectOriginU  = msg.origin_u ?? 0.5;
-        this.effectOriginV  = msg.origin_v ?? 0.5;
-        this.effectAngle    = msg.angle ?? 0;
-        this.effectR        = msg.color_r ?? 255;
-        this.effectG        = msg.color_g ?? 255;
-        this.effectB        = msg.color_b ?? 255;
-        if (msg.device_order) {
-          this.deviceOrder = msg.device_order;
-          this.sweepDwell  = msg.dwell ?? 0.18;
-        }
+        this.effectBpm       = msg.bpm ?? 100;
+        this.effectAngle     = msg.angle ?? 0;
+        this.effectR         = msg.color_r ?? 255;
+        this.effectG         = msg.color_g ?? 255;
+        this.effectB         = msg.color_b ?? 255;
+        this.deviceOrder     = msg.device_order ?? [];
+        this.sweepDwell      = msg.dwell ?? 0.18;
       }
 
       if (msg.type === "reset") {
-        this.mode = "DETECTION";
+        this.mode          = "WAITING";
         this.currentEffect = null;
-        this.detected = false;
+        this.detected      = false;
       }
     };
 
@@ -220,21 +217,14 @@ class SimClient {
   }
 
   render() {
-    if (this.mode !== "DETECTION") {
+    if (this.mode !== "DETECTION" || this.phases.length === 0) {
       this.cell.style.background = "#000";
       this.cell.classList.remove("bright");
       return;
     }
 
-    if (this.phases.length === 0) {
-      this.cell.style.background = "#111";
-      this.cell.classList.remove("bright");
-      return;
-    }
-
     const totalMs  = this.phases.length * PHASE_MS;
-    const elapsed  = Date.now() - this.startMs;
-    const phaseIdx = Math.floor((elapsed % totalMs) / PHASE_MS);
+    const phaseIdx = Math.floor((Date.now() - this.startMs) % totalMs / PHASE_MS);
     const phase    = this.phases[phaseIdx];
 
     this.cell.style.background = phase === 1 ? "#fff" : "#000";

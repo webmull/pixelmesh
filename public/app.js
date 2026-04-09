@@ -5,7 +5,7 @@
 // Blink encoding (mirrors blink_encoder.py)
 // ------------------------------------------------------------------ //
 
-const NUM_BITS  = 5;
+const NUM_BITS  = 8;
 const PHASE_MS  = 450;
 const NUM_GUARD = 6;   // dark guard frames before Manchester data
 
@@ -400,15 +400,9 @@ function renderLoop() {
 
   if (phoneState === PS.SHOWTIME && currentEffect) {
     if (!calibrated) {
-      // Not calibrated — 3 red flashes (1.2s) then black
+      // Not calibrated — stay black, detection phase already flagged this device
       projCanvas.style.display = "none";
-      const age = (Date.now() - effectStartTime) / 1000;
-      if (age < 1.2) {
-        const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
-        showtime.style.background = on ? "rgb(220, 0, 0)" : "#000";
-      } else {
-        showtime.style.background = "#000";
-      }
+      showtime.style.background = "#000";
     } else {
 
     const t = (serverNow() - effectStartTime) / 1000;

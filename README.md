@@ -9,7 +9,7 @@ Built for live events. Designed for Brighton Dome.
 ## How it works
 
 1. A device opens `https://local.pixelmesh.live` in their browser
-2. The server assigns it a unique **blink ID** (0–31)
+2. The server assigns it a unique **blink ID** (0–255)
 3. The device's screen blinks a Manchester-encoded pattern at 450ms per phase
 4. A camera pointed at the audience captures the screen
 5. The controller decodes each blinking screen and maps it to a position (u, v) in the room
@@ -21,7 +21,7 @@ Built for live events. Designed for Brighton Dome.
 
 - Python 3.10+
 - [ngrok](https://ngrok.com) account with a reserved domain (`local.pixelmesh.live`)
-- A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality)
+- A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality). The controller auto-selects an Elgato Facecam 4K if present; use `K` to cycle cameras manually.
 
 ```bash
 pip install -r requirements.txt
@@ -42,7 +42,6 @@ Interactive menu — options:
 | `s` | Start server, ngrok, and controller |
 | `r` | Reload — kill everything and restart |
 | `d` | Die — kill everything |
-| `t` | Toggle light / dark mode |
 | `q` | Quit |
 
 Logs are written to:
@@ -63,6 +62,22 @@ Logs are written to:
 
 ---
 
+## Controller hotkeys
+
+| Key | Action |
+|-----|--------|
+| `D` | Toggle detection on/off |
+| `K` | Switch camera |
+| `1`–`5` | Trigger effects (wave, gradient, binary wave, pulse, sweep bar) |
+| `R` | Reset server |
+| `Tab` | Toggle sidebar |
+| `B` | Blackout camera feed |
+| `G` | Start/stop debug capture |
+| `O` | Toggle device ID overlays |
+| `Q` / `Esc` | Quit |
+
+---
+
 ## Device states
 
 | State | Screen | Trigger |
@@ -70,14 +85,13 @@ Logs are written to:
 | **App closed / disconnected** | Black | Server shut down or connection lost |
 | **Connected, waiting** | Solid yellow | Connected but detection not yet started |
 | **Detection active** | White/black blink | Controller started detection |
-| **Located** | Orange glow over blink | Controller detected this device |
-| **Detection ended — found** | Solid orange | Detection stopped, device was found — holds until next command |
+| **Located** | Solid orange | Controller detected this device — holds through detection end until next command |
 | **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
 | **Showtime — calibrated** | Effect (wave, pulse, etc.) | Effect broadcast from controller |
-| **Showtime — not calibrated** | 3 red flashes → black | Effect fired but this device has never been located |
+| **Showtime — not calibrated** | Black | Effect fired but this device has never been located |
 | **Update pending** | Green flash × 5s → reload | New version of app.js deployed |
 
-Orange and yellow states clear when detection restarts or an effect fires. Green flash is skipped if the phone is currently showing orange — it reloads silently instead. Green flash only triggers when `app.js` has actually changed since the phone last loaded — a server restart with no code changes produces the same hash and no reload.
+Orange (found) and yellow (waiting) clear when detection restarts or an effect fires. Not-found (red flash) transitions to black and stays black until the next detection cycle. Green flash is skipped if the phone is currently showing orange — it reloads silently instead. Green flash only triggers when `app.js` has actually changed since the phone last loaded — a server restart with no code changes produces the same hash and no reload.
 
 ---
 
@@ -172,8 +186,8 @@ Each device blinks one full cycle continuously:
 ```
 
 - **PHASE_MS** `450ms` — duration of each screen phase
-- **NUM_BITS** `5` — supports IDs 0–31
-- **Cycle length** `30 phases × 450ms = 13.5s`
+- **NUM_BITS** `8` — supports IDs 0–255
+- **Cycle length** `42 phases × 450ms = 18.9s`
 - Manchester: bit `1` → `[bright, dark]`, bit `0` → `[dark, bright]`
 - ID is transmitted twice per cycle for error checking
 
@@ -201,6 +215,5 @@ The variance gate adapts every frame: `gate = p75(all point stds) × 5`, EMA-smo
 
 ## Planned
 
-- Scale to 200+ devices (8-bit IDs)
 - Reduce `PHASE_MS` once camera delivers true 30fps
 - Two-camera setup for Brighton Dome stalls coverage
