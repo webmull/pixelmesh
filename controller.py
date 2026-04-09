@@ -283,31 +283,31 @@ def reset_server():
     set_status("Reset sent")
 
 
-_effect_params = {
-    "color":         [255, 255, 255],
-    "speed":         0.4,
-    "spatial_freq":  1.5,
-    "bpm":           100.0,
-    "angle":         0.0,
-}
-
-
 def trigger_effect(name: str):
-    p = _effect_params
+    color = dpg.get_value("fx_color")   # [0–255, 0–255, 0–255, 255]
     payload = {
-        "name":        name,
-        "speed":       p["speed"],
-        "spatial_freq": p["spatial_freq"],
-        "bpm":         p["bpm"],
-        "angle":       p["angle"],
-        "color_r":     int(p["color"][0]),
-        "color_g":     int(p["color"][1]),
-        "color_b":     int(p["color"][2]),
+        "name":         name,
+        "speed":        dpg.get_value("fx_speed"),
+        "spatial_freq": 1.5,
+        "bpm":          dpg.get_value("fx_bpm"),
+        "angle":        dpg.get_value("fx_angle"),
+        "color_r":      int(color[0]),
+        "color_g":      int(color[1]),
+        "color_b":      int(color[2]),
     }
+    log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
     with state.lock:
         state.current_effect = name
     set_status(f"Effect: {name}")
+
+
+def _on_settings_changed(s, v):
+    """Re-fire current effect immediately when any setting slider changes."""
+    with state.lock:
+        current = state.current_effect
+    if current:
+        trigger_effect(current)
 
 
 
@@ -399,6 +399,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_G:
         toggle_debug()
 
+    elif key == dpg.mvKey_O:
+        toggle_device_overlay()
+
     elif key == dpg.mvKey_1:
         trigger_effect("wave")
 
@@ -455,6 +458,8 @@ def setup_ui(holder: dict):
                 dpg.add_text("Detection")
                 dpg.add_button(label="Toggle Detection  [D]",
                                callback=toggle_detection, width=-1)
+                dpg.add_button(label="Toggle ID Overlays  [O]",
+                               callback=toggle_device_overlay, width=-1)
                 dpg.add_button(label="Toggle Debug Capture  [G]",
                                callback=toggle_debug, width=-1)
                 dpg.add_text("", tag="debug_text")
@@ -479,47 +484,43 @@ def setup_ui(holder: dict):
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Effect Settings", color=(200, 200, 200))
+                dpg.add_text("Colour", color=(160, 160, 160))
                 dpg.add_color_edit(
-                    label="Colour",
+                    label="##fx_color_lbl",
                     tag="fx_color",
                     default_value=(255, 255, 255, 255),
                     no_alpha=True,
                     width=-1,
-                    callback=lambda s, v: _effect_params.update({"color": list(v[:3])}),
+                    callback=_on_settings_changed,
                 )
+                dpg.add_text("Speed", color=(160, 160, 160))
                 dpg.add_slider_float(
-                    label="Speed",
+                    label="##fx_speed_lbl",
                     tag="fx_speed",
                     default_value=0.4,
                     min_value=0.05, max_value=4.0,
                     width=-1,
-                    callback=lambda s, v: _effect_params.update({"speed": v}),
+                    callback=_on_settings_changed,
                 )
+                dpg.add_text("Direction", color=(160, 160, 160))
                 dpg.add_slider_float(
-                    label="Direction",
+                    label="##fx_angle_lbl",
                     tag="fx_angle",
                     default_value=0.0,
                     min_value=0.0, max_value=360.0,
                     format="%.0f°",
                     width=-1,
-                    callback=lambda s, v: _effect_params.update({"angle": v}),
+                    callback=_on_settings_changed,
                 )
+                dpg.add_text("BPM  (pulse)", color=(160, 160, 160))
                 dpg.add_slider_float(
-                    label="BPM  (pulse)",
+                    label="##fx_bpm_lbl",
                     tag="fx_bpm",
                     default_value=100.0,
                     min_value=20.0, max_value=300.0,
                     format="%.0f",
                     width=-1,
-                    callback=lambda s, v: _effect_params.update({"bpm": v}),
-                )
-                dpg.add_slider_float(
-                    label="Density",
-                    tag="fx_spatial",
-                    default_value=1.5,
-                    min_value=0.5, max_value=8.0,
-                    width=-1,
-                    callback=lambda s, v: _effect_params.update({"spatial_freq": v}),
+                    callback=_on_settings_changed,
                 )
 
                 dpg.add_spacer(height=6)

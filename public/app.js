@@ -52,14 +52,22 @@ let blinkStartMs  = 0;
 
 let myU = 0;
 let myV = 0;
-let mode = "DETECTION";
-let detected   = sessionStorage.getItem("pm_detected") === "1";  // survives reload
-let detectedAt = detected ? Date.now() : 0;
+let calibrated = false;  // true once server has a position for this device (for effect rendering)
+
+// ---- Phone state machine ----
+// IDLE        black          disconnected
+// WAITING     yellow         connected, detection not started
+// BLINKING    white/black    detection active, not yet found
+// FOUND       orange         found during active detection (stays orange when detection ends)
+// MISSED      red flash      detection ended, this device not found
+// MISSED_DONE black          after red flash — stays black until next detection
+// SHOWTIME    effect/red     effect playing
+const PS = { IDLE:"IDLE", WAITING:"WAITING", BLINKING:"BLINKING",
+             FOUND:"FOUND", MISSED:"MISSED", MISSED_DONE:"MISSED_DONE", SHOWTIME:"SHOWTIME" };
+let phoneState  = PS.IDLE;
+let missedStart = 0;
 
 let clockOffset = 0;
-
-let detectionActive  = false;  // true while controller is actively scanning
-let missedFlashStart = 0;      // timestamp when missed-animation began (0 = not running)
 
 let currentEffect  = null;
 let effectStartTime = 0;
@@ -165,12 +173,10 @@ function connect() {
 }
 
 function goBlack() {
-  mode             = "DETECTION";
-  currentEffect    = null;
-  detectionActive  = false;
-  detected         = false;
-  missedFlashStart = 0;
-  myBlinkPhases    = [];        // stops updateBlink from running
+  phoneState    = PS.IDLE;
+  currentEffect = null;
+  calibrated    = false;
+  myBlinkPhases = [];
   blinkScreen.style.background = "#000";
   showtime.style.background    = "#000";
   showtime.style.display       = "none";
@@ -187,11 +193,9 @@ function handleMessage(msg) {
     const stored = localStorage.getItem("pm_build_id");
     if (stored && stored !== msg.build_id) {
       localStorage.setItem("pm_build_id", msg.build_id);
-      if (detected) {
-        // Phone is orange — reload silently without interrupting the state
+      if (phoneState === PS.FOUND) {
         setTimeout(() => location.reload(), 800);
       } else {
-        // Flash green for 5 seconds so people know an update is coming
         const overlay = document.createElement("div");
         overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#00ff44";
         document.body.appendChild(overlay);
@@ -212,9 +216,11 @@ function handleMessage(msg) {
     myBlinkId     = msg.blink_id;
     myU           = msg.u ?? 0;
     myV           = msg.v ?? 0;
+    calibrated    = msg.calibrated === true;
     myBlinkPhases = encodeId(myBlinkId);
     blinkStartMs  = Date.now();
-    setStatus(`ID ${myBlinkId} – blinking`);
+    phoneState    = PS.WAITING;
+    setStatus(`ID ${myBlinkId}`);
     return;
   }
 
@@ -226,46 +232,38 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "update_position") {
-    myU = msg.u ?? myU;
-    myV = msg.v ?? myV;
-    detected  = true;
-    detectedAt = Date.now();
-    sessionStorage.setItem("pm_detected", "1");
+    myU        = msg.u ?? myU;
+    myV        = msg.v ?? myV;
+    calibrated = true;
+    phoneState = PS.FOUND;
     setStatus(`ID ${myBlinkId} – located ✓`);
     return;
   }
 
   if (msg.type === "detection_started") {
-    detectionActive  = true;
-    missedFlashStart = 0;
-    detected         = false;
-    detectedAt       = 0;
-    sessionStorage.removeItem("pm_detected");
+    phoneState  = PS.BLINKING;
+    missedStart = 0;
     return;
   }
 
   if (msg.type === "detection_ended") {
-    detectionActive = false;
-    if (!detected) {
-      missedFlashStart = Date.now();
+    if (phoneState === PS.BLINKING) {
+      phoneState  = PS.MISSED;
+      missedStart = Date.now();
     }
+    // FOUND stays FOUND
     return;
   }
 
   if (msg.type === "mode") {
-    mode = msg.mode;
-    // Connecting mid-session during active detection — treat as active so phone blinks
-    if (mode === "DETECTION") {
-      detectionActive  = true;
-      missedFlashStart = 0;
-    }
-    applyModeVisual();
+    // Only used to switch to SHOWTIME visuals if effect message isn't coming
+    // DETECTION mode: no state change needed — assigned already set WAITING
+    if (msg.mode === "SHOWTIME") applyModeVisual();
     return;
   }
 
   if (msg.type === "effect") {
-    mode = "SHOWTIME";
-    sessionStorage.removeItem("pm_detected");
+    phoneState     = PS.SHOWTIME;
     currentEffect  = msg.effect;
     effectStartTime = msg.start_time;
     effectSpeed    = msg.speed ?? 0.3;
@@ -277,36 +275,26 @@ function handleMessage(msg) {
     effectR        = msg.color_r ?? 255;
     effectG        = msg.color_g ?? 255;
     effectB        = msg.color_b ?? 255;
-
-    if (msg.device_order) {
-      deviceOrder = msg.device_order;
-      sweepDwell  = msg.dwell ?? 0.18;
-    } else {
-      deviceOrder = [];
-    }
-
+    deviceOrder    = msg.device_order ?? [];
+    sweepDwell     = msg.dwell ?? 0.18;
     applyModeVisual();
     return;
   }
 
   if (msg.type === "reset") {
-    mode             = "DETECTION";
-    currentEffect    = null;
-    detected         = false;
-    detectionActive  = false;
-    missedFlashStart = 0;
-    sessionStorage.removeItem("pm_detected");
+    phoneState    = PS.WAITING;
+    currentEffect = null;
+    calibrated    = false;
     applyModeVisual();
-    setStatus(myBlinkId !== null ? `ID ${myBlinkId} – blinking` : "waiting…");
+    setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
   }
 }
 
 function applyModeVisual() {
-  if (mode === "SHOWTIME") {
+  if (phoneState === PS.SHOWTIME) {
     blinkScreen.style.display = "none";
     showtime.style.display    = "block";
-    // Ensure black background while effect loads
     blinkScreen.style.background = "#000";
   } else {
     showtime.style.display    = "none";
@@ -323,50 +311,40 @@ function setStatus(text) {
 // ------------------------------------------------------------------ //
 
 function updateBlink() {
-  if (mode === "SHOWTIME" || myBlinkId === null || myBlinkPhases.length === 0) return;
+  if (phoneState === PS.SHOWTIME || myBlinkId === null || myBlinkPhases.length === 0) return;
 
-  // --- Detection ended: hold result state ---
-  if (!detectionActive && (detected || missedFlashStart > 0)) {
-    if (detected) {
-      // Hold solid orange — stay until next command
+  switch (phoneState) {
+    case PS.IDLE:
+    case PS.MISSED_DONE:
+      blinkScreen.style.background = "#000";
+      break;
+
+    case PS.WAITING:
+      blinkScreen.style.background = "#ffcc00";
+      break;
+
+    case PS.BLINKING: {
+      const totalMs  = myBlinkPhases.length * PHASE_MS;
+      const phaseIdx = Math.floor((Date.now() - blinkStartMs) % totalMs / PHASE_MS);
+      blinkScreen.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
+      break;
+    }
+
+    case PS.FOUND:
       blinkScreen.style.background = "rgb(255, 100, 0)";
-    } else {
-      // 3 short red flashes over 1.2s, then black
-      const age = (Date.now() - missedFlashStart) / 1000;
+      break;
+
+    case PS.MISSED: {
+      const age = (Date.now() - missedStart) / 1000;
       if (age < 1.2) {
         const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
         blinkScreen.style.background = on ? "rgb(200, 0, 0)" : "#000";
       } else {
-        missedFlashStart = 0;   // animation done — stay black
+        phoneState = PS.MISSED_DONE;
         blinkScreen.style.background = "#000";
       }
+      break;
     }
-    return;
-  }
-
-  // --- Waiting: connected but detection not yet started ---
-  if (!detectionActive) {
-    blinkScreen.style.background = "#ffcc00";
-    return;
-  }
-
-  // --- Detection active: blink white/black ---
-  const totalMs  = myBlinkPhases.length * PHASE_MS;
-  const elapsed  = Date.now() - blinkStartMs;
-  const phaseIdx = Math.floor((elapsed % totalMs) / PHASE_MS);
-  const phase    = myBlinkPhases[phaseIdx];
-
-  if (detected) {
-    // Orange glow fading in over the blink pattern while detection is active
-    const age   = (Date.now() - detectedAt) / 1000;
-    const pulse = Math.exp(-age * 0.6);
-    const blink = phase === 1 ? 1.0 : 0.0;
-    const r = Math.round(255 * (blink * (1 - pulse) + pulse));
-    const g = Math.round(140 * blink * (1 - pulse) + 80 * pulse);
-    blinkScreen.style.background = `rgb(${r},${g},0)`;
-    if (age > 10) detected = false;
-  } else {
-    blinkScreen.style.background = phase === 1 ? "#ffffff" : "#000000";
   }
 }
 
@@ -420,7 +398,19 @@ function shade(u, v, t) {
 function renderLoop() {
   updateBlink();
 
-  if (mode === "SHOWTIME" && currentEffect) {
+  if (phoneState === PS.SHOWTIME && currentEffect) {
+    if (!calibrated) {
+      // Not calibrated — 3 red flashes (1.2s) then black
+      projCanvas.style.display = "none";
+      const age = (Date.now() - effectStartTime) / 1000;
+      if (age < 1.2) {
+        const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
+        showtime.style.background = on ? "rgb(220, 0, 0)" : "#000";
+      } else {
+        showtime.style.background = "#000";
+      }
+    } else {
+
     const t = (serverNow() - effectStartTime) / 1000;
 
     if (currentEffect === "sweep_bar" && deviceOrder.length > 0) {
@@ -459,6 +449,8 @@ function renderLoop() {
       const [r, g, b] = shade(myU, myV, t);
       showtime.style.background = `rgb(${r},${g},${b})`;
     }
+
+    } // end calibrated
   }
 
   requestAnimationFrame(renderLoop);

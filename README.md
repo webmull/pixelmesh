@@ -73,10 +73,11 @@ Logs are written to:
 | **Located** | Orange glow over blink | Controller detected this device |
 | **Detection ended — found** | Solid orange | Detection stopped, device was found — holds until next command |
 | **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
-| **Showtime** | Effect (wave, pulse, etc.) | Effect broadcast from controller |
+| **Showtime — calibrated** | Effect (wave, pulse, etc.) | Effect broadcast from controller |
+| **Showtime — not calibrated** | 3 red flashes → black | Effect fired but this device has never been located |
 | **Update pending** | Green flash × 5s → reload | New version of app.js deployed |
 
-Orange and yellow states clear when detection restarts or an effect fires. Green flash is skipped if the phone is currently showing orange — it reloads silently instead.
+Orange and yellow states clear when detection restarts or an effect fires. Green flash is skipped if the phone is currently showing orange — it reloads silently instead. Green flash only triggers when `app.js` has actually changed since the phone last loaded — a server restart with no code changes produces the same hash and no reload.
 
 ---
 
@@ -90,9 +91,8 @@ Effects are launched from the controller sidebar (keys 1–5). Parameters apply 
 | **Speed** | Animation rate (0.05–4.0) |
 | **Direction** | Angle in degrees — 0°=left→right, 90°=top→bottom, 180°=right→left, 270°=bottom→top, any angle for diagonal |
 | **BPM** | Pulse rate (Pulse effect only) |
-| **Density** | Spatial frequency — how many peaks across the room (Wave / Binary Wave) |
 
-Adjust sliders then click the effect button to re-fire with new settings. Keys 1–5 use the current settings.
+Adjusting any slider immediately re-fires the current effect with the new settings. Clicking an effect button fires it fresh with the current settings. Keys 1–5 use the current settings.
 
 ---
 
