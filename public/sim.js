@@ -142,6 +142,14 @@ class SimClient {
         this.mode = msg.mode;
       }
 
+      if (msg.type === "detection_started") {
+        this.mode = "DETECTION";
+      }
+
+      if (msg.type === "detection_ended") {
+        this.mode = "IDLE";
+      }
+
       if (msg.type === "effect") {
         this.mode           = "SHOWTIME";
         this.currentEffect  = msg.effect;
@@ -151,6 +159,10 @@ class SimClient {
         this.effectBpm      = msg.bpm ?? 100;
         this.effectOriginU  = msg.origin_u ?? 0.5;
         this.effectOriginV  = msg.origin_v ?? 0.5;
+        this.effectAngle    = msg.angle ?? 0;
+        this.effectR        = msg.color_r ?? 255;
+        this.effectG        = msg.color_g ?? 255;
+        this.effectB        = msg.color_b ?? 255;
         if (msg.device_order) {
           this.deviceOrder = msg.device_order;
           this.sweepDwell  = msg.dwell ?? 0.18;
@@ -173,47 +185,47 @@ class SimClient {
 
   serverNow() { return Date.now() + this.clockOffset; }
 
+  directedCoord(u, v) {
+    const a = (this.effectAngle ?? 0) * Math.PI / 180;
+    return (u * Math.cos(a) + v * Math.sin(a) + 1) / 2;
+  }
+
   shade(u, v, t) {
-    const e = this.currentEffect;
+    const e  = this.currentEffect;
+    const d  = this.directedCoord(u, v);
+    const er = this.effectR ?? 255;
+    const eg = this.effectG ?? 255;
+    const eb = this.effectB ?? 255;
     if (e === "wave") {
-      const ph = 2 * Math.PI * (u * this.effectSpatialFreq - t * this.effectSpeed);
+      const ph = 2 * Math.PI * (d * this.effectSpatialFreq - t * this.effectSpeed);
       const i  = 0.5 + 0.5 * Math.sin(ph);
-      return `rgb(${i*255|0},${i*255|0},${i*255|0})`;
+      return `rgb(${i*er|0},${i*eg|0},${i*eb|0})`;
     }
     if (e === "gradient") {
-      let i = (u - t * this.effectSpeed) % 1;
+      let i = (d - t * this.effectSpeed) % 1;
       if (i < 0) i += 1;
-      return `rgb(${i*255|0},${i*255|0},${i*255|0})`;
+      return `rgb(${i*er|0},${i*eg|0},${i*eb|0})`;
+    }
+    if (e === "binary_wave") {
+      const ph = 2 * Math.PI * (d * this.effectSpatialFreq - t * this.effectSpeed);
+      const i  = Math.sin(ph) > 0 ? 1 : 0;
+      return `rgb(${i*er|0},${i*eg|0},${i*eb|0})`;
     }
     if (e === "pulse") {
       const beat = Math.sin(2 * Math.PI * (this.effectBpm / 60) * t);
       const i = Math.max(0, beat);
-      return `rgb(${i*255|0},${i*255|0},${i*255|0})`;
-    }
-    if (e === "click_ripple") {
-      const dx = u - this.effectOriginU, dy = v - this.effectOriginV;
-      const dist = Math.sqrt(dx*dx + dy*dy);
-      const dur  = 4.0, prog = (t % dur) / dur;
-      const wf   = prog * 1.4;
-      const rw   = 0.04;
-      const delta = dist - wf;
-      const ring  = Math.exp(-(delta*delta)/rw);
-      const echo  = 0.5 * Math.exp(-((dist-(wf-0.18))**2)/(rw*1.8));
-      const i = Math.max(0, Math.min(1, (ring+echo)*Math.exp(-dist*1.2)));
-      return `rgb(${i*40|0},${i*170|0},${i*255|0})`;
+      return `rgb(${i*er|0},${i*eg|0},${i*eb|0})`;
     }
     return "#000";
   }
 
   render() {
-    if (this.mode === "SHOWTIME" && this.currentEffect) {
-      const t   = (this.serverNow() - this.effectStartTime) / 1000;
-      this.cell.style.background = this.shade(this.u, this.v, t);
+    if (this.mode !== "DETECTION") {
+      this.cell.style.background = "#000";
       this.cell.classList.remove("bright");
       return;
     }
 
-    // Detection mode — blink
     if (this.phases.length === 0) {
       this.cell.style.background = "#111";
       this.cell.classList.remove("bright");
@@ -225,19 +237,8 @@ class SimClient {
     const phaseIdx = Math.floor((elapsed % totalMs) / PHASE_MS);
     const phase    = this.phases[phaseIdx];
 
-    if (this.detected) {
-      const age   = (Date.now() - this.detectedAt) / 1000;
-      const pulse = Math.exp(-age * 0.6);
-      const blink = phase === 1 ? 1.0 : 0.0;
-      const r = Math.round(255 * (blink * (1 - pulse) + pulse));
-      const g = Math.round(140 * blink * (1 - pulse) + 80 * pulse);
-      this.cell.style.background = `rgb(${r},${g},0)`;
-      this.cell.classList.remove("bright");
-      if (age > 10) this.detected = false;
-    } else {
-      this.cell.style.background = phase === 1 ? "#fff" : "#000";
-      this.cell.classList.toggle("bright", phase === 1);
-    }
+    this.cell.style.background = phase === 1 ? "#fff" : "#000";
+    this.cell.classList.toggle("bright", phase === 1);
   }
 
   destroy() {

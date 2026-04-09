@@ -160,26 +160,24 @@ class BlinkDetector:
         #    Pad so every point gets a full 2r×2r patch regardless of position.
         gray_pad = np.pad(gray, r, mode="edge")
         side = 2 * r
+        flat_size = side * side
         patches = np.stack([
             gray_pad[pt.py: pt.py + side, pt.px: pt.px + side]
             for pt in self._points
-        ])  # (N, side, side)
-        brightnesses = np.percentile(
-            patches.reshape(len(self._points), -1), pct, axis=1
-        ) / 255.0  # (N,)
+        ]).reshape(len(self._points), flat_size)  # (N, side*side)
+        # np.partition is O(n) vs O(n log n) for np.percentile
+        k = max(0, min(int(flat_size * pct / 100), flat_size - 1))
+        brightnesses = np.partition(patches, k, axis=1)[:, k] / 255.0  # (N,)
 
         for pt, b in zip(self._points, brightnesses):
             pt.add_sample(float(b), ts, cfg["history_seconds"])
 
-        # Update recent_std for all points in one vectorised pass.
-        # Collect last-n history for every point that has enough samples.
-        recent_mat = np.array([
-            [bv for _, bv in pt.history[-n:]]
-            if len(pt.history) >= n else None
-            for pt in self._points
-        ], dtype=object)
-        for pt, row in zip(self._points, recent_mat):
-            pt.recent_std = float(np.std(row)) if row is not None else 0.0
+        # Update recent_std — plain loop; avoids object-array overhead.
+        for pt in self._points:
+            if len(pt.history) >= n:
+                pt.recent_std = float(np.std([bv for _, bv in pt.history[-n:]]))
+            else:
+                pt.recent_std = 0.0
 
         # 4. Adapt gate to current noise floor (p90 of all recent_std values).
         #    Most points are background, so p90 ≈ scene noise regardless of exposure.

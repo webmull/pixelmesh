@@ -170,7 +170,7 @@ while true; do
   header
   status_line
 
-  local theme_label="light"
+  theme_label="light"
   [[ $THEME == "light" ]] && theme_label="dark"
   echo "  ${BOLD}${W}[s]${RESET} start      ${BOLD}${W}[r]${RESET} reload      ${BOLD}${W}[d]${RESET} die      ${BOLD}${W}[t]${RESET} ${theme_label} mode      ${BOLD}${W}[q]${RESET} quit"
   echo ""

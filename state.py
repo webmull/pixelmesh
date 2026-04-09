@@ -18,7 +18,6 @@ class AppState:
         self.last_client_fetch = 0.0
 
         self.detecting        = False        # detection pipeline active
-        self.showtime_boost   = False        # brighten canvas for projection during effects
         self.sidebar_visible  = True
         self.blackout_camera  = False
         self.show_device_overlay = True

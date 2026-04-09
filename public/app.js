@@ -53,10 +53,13 @@ let blinkStartMs  = 0;
 let myU = 0;
 let myV = 0;
 let mode = "DETECTION";
-let detected = false;          // true once controller has located this device
-let detectedAt = 0;            // timestamp of detection (for glow fade)
+let detected   = sessionStorage.getItem("pm_detected") === "1";  // survives reload
+let detectedAt = detected ? Date.now() : 0;
 
 let clockOffset = 0;
+
+let detectionActive  = false;  // true while controller is actively scanning
+let missedFlashStart = 0;      // timestamp when missed-animation began (0 = not running)
 
 let currentEffect  = null;
 let effectStartTime = 0;
@@ -65,6 +68,10 @@ let effectSpatialFreq = 1.5;
 let effectBpm      = 100;
 let effectOriginU  = 0.5;
 let effectOriginV  = 0.5;
+let effectAngle    = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
+let effectR        = 255;
+let effectG        = 255;
+let effectB        = 255;
 let deviceOrder    = [];
 let sweepDwell     = 0.18;
 
@@ -148,6 +155,7 @@ function connect() {
     clearTimeout(connectWatchdog);
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
+    goBlack();
     setStatus("reconnecting…");
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
@@ -156,7 +164,50 @@ function connect() {
   ws.onerror = () => { try { ws.close(); } catch {} };
 }
 
+function goBlack() {
+  mode             = "DETECTION";
+  currentEffect    = null;
+  detectionActive  = false;
+  detected         = false;
+  missedFlashStart = 0;
+  myBlinkPhases    = [];        // stops updateBlink from running
+  blinkScreen.style.background = "#000";
+  showtime.style.background    = "#000";
+  showtime.style.display       = "none";
+  blinkScreen.style.display    = "flex";
+}
+
 function handleMessage(msg) {
+  if (msg.type === "shutdown") {
+    goBlack();
+    return;
+  }
+
+  if (msg.type === "server_hello") {
+    const stored = localStorage.getItem("pm_build_id");
+    if (stored && stored !== msg.build_id) {
+      localStorage.setItem("pm_build_id", msg.build_id);
+      if (detected) {
+        // Phone is orange — reload silently without interrupting the state
+        setTimeout(() => location.reload(), 800);
+      } else {
+        // Flash green for 5 seconds so people know an update is coming
+        const overlay = document.createElement("div");
+        overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#00ff44";
+        document.body.appendChild(overlay);
+        let on = true;
+        const iv = setInterval(() => {
+          on = !on;
+          overlay.style.background = on ? "#00ff44" : "#000";
+        }, 300);
+        setTimeout(() => { clearInterval(iv); location.reload(); }, 5000);
+      }
+      return;
+    }
+    localStorage.setItem("pm_build_id", msg.build_id);
+    return;
+  }
+
   if (msg.type === "assigned") {
     myBlinkId     = msg.blink_id;
     myU           = msg.u ?? 0;
@@ -177,21 +228,44 @@ function handleMessage(msg) {
   if (msg.type === "update_position") {
     myU = msg.u ?? myU;
     myV = msg.v ?? myV;
-    // Controller found us — trigger orange glow
     detected  = true;
     detectedAt = Date.now();
+    sessionStorage.setItem("pm_detected", "1");
     setStatus(`ID ${myBlinkId} – located ✓`);
+    return;
+  }
+
+  if (msg.type === "detection_started") {
+    detectionActive  = true;
+    missedFlashStart = 0;
+    detected         = false;
+    detectedAt       = 0;
+    sessionStorage.removeItem("pm_detected");
+    return;
+  }
+
+  if (msg.type === "detection_ended") {
+    detectionActive = false;
+    if (!detected) {
+      missedFlashStart = Date.now();
+    }
     return;
   }
 
   if (msg.type === "mode") {
     mode = msg.mode;
+    // Connecting mid-session during active detection — treat as active so phone blinks
+    if (mode === "DETECTION") {
+      detectionActive  = true;
+      missedFlashStart = 0;
+    }
     applyModeVisual();
     return;
   }
 
   if (msg.type === "effect") {
     mode = "SHOWTIME";
+    sessionStorage.removeItem("pm_detected");
     currentEffect  = msg.effect;
     effectStartTime = msg.start_time;
     effectSpeed    = msg.speed ?? 0.3;
@@ -199,6 +273,10 @@ function handleMessage(msg) {
     effectBpm      = msg.bpm ?? 100;
     effectOriginU  = msg.origin_u ?? 0.5;
     effectOriginV  = msg.origin_v ?? 0.5;
+    effectAngle    = msg.angle ?? 0;
+    effectR        = msg.color_r ?? 255;
+    effectG        = msg.color_g ?? 255;
+    effectB        = msg.color_b ?? 255;
 
     if (msg.device_order) {
       deviceOrder = msg.device_order;
@@ -212,9 +290,12 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "reset") {
-    mode = "DETECTION";
-    currentEffect = null;
-    detected = false;
+    mode             = "DETECTION";
+    currentEffect    = null;
+    detected         = false;
+    detectionActive  = false;
+    missedFlashStart = 0;
+    sessionStorage.removeItem("pm_detected");
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId} – blinking` : "waiting…");
     return;
@@ -244,24 +325,45 @@ function setStatus(text) {
 function updateBlink() {
   if (mode === "SHOWTIME" || myBlinkId === null || myBlinkPhases.length === 0) return;
 
+  // --- Detection ended: hold result state ---
+  if (!detectionActive && (detected || missedFlashStart > 0)) {
+    if (detected) {
+      // Hold solid orange — stay until next command
+      blinkScreen.style.background = "rgb(255, 100, 0)";
+    } else {
+      // 3 short red flashes over 1.2s, then black
+      const age = (Date.now() - missedFlashStart) / 1000;
+      if (age < 1.2) {
+        const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
+        blinkScreen.style.background = on ? "rgb(200, 0, 0)" : "#000";
+      } else {
+        missedFlashStart = 0;   // animation done — stay black
+        blinkScreen.style.background = "#000";
+      }
+    }
+    return;
+  }
+
+  // --- Waiting: connected but detection not yet started ---
+  if (!detectionActive) {
+    blinkScreen.style.background = "#ffcc00";
+    return;
+  }
+
+  // --- Detection active: blink white/black ---
   const totalMs  = myBlinkPhases.length * PHASE_MS;
   const elapsed  = Date.now() - blinkStartMs;
   const phaseIdx = Math.floor((elapsed % totalMs) / PHASE_MS);
   const phase    = myBlinkPhases[phaseIdx];
 
   if (detected) {
-    // Pulse orange glow: fast brighten then slow fade
-    const age   = (Date.now() - detectedAt) / 1000;  // seconds since detection
-    const pulse = Math.exp(-age * 0.6);               // exponential decay
+    // Orange glow fading in over the blink pattern while detection is active
+    const age   = (Date.now() - detectedAt) / 1000;
+    const pulse = Math.exp(-age * 0.6);
     const blink = phase === 1 ? 1.0 : 0.0;
-
     const r = Math.round(255 * (blink * (1 - pulse) + pulse));
-    const g = Math.round(140 * blink * (1 - pulse) + 80  * pulse);
-    const b = Math.round(0);
-
-    blinkScreen.style.background = `rgb(${r},${g},${b})`;
-
-    // Stop special treatment once fully faded (>10s)
+    const g = Math.round(140 * blink * (1 - pulse) + 80 * pulse);
+    blinkScreen.style.background = `rgb(${r},${g},0)`;
     if (age > 10) detected = false;
   } else {
     blinkScreen.style.background = phase === 1 ? "#ffffff" : "#000000";
@@ -272,49 +374,40 @@ function updateBlink() {
 // Effects shader
 // ------------------------------------------------------------------ //
 
+function directedCoord(u, v) {
+  const a = effectAngle * Math.PI / 180;
+  // map 0–360° to a blended u/v coordinate; normalise to 0–1
+  const raw = u * Math.cos(a) + v * Math.sin(a);
+  // range of raw: [-1, 1] when angle=90, so remap to [0,1]
+  return (raw + 1) / 2;
+}
+
 function shade(u, v, t) {
+  const d = directedCoord(u, v);
+  const cr = effectR / 255, cg = effectG / 255, cb = effectB / 255;
+
   if (currentEffect === "wave") {
-    const phase = 2 * Math.PI * (u * effectSpatialFreq - t * effectSpeed);
+    const phase = 2 * Math.PI * (d * effectSpatialFreq - t * effectSpeed);
     const i = 0.5 + 0.5 * Math.sin(phase);
-    return [i * 255, i * 255, i * 255];
+    return [i * effectR, i * effectG, i * effectB];
   }
 
   if (currentEffect === "gradient") {
-    let i = (u - t * effectSpeed) % 1;
+    let i = (d - t * effectSpeed) % 1;
     if (i < 0) i += 1;
-    return [i * 255, i * 255, i * 255];
+    return [i * effectR, i * effectG, i * effectB];
   }
 
   if (currentEffect === "binary_wave") {
-    const phase = 2 * Math.PI * (u * effectSpatialFreq - t * effectSpeed);
+    const phase = 2 * Math.PI * (d * effectSpatialFreq - t * effectSpeed);
     const i = Math.sin(phase) > 0 ? 1 : 0;
-    return [i * 255, i * 255, i * 255];
+    return [i * effectR, i * effectG, i * effectB];
   }
 
   if (currentEffect === "pulse") {
     const beat = Math.sin(2 * Math.PI * (effectBpm / 60) * t);
     const i = Math.max(0, beat);
-    return [i * 255, i * 255, i * 255];
-  }
-
-  if (currentEffect === "click_ripple") {
-    const dx = u - effectOriginU;
-    const dy = v - effectOriginV;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    const duration   = 4.0;
-    const progress   = (t % duration) / duration;
-    const waveFront  = progress * 1.4;
-    const ringWidth  = 0.04;
-    const decay      = 1.2;
-
-    const delta = dist - waveFront;
-    const ring  = Math.exp(-(delta * delta) / ringWidth);
-    const echo  = 0.5 * Math.exp(-((dist - (waveFront - 0.18)) ** 2) / (ringWidth * 1.8));
-    let i = (ring + echo) * Math.exp(-dist * decay);
-    i = Math.max(0, Math.min(1, i));
-
-    return [i * 40, i * 170, i * 255];
+    return [i * effectR, i * effectG, i * effectB];
   }
 
   return [0, 0, 0];
