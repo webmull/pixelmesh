@@ -257,6 +257,15 @@ function handleMessage(msg) {
     // Best estimate = sample with lowest RTT (least network jitter)
     const best = syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
     clockOffset = clockOffset * (1 - SYNC_EMA_ALPHA) + best.offset * SYNC_EMA_ALPHA;
+    // Report stats back so the controller can display them
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type:    "sync_report",
+        rtt:     Math.round(best.rtt),
+        offset:  Math.round(clockOffset),
+        samples: syncSamples.length,
+      }));
+    }
     return;
   }
 

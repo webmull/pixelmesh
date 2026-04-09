@@ -86,6 +86,7 @@ connections:       dict[str, WebSocket] = {}   # device_uuid → ws
 blink_assignments: dict[str, int]       = {}   # device_uuid → blink_id
 positions:         dict[str, dict]      = {}   # device_uuid → {"u", "v"}
 last_seen:         dict[str, float]     = {}   # device_uuid → timestamp
+sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset_ms, samples, ts}
 
 available_blinks = list(range(512))           # pool of unassigned blink IDs
 
@@ -221,6 +222,15 @@ async def websocket_endpoint(ws: WebSocket):
                     "server_time": int(time.time() * 1000),
                 })
 
+            elif data.get("type") == "sync_report":
+                if device_id:
+                    sync_stats[device_id] = {
+                        "rtt_ms":    data.get("rtt"),
+                        "offset_ms": data.get("offset"),
+                        "samples":   data.get("samples", 0),
+                        "ts":        time.time(),
+                    }
+
             elif data.get("type") == "ping":
                 if device_id:
                     last_seen[device_id] = time.time()
@@ -301,6 +311,24 @@ async def update_positions(payload: dict):
 # Admin — reset                                                        #
 # ------------------------------------------------------------------ #
 
+@app.get("/admin/sync_stats")
+async def get_sync_stats():
+    now = time.time()
+    rows = []
+    for dev, s in sync_stats.items():
+        bid = blink_assignments.get(dev, "?")
+        rows.append({
+            "device_id": dev[:12],
+            "blink_id":  bid,
+            "rtt_ms":    s["rtt_ms"],
+            "offset_ms": s["offset_ms"],
+            "samples":   s["samples"],
+            "age_s":     round(now - s["ts"], 1),
+        })
+    rows.sort(key=lambda r: r["blink_id"] if isinstance(r["blink_id"], int) else 999)
+    return {"stats": rows}
+
+
 @app.post("/admin/sync")
 async def sync(payload: dict):
     """Controller enables/disables adaptive clock sync on all clients."""
@@ -317,6 +345,7 @@ async def reset():
     current_effect_state = None
     detection_active = False
     sync_active = False
+    sync_stats.clear()
     await set_mode(MODE_DETECTION)
     await broadcast({"type": "reset"})
     return {"ok": True}

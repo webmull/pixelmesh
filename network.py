@@ -22,6 +22,16 @@ def post_json_async(path: str, payload: dict):
     ).start()
 
 
+def fetch_json(path: str, timeout=0.5) -> dict | None:
+    try:
+        r = session.get(f"{SERVER_BASE}{path}", timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
+
+
 def fetch_client_count(state):
     try:
         r = session.get(f"{SERVER_BASE}/admin/clients", timeout=0.5)
