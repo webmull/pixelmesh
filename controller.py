@@ -163,7 +163,7 @@ def no_camera_canvas() -> np.ndarray:
         cv2.line(canvas, (x, 0), (x, PREVIEW_HEIGHT), (30, 30, 30), 1)
     for y in range(0, PREVIEW_HEIGHT, 80):
         cv2.line(canvas, (0, y), (PREVIEW_WIDTH, y), (30, 30, 30), 1)
-    msg = "No camera — press K to scan"
+    msg = "Camera initialising..."
     (tw, _), _ = cv2.getTextSize(msg, FONT, 0.9, 2)
     cv2.putText(canvas, msg,
                 (PREVIEW_WIDTH // 2 - tw // 2, PREVIEW_HEIGHT // 2),
@@ -241,6 +241,8 @@ def toggle_detection():
 
     if val:
         detector.reset()
+        with state.lock:
+            state.showtime_boost = False
         post_json_async("/admin/detect", {"detecting": True})
         set_status("Detection ON")
     else:
@@ -287,6 +289,7 @@ def trigger_effect(name: str, path: str):
     post_json_async(path, {})
     with state.lock:
         state.current_effect = name
+        state.showtime_boost  = True
     set_status(f"Effect: {name}")
 
 
@@ -338,10 +341,13 @@ def camera_scan_worker(holder=None):
     safe_set("camera_selector_items", labels)
     log.info(f"[camera] scan complete: {labels}")
 
-    # Auto-open first USB camera found
+    # Auto-open Facecam 4K if present, otherwise first camera found
     if holder is not None and cams:
-        first_label = labels[0]
-        idx = lmap.get(first_label)
+        preferred = next(
+            (l for l in labels if "facecam" in l.lower()),
+            labels[0],
+        )
+        idx = lmap.get(preferred)
         if idx is not None:
             cap = open_camera(idx)
             if cap:
@@ -351,7 +357,7 @@ def camera_scan_worker(holder=None):
                 holder["cap"] = cap
                 with state.lock:
                     state.selected_camera_idx = idx
-                log.info(f"[camera] auto-opened {first_label}")
+                log.info(f"[camera] auto-opened {preferred}")
 
 
 # ------------------------------------------------------------------ #
@@ -387,9 +393,6 @@ def on_key_press(key, holder):
 
     elif key == dpg.mvKey_D:
         toggle_detection()
-
-    elif key == dpg.mvKey_K:
-        switch_camera_next(holder)
 
     elif key == dpg.mvKey_R:
         reset_server()
@@ -486,36 +489,9 @@ def setup_ui(holder: dict):
                                width=-1)
 
                 dpg.add_spacer(height=6)
-                dpg.add_separator()
-                dpg.add_text("Camera")
-                dpg.add_listbox(items=["click Scan"],
-                                tag="camera_selector",
-                                callback=lambda s, a, u: on_camera_selected(a, u),
-                                user_data=holder, width=-1, num_items=4)
-                dpg.add_button(label="Scan Cameras",
-                               callback=lambda s, a, u: threading.Thread(target=camera_scan_worker, args=(u,), daemon=True).start(),
-                               user_data=holder, width=-1)
-                dpg.add_button(label="Switch Camera  [K]",
-                               callback=lambda: switch_camera_next(holder), width=-1)
-
-                dpg.add_spacer(height=6)
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server, width=-1)
 
-                dpg.add_spacer(height=12)
-                dpg.add_separator()
-                dpg.add_text("Hotkeys", color=(160, 160, 160))
-                for line in [
-                    "D  toggle detection",
-                    "G  toggle debug capture",
-                    "K  switch camera",
-                    "1-5  effects",
-                    "R  reset",
-                    "Tab  sidebar",
-                    "B  blackout",
-                    "Q/Esc  quit",
-                ]:
-                    dpg.add_text(line, color=(120, 120, 120))
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
@@ -557,6 +533,7 @@ def main():
     setup_ui(holder)
 
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
+    threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
 
     delay = 1.0 / TARGET_FPS
     texture_data = frame_to_texture(no_camera_canvas())
@@ -591,9 +568,12 @@ def main():
                         blackout   = state.blackout_camera
                         detecting  = state.detecting
                         show_ov    = state.show_device_overlay
+                        boost      = state.showtime_boost
 
                     if blackout:
                         canvas[:] = 0
+                    elif boost:
+                        canvas = cv2.convertScaleAbs(canvas, alpha=3.0, beta=30)
 
                     if detecting:
                         ts_now = time.time()
@@ -672,12 +652,7 @@ def main():
             while not ui_queue.empty():
                 tag, value = ui_queue.get()
                 try:
-                    if tag == "camera_selector_items":
-                        dpg.configure_item("camera_selector", items=value)
-                        if value:
-                            dpg.set_value("camera_selector", value[0])
-                    else:
-                        dpg.set_value(tag, value)
+                    dpg.set_value(tag, value)
                 except Exception as e:
                     log.info(f"[ui] queue error tag={tag} err={e}")
 
