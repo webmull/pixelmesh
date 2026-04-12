@@ -228,11 +228,13 @@ class BlinkDetector:
 
         # Only maintain decode history for points showing non-trivial variance.
         # _std_buf handles all points for recent_std; history is only for try_decode.
-        # This cuts add_sample calls from ~25K to ~10-100 per frame after warmup.
+        # IMPORTANT: history_gate must be much lower than min_recent_std so that guard
+        # phase samples are recorded even when the phone's recent_std temporarily dips
+        # (the dark guard pulls std down ~5× vs Manchester phase for distant phones).
+        # Using 0.003 — below any realistic phone signal but above sensor noise floor.
         if computed_stds is not None:
-            history_gate = max(cfg["min_recent_std"] * 0.3, 0.004)
             for pt, b, s in zip(self._points, brightnesses, computed_stds):
-                if s >= history_gate:
+                if s >= 0.003:
                     pt.add_sample(float(b), ts, cfg["history_seconds"])
         else:
             for pt, b in zip(self._points, brightnesses):
@@ -257,19 +259,20 @@ class BlinkDetector:
 
         # 5. Attempt decode on high-variance points only.
         #    numpy where() finds active indices in one vectorised pass;
-        #    try_decode is then called only for the few points above the gate
-        #    (typically 0-50) rather than all 25K.  Previously-decoded points
-        #    that drop below gate are cleared here rather than inside try_decode.
+        #    try_decode is called only for the few points above the gate
+        #    (typically 0-50) rather than all 25K.
+        #    For already-decoded points that drop below gate (e.g. during the dark
+        #    guard phase), try_decode is also called so its internal rate-limited
+        #    gate can clear the ID at the right time — NOT via an immediate clear
+        #    which would wipe IDs on every single frame of the guard.
         gate = cfg["min_recent_std"]
         if computed_stds is not None:
             active_idx = np.where(computed_stds >= gate)[0]
             for i in active_idx:
                 self._points[i].try_decode(ts, cfg)
-            # Clear decoded IDs for points that have gone quiet
             for pt in self._points:
                 if pt.decoded_id is not None and pt.recent_std < gate:
-                    pt.decoded_id  = None
-                    pt.confidence  = 0.0
+                    pt.try_decode(ts, cfg)   # lets internal gate handle cleanup
         else:
             for pt in self._points:
                 pt.try_decode(ts, cfg)

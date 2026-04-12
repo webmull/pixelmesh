@@ -282,10 +282,12 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "detection_started") {
-    // Reset cycle so Manchester data shows immediately (skip past guard phases).
+    // Start from phase 0 (guard) so the decoder sees guard → Manchester immediately.
+    // Previously this skipped past the guard, meaning the guard only appeared after
+    // 40 Manchester phases (~12s), making minimum decode time ~25s instead of ~13s.
     // Stagger by blink ID so devices don't all flash in sync.
     const stagger = myBlinkId !== null ? (myBlinkId % myBlinkPhases.length) * PHASE_MS : 0;
-    blinkStartMs = Date.now() - (NUM_GUARD * PHASE_MS) - stagger;
+    blinkStartMs = Date.now() - stagger;
     phoneState  = PS.BLINKING;
     missedStart = 0;
     return;
