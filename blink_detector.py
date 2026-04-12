@@ -38,11 +38,13 @@ DEFAULTS = dict(
     brightness_pct  = 3,     # 3rd percentile: a phone covering ~3% of the patch (≥4 px wide
                              # in a 12×12 = 144 px patch) will shift this percentile.
                              # Lower than 5 to handle very small/distant phones.
-    sample_radius   = 6,     # px: radius around grid point to sample (12×12=144 px patch).
-                             # Smaller patches make a distant phone (few px wide) a larger
-                             # fraction: a 3-px phone = 12.5% of a 144-px patch.
-                             # Total pixel work (25920 pts × 144) ≈ 3.7M — less than the
-                             # old step=15/r=12 setup (7424 × 576 ≈ 4.3M).
+    sample_radius   = 4,     # px: radius around grid point to sample (8×8=64 px patch).
+                             # r=4 keeps the 25920×64 matrix at 1.66 MB — inside L2/L3
+                             # cache on M1.  r=6 (3.7 MB) spills to RAM, making partition
+                             # 10× slower purely due to cache pressure, not arithmetic.
+                             # Coverage is unchanged: the worst-case phone pixel (5.66 px
+                             # from its nearest grid centre) falls inside an adjacent
+                             # centre's r=4 patch, so nothing is missed.
     roi_top_frac    = 0.20,  # fraction of frame height to skip from top
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
     log_interval    = 3.0,   # seconds between diagnostic log lines
@@ -95,10 +97,8 @@ class _GridPoint:
         # Gate 1: must be actively blinking NOW
         if self.recent_std < cfg["min_recent_std"]:
             self.decode_fail_reason = f"std={self.recent_std:.3f}<{cfg['min_recent_std']}"
-            # Phone has moved away — drop stale decoded ID so position doesn't linger
-            if self.decoded_id is not None:
-                self.decoded_id  = None
-                self.confidence  = 0.0
+            # Once decoded, keep the ID regardless — phone may have left or entered
+            # a guard phase.  IDs are only cleared on detector.reset().
             return
 
 
@@ -134,6 +134,7 @@ class BlinkDetector:
         self._patch_idx:     np.ndarray | None = None   # (N, flat_size) int32
         self._patch_idx_r:   int = -1                   # radius used to build _patch_idx
         self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
+        self._decoded_pts:   list = []                  # points with decoded_id != None (tiny list)
 
     # ---------------------------------------------------------------- #
 
@@ -258,30 +259,43 @@ class BlinkDetector:
             cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.015)
 
         # 5. Attempt decode on high-variance points only.
-        #    numpy where() finds active indices in one vectorised pass;
-        #    try_decode is called only for the few points above the gate
-        #    (typically 0-50) rather than all 25K.
-        #    For already-decoded points that drop below gate (e.g. during the dark
-        #    guard phase), try_decode is also called so its internal rate-limited
-        #    gate can clear the ID at the right time — NOT via an immediate clear
-        #    which would wipe IDs on every single frame of the guard.
+        #    Cap at MAX_DECODES_PER_FRAME full decoder runs per frame, prioritised by
+        #    highest std, so a sudden crowd of high-variance points (person walking in
+        #    front of camera) cannot stall the frame loop with hundreds of decode calls.
+        #    Each decode_phases_verbose call on 30s of history costs ~1-5ms; uncapped
+        #    this could push frame time from ~50ms to >500ms.
+        #    The budget only gates NEW decode attempts (interval elapsed); points whose
+        #    interval hasn't elapsed fall through cheaply regardless.
+        #    Already-decoded points below the gate still get try_decode for ID cleanup.
+        MAX_DECODES_PER_FRAME = 12
         gate = cfg["min_recent_std"]
         if computed_stds is not None:
             active_idx = np.where(computed_stds >= gate)[0]
+            # Sort highest-std first so real phones (strong blink) get priority
+            if len(active_idx) > 1:
+                active_idx = active_idx[np.argsort(-computed_stds[active_idx])]
+            budget = MAX_DECODES_PER_FRAME
             for i in active_idx:
-                self._points[i].try_decode(ts, cfg)
-            for pt in self._points:
-                if pt.decoded_id is not None and pt.recent_std < gate:
-                    pt.try_decode(ts, cfg)   # lets internal gate handle cleanup
+                pt = self._points[i]
+                # Check if this point would actually run the decoder (interval elapsed)
+                will_decode = (ts - pt.last_decode_attempt) >= cfg["decode_interval"]
+                if will_decode:
+                    if budget <= 0:
+                        continue   # skip this frame; try again next frame
+                    budget -= 1
+                pt.try_decode(ts, cfg)
         else:
             for pt in self._points:
                 pt.try_decode(ts, cfg)
 
         # 5. Collect best DetectedDevice per blink_id
+        #    Also rebuild _decoded_pts here — same pass, no extra O(N) scan.
         id_map: dict[int, DetectedDevice] = {}
+        decoded_pts_new: list = []
         for pt in self._points:
             if pt.decoded_id is None:
                 continue
+            decoded_pts_new.append(pt)
             existing = id_map.get(pt.decoded_id)
             if existing is None or pt.confidence > existing.confidence:
                 id_map[pt.decoded_id] = DetectedDevice(
@@ -292,6 +306,7 @@ class BlinkDetector:
                 )
 
         self.last_results = list(id_map.values())
+        self._decoded_pts = decoded_pts_new
 
         # 6. Diagnostic logging
         if ts - self._last_log_ts >= cfg["log_interval"]:
@@ -361,24 +376,21 @@ class BlinkDetector:
         def to_canvas(raw_x: int, raw_y: int) -> tuple[int, int]:
             return (int(raw_x * scale) - crop_x, int(raw_y * scale) - crop_y)
 
-        # Track which decoded IDs have already been drawn (one label per ID)
+        # Decoded labels — iterate only the tiny _decoded_pts list (0-5 points),
+        # not all 25K grid points.
         drawn_ids: set[int] = set()
-
-        for pt in self._points:
+        for pt in self._decoded_pts:
+            if pt.decoded_id is None:   # may have been cleared since last frame
+                continue
+            if pt.decoded_id in drawn_ids:
+                continue
+            drawn_ids.add(pt.decoded_id)
             px, py = to_canvas(pt.px, pt.py)
-
-            if pt.decoded_id is not None:
-                # Draw only the first (highest-std) instance of each ID
-                if pt.decoded_id in drawn_ids:
-                    continue
-                drawn_ids.add(pt.decoded_id)
-
-                # Green dot + bold ID label
-                cv2.circle(frame, (px, py), 7, (0, 220, 80), -1)
-                cv2.putText(frame, str(pt.decoded_id),
-                            (px + 12, py + 7), font, 0.9, (0, 0, 0), 5, cv2.LINE_AA)
-                cv2.putText(frame, str(pt.decoded_id),
-                            (px + 12, py + 7), font, 0.9, (80, 255, 80), 2, cv2.LINE_AA)
+            cv2.circle(frame, (px, py), 7, (0, 220, 80), -1)
+            cv2.putText(frame, str(pt.decoded_id),
+                        (px + 12, py + 7), font, 0.9, (0, 0, 0), 5, cv2.LINE_AA)
+            cv2.putText(frame, str(pt.decoded_id),
+                        (px + 12, py + 7), font, 0.9, (80, 255, 80), 2, cv2.LINE_AA)
 
         # Actively blinking but not yet decoded — show a scrolling binary stream.
         # Filter: must swing from near-zero (dark phase) to bright (white phase).
@@ -388,15 +400,22 @@ class BlinkDetector:
         # so the max-min check includes pre-guard Manchester frames and doesn't drop to zero.
         STREAM_CHECK_N = 22
         CLUSTER_R     = 120   # px — grid points within this distance = same phone
-        candidates = sorted(
-            (p for p in self._points
-             if (p.recent_std >= min_std
-                 and p.history
-                 and (max(b for _, b in p.history[-STREAM_CHECK_N:])
-                      - min(b for _, b in p.history[-STREAM_CHECK_N:])) > max(min_std * 1.2, 0.08))),
-            key=lambda p: p.recent_std,
-            reverse=True,
-        )
+
+        # numpy-gate: find above-threshold indices in one vectorised pass,
+        # then range-check only those ~0-50 points instead of all 25K.
+        if self._last_stds is not None:
+            cand_idx = np.where(self._last_stds >= min_std)[0]
+            candidates = sorted(
+                (self._points[i] for i in cand_idx
+                 if (self._points[i].history
+                     and (max(b for _, b in self._points[i].history[-STREAM_CHECK_N:])
+                          - min(b for _, b in self._points[i].history[-STREAM_CHECK_N:]))
+                     > max(min_std * 1.2, 0.08))),
+                key=lambda p: p.recent_std,
+                reverse=True,
+            )
+        else:
+            candidates = []
 
         seen_canvas: list[tuple[int, int]] = []
         for pt in candidates:

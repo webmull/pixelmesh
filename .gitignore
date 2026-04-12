@@ -1,4 +1,7 @@
 debug/
+calibration_logs/
+recordings/
+*.log
 .claude/
 .DS_Store
 __pycache__/

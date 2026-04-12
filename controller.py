@@ -24,7 +24,7 @@ Dependencies:
 
 import threading
 import time
-from queue import Queue
+from queue import Queue, Full, Empty
 
 import cv2
 import dearpygui.dearpygui as dpg
@@ -34,6 +34,7 @@ from state import AppState, PREVIEW_WIDTH, PREVIEW_HEIGHT
 from camera import apply_gamma, apply_contrast, apply_sharpen
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
+from video_recorder import VideoRecorder
 from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
 
@@ -55,6 +56,13 @@ dbg_cap  = DebugCapture()
 # Throttle debug saves: one frame every N camera frames
 DEBUG_SAVE_EVERY = 6
 ui_queue: Queue = Queue()
+
+# Detection runs on a dedicated background thread so the camera loop is never
+# blocked.  maxsize=1 means old frames are dropped if the detector is busy —
+# the display thread always runs at full camera speed regardless of detection load.
+_detect_queue  = Queue(maxsize=1)
+_last_dbg_imgs = None   # DebugImages; written by detection thread, read by main
+_detect_fps:   float = 0.0   # EMA fps of detection thread, read by draw_hud
 
 # Detection timing
 _detection_start_time: float = 0.0
@@ -79,6 +87,9 @@ def _log_timing(line: str):
         return
     with open(_timing_log_path, "a") as f:
         f.write(line + "\n")
+
+
+vid_rec = VideoRecorder()
 
 
 # ------------------------------------------------------------------ #
@@ -231,12 +242,28 @@ def draw_device_overlay(canvas: np.ndarray):
 
 def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
-        n = state.last_detection_count
         detecting = state.detecting
 
-    color  = (0, 220, 100) if detecting else (120, 120, 120)
-    label  = f"DETECTING  FPS:{fps:.0f}  blobs:{n}" if detecting else f"PASSIVE  FPS:{fps:.0f}"
-    cv2.putText(canvas, label, (10, 24), FONT, 0.55, color, 1, cv2.LINE_AA)
+    dot_color  = (40, 210, 80) if detecting else (70, 70, 70)
+    state_str  = "DET" if detecting else "OFF"
+    disp_str   = f"{int(fps + 0.5)} fps"
+    det_str    = f"det {int(_detect_fps + 0.5)} fps" if detecting else ""
+    label      = f"{disp_str}  {det_str}  {state_str}".strip() if det_str else f"{disp_str}  {state_str}"
+
+    PAD = 6
+    font_scale, thickness = 0.5, 1
+    (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+
+    x, y  = 8, 8
+    bx1   = x + PAD * 2 + 14 + tw
+    by1   = y + PAD * 2 + th
+    mid_y = (y + by1) // 2
+
+    cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
+    cv2.rectangle(canvas, (x, y), (bx1, by1), (55, 55, 55), 1)
+    cv2.circle(canvas, (x + PAD + 5, mid_y), 4, dot_color, -1)
+    cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
+                FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
 
 # ------------------------------------------------------------------ #
@@ -257,7 +284,6 @@ def update_ui_from_state():
         status    = state.status_text
         clients   = state.client_count
         detecting = state.detecting
-        n_det     = state.last_detection_count
         effect    = state.current_effect
 
     dbg_label = f"Debug: REC ({dbg_cap.frame_idx} frames)" if dbg_cap.active else "Debug: OFF"
@@ -265,9 +291,10 @@ def update_ui_from_state():
     safe_set("status_text",     status)
     safe_set("clients_text",    f"Clients: {clients}")
     safe_set("detect_text",     f"Detection: {'ON' if detecting else 'OFF'}  |  Sync: {'ON' if state.syncing else 'OFF'}")
-    safe_set("det_count_text",  f"Blobs decoded: {n_det}")
+    safe_set("det_count_text",  f"Blobs decoded: {len(_detected_ids)}")
     safe_set("effect_text",     f"Effect: {effect}")
     safe_set("debug_text",      dbg_label)
+    safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
 
 
 # ------------------------------------------------------------------ #
@@ -292,10 +319,14 @@ def toggle_detection():
         _detection_start_time = time.time()
         _detected_ids = set()
         detector.reset()
+        with state.lock:
+            state.calibrated_positions.clear()
         post_json_async("/admin/detect", {"detecting": True})
         _open_timing_log()
         set_status("Detection ON")
     else:
+        with state.lock:
+            state.calibrated_positions.clear()
         post_json_async("/admin/detect", {"detecting": False})
         set_status("Detection OFF")
 
@@ -308,6 +339,16 @@ def toggle_debug():
     else:
         run_dir = dbg_cap.start_run()
         set_status(f"Debug → {run_dir}")
+
+
+def toggle_recording():
+    """Start or stop a plain video recording (hotkey V). Independent of debug capture."""
+    if vid_rec.active:
+        path = vid_rec.stop()
+        set_status(f"Recording saved → {_os.path.basename(path)}")
+    else:
+        path = vid_rec.start()
+        set_status(f"Recording → {_os.path.basename(path)}")
 
 
 def toggle_sidebar():
@@ -452,6 +493,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_G:
         toggle_debug()
 
+    elif key == dpg.mvKey_V:
+        toggle_recording()
+
     elif key == dpg.mvKey_O:
         toggle_device_overlay()
 
@@ -524,6 +568,9 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="Toggle Debug Capture  [G]",
                                callback=toggle_debug, width=-1)
                 dpg.add_text("", tag="debug_text")
+                dpg.add_button(label="Record Video  [V]",
+                               callback=toggle_recording, width=-1)
+                dpg.add_text("", tag="rec_status_text", color=(220, 60, 60))
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Effects")
@@ -652,9 +699,10 @@ def main():
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
     threading.Thread(target=poll_sync_stats, daemon=True).start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
+    threading.Thread(target=_detection_worker, daemon=True).start()
 
-    delay = 1.0 / TARGET_FPS
     texture_data = frame_to_texture(no_camera_canvas())
+    _dbg_counter = 0   # local to main — throttles debug save_frame calls
 
     try:
         while dpg.is_dearpygui_running():
@@ -673,77 +721,69 @@ def main():
             else:
                 ok, raw = cap.read()
                 if ok:
+                    # One copy shared by state.latest_frame and the detection queue —
+                    # avoids a second 6 MB allocation when both need the same frame.
+                    raw_copy = raw.copy()
                     with state.lock:
-                        state.latest_frame = raw.copy()
+                        state.latest_frame = raw_copy
+                        blackout  = state.blackout_camera
+                        detecting = state.detecting
+                        show_ov   = state.show_device_overlay
 
-                    frame = apply_gamma(raw)
-                    frame = apply_contrast(frame)
+                    # Hand frame to detection thread (non-blocking).
+                    # If it's busy the frame is dropped — display continues unblocked.
+                    if detecting:
+                        try:
+                            _detect_queue.put_nowait((raw_copy, time.time()))
+                        except Full:
+                            pass
 
+                    frame  = apply_gamma(raw)
+                    frame  = apply_contrast(frame)
                     canvas = build_canvas(frame)
-
-                    with state.lock:
-                        blackout   = state.blackout_camera
-                        detecting  = state.detecting
-                        show_ov    = state.show_device_overlay
 
                     if blackout:
                         canvas[:] = 0
 
+                    with state.lock:
+                        _scale  = state.last_render_scale
+                        _crop_x = state.last_crop_x
+                        _crop_y = getattr(state, "last_crop_y", 0)
+
                     if detecting:
-                        ts_now = time.time()
-                        results, dbg_imgs = detector.process_frame(raw, ts_now)
-                        with state.lock:
-                            _scale  = state.last_render_scale
-                            _crop_x = state.last_crop_x
-                            _crop_y = getattr(state, "last_crop_y", 0)
+                        # draw_overlay reads detector's cached state (_last_stds,
+                        # _decoded_pts) written by the detection thread.  NumPy
+                        # reference swaps are atomic under CPython's GIL so no
+                        # explicit lock is needed — at worst we see one frame stale.
                         detector.draw_overlay(canvas, scale=_scale,
                                               crop_x=_crop_x, crop_y=_crop_y)
 
-                        with state.lock:
-                            state.last_detections      = results
-                            state.last_detection_count = len(results)
-                            frame_counter = getattr(state, "_frame_counter", 0) + 1
-                            state._frame_counter = frame_counter
-
-                        # Debug capture
                         if dbg_cap.active:
-                            dbg_cap.record_frame(canvas)   # every frame → video
-                            if frame_counter % DEBUG_SAVE_EVERY == 0:
-                                dbg_cap.save_frame(
-                                    raw=raw,
-                                    gray=dbg_imgs.gray,
-                                    thresh=dbg_imgs.contrast if dbg_imgs.contrast is not None else np.zeros_like(dbg_imgs.gray),
-                                    overlay=canvas.copy(),
-                                    blobs=detector.get_blobs(),
-                                    detections=results,
-                                )
+                            dbg_cap.record_frame(canvas)
+                            _dbg_counter += 1
+                            if _dbg_counter % DEBUG_SAVE_EVERY == 0:
+                                di = _last_dbg_imgs
+                                if di is not None and di.gray is not None:
+                                    with state.lock:
+                                        results_snap = list(state.last_detections)
+                                    dbg_cap.save_frame(
+                                        raw=raw,
+                                        gray=di.gray,
+                                        thresh=di.contrast if di.contrast is not None
+                                               else np.zeros_like(di.gray),
+                                        overlay=canvas.copy(),
+                                        blobs=detector.get_blobs(),
+                                        detections=results_snap,
+                                    )
 
-                        if results:
-                            h_raw, w_raw = raw.shape[:2]
-                            positions = {}
-                            for det in results:
-                                u = det.cx_px / w_raw
-                                v = det.cy_px / h_raw
-                                positions[str(det.blink_id)] = {
-                                    "u": round(u, 4),
-                                    "v": round(v, 4),
-                                    "confidence": round(det.confidence, 3),
-                                }
-                                with state.lock:
-                                    state.calibrated_positions[det.blink_id] = {
-                                        "u": u, "v": v
-                                    }
-                                if det.blink_id not in _detected_ids:
-                                    _detected_ids.add(det.blink_id)
-                                    elapsed = time.time() - _detection_start_time
-                                    _log_timing(f"{det.blink_id:>10}  {elapsed:>14.2f}s  {det.confidence:>12.3f}")
-                            post_json_async("/admin/positions", {"positions": positions})
-
-                    if show_ov:
+                    if show_ov and not detecting:
                         draw_device_overlay(canvas)
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     draw_hud(canvas, fps)
+
+                    if vid_rec.active:
+                        vid_rec.record(canvas)
 
                     texture_data = frame_to_texture(canvas)
 
@@ -799,16 +839,68 @@ def main():
 
             dpg.render_dearpygui_frame()
 
-            elapsed = time.time() - frame_start
-            if elapsed < delay:
-                time.sleep(delay - elapsed)
-
     finally:
         post_json("/admin/reset", {})
         cap = holder.get("cap")
         if cap:
             cap.release()
         dpg.destroy_context()
+
+
+def _detection_worker():
+    """
+    Background thread: pulls frames from _detect_queue, runs the blink detector,
+    and updates shared state.  The main thread never blocks on process_frame.
+
+    NumPy releases the GIL during heavy operations (gather, partition, std) so
+    this thread runs genuinely in parallel with the display thread on multi-core
+    hardware — no multiprocessing overhead needed.
+    """
+    global _last_dbg_imgs, _detect_fps
+    _det_last_ts = 0.0
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        try:
+            raw, ts = _detect_queue.get(timeout=0.05)
+        except Empty:
+            continue
+
+        try:
+            t_frame_start = time.time()
+            results, dbg_imgs = detector.process_frame(raw, ts)
+            elapsed = time.time() - t_frame_start
+            _detect_fps = 0.9 * _detect_fps + 0.1 * (1.0 / max(elapsed, 1e-4))
+            _last_dbg_imgs = dbg_imgs   # atomic reference swap — main thread reads safely
+
+            with state.lock:
+                state.last_detections      = results
+                state.last_detection_count = len(results)
+
+            if results:
+                h_raw, w_raw = raw.shape[:2]
+                positions    = {}
+                for det in results:
+                    u = det.cx_px / w_raw
+                    v = det.cy_px / h_raw
+                    positions[str(det.blink_id)] = {
+                        "u": round(u, 4),
+                        "v": round(v, 4),
+                        "confidence": round(det.confidence, 3),
+                    }
+                    with state.lock:
+                        state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
+                    if det.blink_id not in _detected_ids:
+                        _detected_ids.add(det.blink_id)
+                        elapsed = time.time() - _detection_start_time
+                        _log_timing(
+                            f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
+                            f"{det.confidence:>12.3f}"
+                        )
+                post_json_async("/admin/positions", {"positions": positions})
+        finally:
+            _detect_queue.task_done()
 
 
 def poll_clients():
