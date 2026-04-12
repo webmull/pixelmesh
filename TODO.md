@@ -1,23 +1,30 @@
 # PixelMesh TODO
 
-## Camera Upgrade (Elgato Facecam 4K)
-- [ ] Confirm actual delivered fps (measure real frame rate, not CAP_PROP_FPS readback)
-- [ ] Disable HDR / lock exposure in Elgato companion app before running
-- [ ] Tune `PHASE_MS` down from 450ms now that camera delivers true 30fps (target sub-10s first detection)
-
-## Scale to 200 Devices
-- [ ] Increase `NUM_BITS` from 5 → 8 (supports up to 256 IDs)
-- [ ] Update `blink_encoder.py` and `sim.js` to match
-- [ ] Re-tune `PHASE_MS` alongside bit increase to keep cycle time reasonable
-
 ## Adaptive Detection
-- [ ] If `above_gate > 0` but `decoded = 0` for more than 2 full cycles, auto-nudge `min_recent_std` down in steps (0.18 → 0.14 → 0.10)
+- [ ] If `above_gate > 0` but `decoded = 0` for more than 2 full cycles, auto-nudge `min_recent_std` down in steps
 - [ ] If still nothing, lower the `0.08` range floor in `decode_phases`
 - [ ] Once detections start coming in, lock the values that worked
-- [ ] Test in bright ambient lighting with new camera first to get real range/std baselines before choosing step sizes
 
 ## Detection / Showtime
 - [ ] When a detection run ends, any connected devices that were never detected should not receive effects — send them back to idle/dark state rather than playing showtime
+
+## Effects
+- [ ] **Ripple** — circular wave from a click point (origin_u, origin_v); controller clicks preview to place origin; each device phases on `dist = sqrt((u-ou)²+(v-ov)²)`
+- [ ] **Sparkle/Twinkle** — each device twinkles independently at a frequency seeded by blink_id; no coordination needed, scales well to 512
+- [ ] **Color cycle (rainbow)** — HSV hue distributed across u-position, slowly rotating; striking with many devices spread across a room
+- [ ] **Strobe** — hard sync flash at exact BPM across all devices; clock sync makes this tight
+- [ ] **Radial sweep (radar)** — line rotates around a centre point, lighting devices as it crosses their angle
+- [ ] **Heartbeat** — double-pulse (lub-dub) rhythm instead of single sine
+- [ ] **Breathing** — very slow sine fade in/out; good for transitions and idle state
+- [ ] **Stadium wave** — looping continuous sweep_bar (sinusoidal, repeating left-to-right); sweep_bar currently fires once
+- [ ] **Confetti** — random devices flash random colours; seeded by `blink_id + floor(serverNow/interval)` so deterministic and synced without per-device messages
+
+## Web Camera Preview (MJPEG Stream)
+- [ ] Share latest processed canvas frame from controller (JPEG-encoded, shared variable)
+- [ ] Add `/stream` MJPEG endpoint to server.py (`multipart/x-mixed-replace`)
+- [ ] Solve cross-process frame sharing — options: tmpfs file, multiprocessing, or embed stream server directly in controller
+- [ ] Embed in admin/dashboard page via `<img src="/stream">`
+- [ ] Cap stream to 10–15fps server-side (skip frames if last send < 80ms ago) to prevent multiple browser tabs overwhelming the connection
 
 ## Brighton Dome Deployment
 - [ ] Plan two-camera setup — one from stage (front half), one from FOH (back half)

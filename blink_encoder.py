@@ -78,7 +78,7 @@ def _try_decode_at_threshold(
     times: list[float],
     norm:  list[float],
     threshold: float,
-) -> tuple[int, float] | None:
+) -> tuple[int, float, str] | tuple[None, None, str]:
     """
     Time-based Manchester decode at one brightness threshold.
 
@@ -91,6 +91,8 @@ def _try_decode_at_threshold(
     phase_secs          = PHASE_MS / 1000.0
     min_guard_secs      = phase_secs * 2        # at least 2 guard phases
     expected_guard_secs = phase_secs * NUM_GUARD
+
+    best_fail = "no_guard"   # most informative failure seen so far
 
     # Walk runs, tracking the frame index where each run starts
     frame_pos = 0
@@ -108,18 +110,24 @@ def _try_decode_at_threshold(
             break
         guard_secs = times[run_end - 1] - times[run_start]
         if guard_secs < min_guard_secs:
+            best_fail = f"short_guard={guard_secs:.2f}s"
             continue
+
+        best_fail = "guard_ok_no_bits"
 
         # Estimate when the Manchester data starts.
         # Anchor from the END of the dark run (times[run_end-1]) rather than
         # the start: phones arrive mid-cycle so we often only see the TAIL of
         # the guard, making run_start unreliable.  The last guard frame is
         # always ~0.5 phase before Manchester begins.
-        for t_offset in (-0.75, -0.5, -0.25, 0.0, 0.25, 0.5, 0.75):
+        for t_offset in (-0.75, -0.625, -0.5, -0.375, -0.25, -0.125,
+                         0.0,
+                         0.125, 0.25, 0.375, 0.5, 0.625, 0.75):
             t_manchester = times[run_end - 1] + (0.5 + t_offset) * phase_secs
 
             bits  = []
             valid = True
+            fail  = ""
             for bit_i in range(_MANCHESTER_BITS):
                 p1_t0 = t_manchester + bit_i * 2 * phase_secs
                 p1_t1 = p1_t0 + phase_secs
@@ -132,6 +140,7 @@ def _try_decode_at_threshold(
                         if p2_t0 <= times[i] < p2_t1]
 
                 if not win1 or not win2:
+                    fail  = f"empty_win bit={bit_i}"
                     valid = False
                     break
 
@@ -143,28 +152,45 @@ def _try_decode_at_threshold(
                 elif p1 == 0 and p2 == 1:
                     bits.append(0)
                 else:
+                    fail  = f"phase_ambig bit={bit_i} p1={p1} p2={p2}"
                     valid = False
                     break
 
             if not valid or len(bits) != _MANCHESTER_BITS:
+                if fail:
+                    best_fail = fail
                 continue
 
             if bits[0] != 1 or bits[-1] != 0:
+                best_fail = f"bad_markers s={bits[0]} e={bits[-1]}"
                 continue
 
             data1 = bits[1 : 1 + NUM_BITS]
             data2 = bits[1 + NUM_BITS : 1 + NUM_BITS * 2]
-            if data1 != data2:
+
+            # Count bit errors between the two copies of the ID.
+            # Allow 1-bit tolerance for noisy/compressed signals (far away,
+            # bright ambient) — majority-vote between data1 and data2.
+            errors = sum(a != b for a, b in zip(data1, data2))
+            if errors > 1:
+                best_fail = f"copy_mismatch err={errors}"
                 continue
 
+            # Resolve each bit: if copies agree use that value; if they
+            # disagree take data1 (arbitrary — only 1 error allowed so the
+            # correct bit is unknown, but confidence will be penalised).
+            resolved = [a if a == b else a for a, b in zip(data1, data2)]
+
             device_id = 0
-            for b in data1:
+            for b in resolved:
                 device_id = (device_id << 1) | b
 
-            confidence = min(1.0, guard_secs / expected_guard_secs)
-            return (device_id, confidence)
+            # Penalise confidence for each bit error so high-noise decodes
+            # lose out to clean ones when multiple guards are found.
+            confidence = min(1.0, guard_secs / expected_guard_secs) * (1.0 - errors * 0.3)
+            return (device_id, confidence, "")
 
-    return None
+    return (None, None, best_fail)
 
 
 def decode_phases(
@@ -175,25 +201,47 @@ def decode_phases(
     ts_history: list of (timestamp_seconds, brightness_0_to_1)
     Returns (device_id, confidence) or None.
     """
+    result, reason = decode_phases_verbose(ts_history)
+    return result
+
+
+def decode_phases_verbose(
+    ts_history: list[tuple[float, float]],
+) -> tuple[tuple[int, float] | None, str]:
+    """
+    Like decode_phases but also returns a human-readable failure reason.
+    Returns ((device_id, confidence), "") on success or (None, reason) on failure.
+    """
     if len(ts_history) < CYCLE_LEN:
-        return None
+        return None, f"short_hist={len(ts_history)}<{CYCLE_LEN}"
 
     times = [t for t, _ in ts_history]
     vals  = [b for _, b in ts_history]
 
     lo = min(vals)
     hi = max(vals)
-    if hi - lo < 0.08:
-        return None
+    if hi - lo < 0.03:
+        return None, f"flat_range={hi-lo:.3f}"
 
     norm = [(b - lo) / (hi - lo) for b in vals]
 
-    best: tuple[int, float] | None = None
+    best:        tuple[int, float] | None = None
+    best_reason: str = "no_threshold_succeeded"
 
-    for threshold in (0.25, 0.40, 0.50, 0.60, 0.75):
-        result = _try_decode_at_threshold(times, norm, threshold)
-        if result is not None:
-            if best is None or result[1] > best[1]:
-                best = result
+    for threshold in (0.25, 0.35, 0.40, 0.50, 0.60, 0.65, 0.75):
+        dev_id, conf, reason = _try_decode_at_threshold(times, norm, threshold)
+        if dev_id is not None:
+            if best is None or conf > best[1]:
+                best = (dev_id, conf)
+        else:
+            # Keep the most informative failure (guard_ok > short_guard > no_guard)
+            priority = {"guard_ok_no_bits": 3, "phase_ambig": 2,
+                        "empty_win": 2, "copy_mismatch": 2, "bad_markers": 2}
+            cur_p  = next((v for k, v in priority.items() if reason.startswith(k)), 1)
+            best_p = next((v for k, v in priority.items() if best_reason.startswith(k)), 0)
+            if cur_p > best_p:
+                best_reason = f"t={threshold:.2f}:{reason}"
 
-    return best
+    if best is not None:
+        return best, ""
+    return None, best_reason
