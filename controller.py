@@ -44,7 +44,7 @@ from log import log
 WINDOW_TITLE       = "PixelMesh V2"
 CAM_WIDTH          = 1920
 CAM_HEIGHT         = 1080
-TARGET_FPS         = 30
+TARGET_FPS         = 60
 CLIENT_FETCH_SECS  = 2.0
 FONT               = cv2.FONT_HERSHEY_SIMPLEX
 
