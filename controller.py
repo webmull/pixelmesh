@@ -157,10 +157,20 @@ def open_camera(idx: int) -> cv2.VideoCapture | None:
 # Texture conversion
 # ------------------------------------------------------------------ #
 
+# Pre-allocated buffers reused every frame — avoids allocating 14 MB/frame
+# which was the main cause of GC pauses and FPS jitter.
+_tex_u8:  np.ndarray | None = None   # uint8 RGBA staging buffer
+_tex_f32: np.ndarray | None = None   # float32 RGBA output buffer
+
 def frame_to_texture(bgr: np.ndarray) -> np.ndarray:
-    rgb  = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    rgba = np.dstack((rgb, np.full(rgb.shape[:2], 255, dtype=np.uint8)))
-    return rgba.astype(np.float32).flatten() / 255.0
+    global _tex_u8, _tex_f32
+    h, w = bgr.shape[:2]
+    if _tex_f32 is None or _tex_f32.shape != (h, w, 4):
+        _tex_u8  = np.zeros((h, w, 4), dtype=np.uint8)
+        _tex_f32 = np.empty((h, w, 4), dtype=np.float32)
+    cv2.cvtColor(bgr, cv2.COLOR_BGR2RGBA, dst=_tex_u8)
+    np.multiply(_tex_u8, 1.0 / 255.0, out=_tex_f32)
+    return _tex_f32.ravel()
 
 
 # ------------------------------------------------------------------ #
@@ -668,7 +678,6 @@ def main():
 
                     frame = apply_gamma(raw)
                     frame = apply_contrast(frame)
-                    frame = apply_sharpen(frame)
 
                     canvas = build_canvas(frame)
 

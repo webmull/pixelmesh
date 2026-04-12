@@ -19,19 +19,30 @@ import cv2
 import numpy as np
 from dataclasses import dataclass, field
 
-from blink_encoder import decode_phases, CYCLE_LEN, PHASE_MS
+from blink_encoder import decode_phases_verbose, CYCLE_LEN, PHASE_MS
 
 from log import log
 
 DEFAULTS = dict(
-    grid_step       = 30,    # px: distance between grid sample points
+    grid_step       = 8,     # px: distance between grid sample points.
+                             # Denser grid = smaller phones (further away) are always within
+                             # radius of some grid point.  At step=8 the farthest any pixel
+                             # can be from the nearest grid centre is sqrt(4²+4²) ≈ 5.7 px,
+                             # so a phone that is just 3 px wide always lands inside a patch.
+                             # At 1080p this covers phones up to ~25-30 m away.
     history_seconds = 30.0,  # seconds of brightness history to keep (≥ 2 full cycles)
     decode_interval = 0.2,   # seconds between decode attempts per point
     min_history     = 150,   # unused — decode gate is now time-based (_MIN_HISTORY_SECS)
     min_recent_std  = 0.10,  # initial gate — overridden adaptively after warmup
     recent_n        = 24,    # samples in the recent window (~1.6s at 15fps)
-    brightness_pct  = 80,    # percentile for brightness sample in patch
-    sample_radius   = 30,    # px: radius around grid point to sample
+    brightness_pct  = 3,     # 3rd percentile: a phone covering ~3% of the patch (≥4 px wide
+                             # in a 12×12 = 144 px patch) will shift this percentile.
+                             # Lower than 5 to handle very small/distant phones.
+    sample_radius   = 6,     # px: radius around grid point to sample (12×12=144 px patch).
+                             # Smaller patches make a distant phone (few px wide) a larger
+                             # fraction: a 3-px phone = 12.5% of a 144-px patch.
+                             # Total pixel work (25920 pts × 144) ≈ 3.7M — less than the
+                             # old step=15/r=12 setup (7424 × 576 ≈ 4.3M).
     roi_top_frac    = 0.20,  # fraction of frame height to skip from top
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
     log_interval    = 3.0,   # seconds between diagnostic log lines
@@ -91,15 +102,15 @@ class _GridPoint:
             return
 
 
-        result = decode_phases(self.history)
+        result, reason = decode_phases_verbose(self.history)
         if result is not None:
             self.decoded_id, self.confidence = result
             self.decode_fail_reason = ""
         else:
             lo, hi = min(vals), max(vals)
             self.decode_fail_reason = (
-                f"no_decode hist={len(vals)} std={self.recent_std:.2f} "
-                f"range={hi-lo:.2f}"
+                f"hist={len(vals)} std={self.recent_std:.2f} "
+                f"range={hi-lo:.2f} → {reason}"
             )
 
 
@@ -111,6 +122,18 @@ class BlinkDetector:
         self._grid_shape   = (0, 0, 0, 0)
         self._last_log_ts  = 0.0
         self._noise_floor  = DEFAULTS["min_recent_std"]  # adaptive EMA estimate
+        # Circular buffer for vectorised recent_std — shape (N_points, recent_n).
+        # One np.std call on the full matrix is ~100× faster than N Python calls.
+        self._std_buf:       np.ndarray | None = None
+        self._std_buf_pos:   int = 0
+        self._std_buf_count: int = 0
+        # Precomputed flat indices into padded grayscale for each grid patch.
+        # Built once per grid/radius combo; avoids 25K Python slice ops per frame.
+        self._px_arr:        np.ndarray | None = None   # (N,) int32
+        self._py_arr:        np.ndarray | None = None   # (N,) int32
+        self._patch_idx:     np.ndarray | None = None   # (N, flat_size) int32
+        self._patch_idx_r:   int = -1                   # radius used to build _patch_idx
+        self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
 
     # ---------------------------------------------------------------- #
 
@@ -130,6 +153,13 @@ class BlinkDetector:
         for py in ys:
             for px in xs:
                 self._points.append(old_map.get((px, py)) or _GridPoint(px=px, py=py))
+        # Grid changed — reset all cached per-point arrays
+        self._px_arr = np.array([pt.px for pt in self._points], dtype=np.int32)
+        self._py_arr = np.array([pt.py for pt in self._points], dtype=np.int32)
+        self._patch_idx = None   # force recompute (radius may differ)
+        self._std_buf = None
+        self._std_buf_pos = 0
+        self._std_buf_count = 0
 
     # ---------------------------------------------------------------- #
 
@@ -155,44 +185,94 @@ class BlinkDetector:
         r   = cfg["sample_radius"]
         pct = cfg["brightness_pct"]
         n   = cfg["recent_n"]
+        N   = len(self._points)
 
-        # 3. Sample brightness — vectorised across all grid points.
-        #    Pad so every point gets a full 2r×2r patch regardless of position.
-        gray_pad = np.pad(gray, r, mode="edge")
-        side = 2 * r
+        # 3. Sample brightness — fully vectorised via precomputed flat indices.
+        #    _patch_idx (N, flat_size) is built once per grid/radius combo and
+        #    reused every frame, replacing 25K Python slice ops with one gather.
+        side      = 2 * r
         flat_size = side * side
-        patches = np.stack([
-            gray_pad[pt.py: pt.py + side, pt.px: pt.px + side]
-            for pt in self._points
-        ]).reshape(len(self._points), flat_size)  # (N, side*side)
-        # np.partition is O(n) vs O(n log n) for np.percentile
-        k = max(0, min(int(flat_size * pct / 100), flat_size - 1))
-        brightnesses = np.partition(patches, k, axis=1)[:, k] / 255.0  # (N,)
+        gray_pad  = np.pad(gray, r, mode="edge")
 
-        for pt, b in zip(self._points, brightnesses):
-            pt.add_sample(float(b), ts, cfg["history_seconds"])
+        if self._patch_idx is None or self._patch_idx_r != r:
+            row_off = np.arange(side, dtype=np.int32)
+            col_off = np.arange(side, dtype=np.int32)
+            rows = self._py_arr[:, None, None] + row_off[None, :, None]
+            cols = self._px_arr[:, None, None] + col_off[None, None, :]
+            self._patch_idx   = (rows * gray_pad.shape[1] + cols).reshape(N, flat_size)
+            self._patch_idx_r = r
 
-        # Update recent_std — plain loop; avoids object-array overhead.
-        for pt in self._points:
-            if len(pt.history) >= n:
-                pt.recent_std = float(np.std([bv for _, bv in pt.history[-n:]]))
+        k            = max(0, min(int(flat_size * pct / 100), flat_size - 1))
+        brightnesses = np.partition(
+            gray_pad.ravel()[self._patch_idx], k, axis=1
+        )[:, k] / 255.0  # (N,)
+
+        # Update std circular buffer and compute recent_std for all points in one call.
+        # Do this before add_sample so computed_stds can gate history tracking below.
+        if self._std_buf is None or self._std_buf.shape[0] != N:
+            self._std_buf = np.zeros((N, n), dtype=np.float32)
+            self._std_buf_pos = 0
+            self._std_buf_count = 0
+        self._std_buf[:, self._std_buf_pos % n] = brightnesses
+        self._std_buf_pos += 1
+        if self._std_buf_count < n:
+            self._std_buf_count += 1
+
+        if self._std_buf_count >= n:
+            computed_stds = np.std(self._std_buf, axis=1)   # one call, all points
+            self._last_stds = computed_stds                  # cached for _std_heatmap
+            for pt, s in zip(self._points, computed_stds):
+                pt.recent_std = float(s)
+        else:
+            computed_stds = None
+
+        # Only maintain decode history for points showing non-trivial variance.
+        # _std_buf handles all points for recent_std; history is only for try_decode.
+        # This cuts add_sample calls from ~25K to ~10-100 per frame after warmup.
+        if computed_stds is not None:
+            history_gate = max(cfg["min_recent_std"] * 0.3, 0.004)
+            for pt, b, s in zip(self._points, brightnesses, computed_stds):
+                if s >= history_gate:
+                    pt.add_sample(float(b), ts, cfg["history_seconds"])
+        else:
+            for pt, b in zip(self._points, brightnesses):
+                pt.add_sample(float(b), ts, cfg["history_seconds"])
+
+        # 4. Adapt gate to current noise floor.
+        #    Use the already-computed stds array to avoid rebuilding a Python list.
+        if computed_stds is not None:
+            active_mask = computed_stds > 0
+            if active_mask.sum() >= 20:
+                stds = computed_stds[active_mask]
             else:
-                pt.recent_std = 0.0
-
-        # 4. Adapt gate to current noise floor (p90 of all recent_std values).
-        #    Most points are background, so p90 ≈ scene noise regardless of exposure.
-        #    Gate = noise_floor × 5, floored at 0.04 to avoid being too eager.
-        stds = [pt.recent_std for pt in self._points if pt.recent_std > 0]
+                stds = []
+        else:
+            stds = []
         if len(stds) >= 20:
             # p75 is robust — phones would need to cover 25%+ of the frame to bias it.
             # Slow EMA (α=0.02, τ≈50 frames) prevents transient phone activity spiking the gate.
             p75 = float(np.percentile(stds, 75))
-            self._noise_floor = 0.98 * self._noise_floor + 0.02 * p75
-            cfg["min_recent_std"] = max(self._noise_floor * 5, 0.04)
+            self._noise_floor = 0.95 * self._noise_floor + 0.05 * p75
+            cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.015)
 
-        # 5. Attempt decode on high-variance points
-        for pt in self._points:
-            pt.try_decode(ts, cfg)
+        # 5. Attempt decode on high-variance points only.
+        #    numpy where() finds active indices in one vectorised pass;
+        #    try_decode is then called only for the few points above the gate
+        #    (typically 0-50) rather than all 25K.  Previously-decoded points
+        #    that drop below gate are cleared here rather than inside try_decode.
+        gate = cfg["min_recent_std"]
+        if computed_stds is not None:
+            active_idx = np.where(computed_stds >= gate)[0]
+            for i in active_idx:
+                self._points[i].try_decode(ts, cfg)
+            # Clear decoded IDs for points that have gone quiet
+            for pt in self._points:
+                if pt.decoded_id is not None and pt.recent_std < gate:
+                    pt.decoded_id  = None
+                    pt.confidence  = 0.0
+        else:
+            for pt in self._points:
+                pt.try_decode(ts, cfg)
 
         # 5. Collect best DetectedDevice per blink_id
         id_map: dict[int, DetectedDevice] = {}
@@ -251,11 +331,16 @@ class BlinkDetector:
 
     def _std_heatmap(self, h, w):
         img = np.zeros((h, w), dtype=np.uint8)
-        for pt in self._points:
-            v = int(min(pt.recent_std * 3.0, 1.0) * 255)
-            if v < 10:
-                continue
-            cv2.circle(img, (pt.px, pt.py), self.cfg["grid_step"] // 2 - 2, v, -1)
+        if self._last_stds is None:
+            return img
+        # Vectorised: compute all v values at once, then only call cv2.circle
+        # for active points (v >= 10).  Avoids iterating 25K points per frame.
+        vs = np.clip(self._last_stds * 3.0, 0.0, 1.0) * 255
+        active = np.where(vs >= 10)[0]
+        r = max(1, self.cfg["grid_step"] // 2 - 2)
+        for i in active:
+            pt = self._points[i]
+            cv2.circle(img, (pt.px, pt.py), r, int(vs[i]), -1)
         return img
 
     # ---------------------------------------------------------------- #
@@ -305,7 +390,7 @@ class BlinkDetector:
              if (p.recent_std >= min_std
                  and p.history
                  and (max(b for _, b in p.history[-STREAM_CHECK_N:])
-                      - min(b for _, b in p.history[-STREAM_CHECK_N:])) > min_std * 1.2)),
+                      - min(b for _, b in p.history[-STREAM_CHECK_N:])) > max(min_std * 1.2, 0.08))),
             key=lambda p: p.recent_std,
             reverse=True,
         )
@@ -344,3 +429,6 @@ class BlinkDetector:
             pt.decode_fail_reason = ""
             pt.recent_std = 0.0
         self.last_results.clear()
+        self._std_buf = None
+        self._std_buf_pos = 0
+        self._std_buf_count = 0
