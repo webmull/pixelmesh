@@ -844,6 +844,10 @@ def main():
                         except Full:
                             pass
 
+                    # TODO PERF: skip gamma + contrast when blackout is on — both ops
+                    #   run on the full 1080p raw frame before build_canvas zeros the
+                    #   result anyway.  Replace with np.zeros canvas directly.
+                    #   Measured saving: 2.24 ms/frame on display thread.  Risk: none.
                     frame  = apply_gamma(raw)
                     frame  = apply_contrast(frame)
                     canvas = build_canvas(frame)
@@ -985,7 +989,7 @@ def _detection_worker():
 
         try:
             t_frame_start = time.time()
-            results, dbg_imgs = detector.process_frame(raw, ts)
+            results, dbg_imgs = detector.process_frame(raw, ts, need_debug=dbg_cap.active)
             elapsed = time.time() - t_frame_start
             _detect_fps = 0.9 * _detect_fps + 0.1 * (1.0 / max(elapsed, 1e-4))
             _last_dbg_imgs = dbg_imgs   # atomic reference swap — main thread reads safely

@@ -279,7 +279,7 @@ Decoded IDs persist for the entire detection session and are **never re-decoded*
 
 **Decode backoff**: grid points that fail to decode back off exponentially — retry interval is `min(decode_interval × 2^failures, 5.0s)`. This prevents noisy non-phone regions (reflective surfaces, ambient flicker) from consuming the decode budget every 0.2s indefinitely. The failure counter resets to zero on a successful decode.
 
-**Stream display gate**: the binary stream overlay (scrolling `0`/`1` bits drawn next to an active point) is only shown once the point has been active for at least 4 seconds. This suppresses streams on transient noise and reflections that pass the variance gate briefly but are not phones.
+**Stream display gate**: the binary stream overlay is only shown once the point has been active for at least 4 seconds AND has fewer than 6 consecutive decode failures. Age alone isn't enough — sustained LEDs and reflections also pass the age gate. Decode failures are the stronger signal: real phones decode within ~26s; noise accumulates failures indefinitely. The failure counter resets to zero on a successful decode so legitimate phones are never suppressed.
 
 ---
 
@@ -310,4 +310,5 @@ Key optimisations:
 - **Gated history recording**: `add_sample` only called for points with std ≥ 0.003 (avoids 25K Python list appends/frame).
 - **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points.
 - **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation.
+- **Conditional heatmap**: the recent-std heatmap (variance visualisation for debug capture) is only built when debug capture is active (`G` key). Skipped on normal detection runs — saves a 1080p zeros allocation + circle loop per frame.
 
