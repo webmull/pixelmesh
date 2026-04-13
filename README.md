@@ -17,6 +17,23 @@ Built for live events. Designed for Brighton Dome.
 
 ---
 
+## Camera setup (Elgato Facecam 4K — do this before every run)
+
+The camera **must** be set to manual exposure before starting the controller.
+
+**Why auto-exposure breaks detection:** The blink signal is a screen switching between full-white and full-black at 300ms per phase. Auto-exposure sees a bright frame, reduces gain to compensate; sees a dark frame, increases gain. It tracks and cancels the blink. The resulting signal has a brightness range of ~0.28 instead of ~0.99 — the decoder sees a near-flat signal, misidentifies random noise as guard runs, and produces `empty_win` failures on every decode attempt. It is not a subtle degradation; detection stops working entirely.
+
+The code attempts to lock exposure via AVFoundation at startup, but the Elgato's firmware ignores the lock (`duration=0/0` in the log). The only reliable fix is the Elgato app.
+
+1. Open **Elgato Camera Hub**
+2. Disable **Auto Exposure**
+3. Set **ISO to 624**
+4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
+
+If signal range drops below 0.5 during a session the log will warn: `WARNING: low signal range=X.XX — auto-exposure may be compensating for blink.`
+
+---
+
 ## Requirements
 
 - Python 3.10+
@@ -45,12 +62,15 @@ Interactive menu — options:
 | `q` | Quit |
 
 Logs are written to:
-- `/tmp/pixelmesh-server.log`
-- `/tmp/pixelmesh-ngrok.log`
-- `/tmp/pixelmesh-controller.log`
-- `debug/pixelmesh.log` (blink detection diagnostics)
-- `calibration_logs/YYYYMMDD_HHMMSS.log` (time-to-detect per device, one file per detection run)
-- `recordings/YYYYMMDD_HHMMSS.mp4` (plain video recordings via `V` key — H.264, not committed to git)
+
+| File | Contents |
+|------|----------|
+| `/tmp/pixelmesh-server.log` | FastAPI / uvicorn output — HTTP requests, WebSocket connects/disconnects, device assignments, effect broadcasts, errors |
+| `/tmp/pixelmesh-ngrok.log` | ngrok tunnel output — connection status, forwarding address, request logs |
+| `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
+| `debug/pixelmesh.log` | Blink detection diagnostics — camera open parameters, exposure lock status, per-frame gate/std stats, top active grid points, decode failures, effect triggers, UI errors. Appended across restarts. |
+| `calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session. Records the time-to-detect and confidence for each blink ID found. Useful for tuning and venue verification. |
+| `recordings/YYYYMMDD_HHMMSS.mp4` | Plain H.264 video of the annotated camera view, started/stopped with `V`. Not committed to git. |
 
 ---
 
@@ -168,12 +188,14 @@ browser clients  ──WS──►  server.py (FastAPI)
 
 The display thread and detection thread run independently. Frames are passed via a `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
 
+The detection thread processes frames sequentially. Decode attempts are budget-capped at 12 per frame (highest-std candidates first) to bound worst-case frame time. `decode_phases_verbose` releases the GIL during numpy window scans, so the display thread is not blocked during decode.
+
 | File | Role |
 |------|------|
 | `server.py` | WebSocket server, device assignment, effect broadcast |
-| `controller.py` | Camera loop, GUI, detection thread management |
+| `controller.py` | Camera loop, GUI, detection thread management, exposure monitor |
 | `blink_encoder.py` | Manchester encoding / decoding |
-| `blink_detector.py` | Grid sampler, variance gate, per-point decode |
+| `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
 | `network.py` | HTTP helpers for controller → server calls |
@@ -201,6 +223,22 @@ Each device blinks one full cycle continuously:
 
 Detection uses actual frame timestamps + known `PHASE_MS` as ground truth — immune to variable camera fps. Anchor is computed from the end of the guard run (not the start) so phones that arrive mid-cycle are decoded correctly.
 
+**Minimum camera fps**: the decoder needs at least ~10 fps to reliably sample 300 ms phases (≥3 samples/phase). The camera is locked to manual exposure via AVFoundation on open to prevent it from slowing to 2–4 fps in dark rooms.
+
+**Adaptive normalisation**: `hi` used for brightness normalisation is taken from the most recent one-cycle window (13.2 s) rather than the all-time max. This prevents phone screen auto-dimming (ambient light sensor can reduce brightness by 4–5×) from pushing "bright" phases below the detection threshold and creating a spurious all-dark run that blocks the decoder.
+
+**Burst frame guard**: cameras sometimes deliver several frames in rapid succession with nearly identical timestamps. The guard detection accepts a dark run if either its time span is sufficient OR its sample count meets `NUM_GUARD` — so burst deliveries are decoded correctly regardless of timestamp spread.
+
+---
+
+## Camera exposure
+
+The Elgato Facecam 4K ignores both `CAP_PROP_AUTO_EXPOSURE` via OpenCV and `AVCaptureExposureModeLocked` via AVFoundation — the firmware runs its own internal AE regardless. The code attempts both locks at startup (and re-locks if fps drops below 8) but the Elgato reports `duration=0/0` meaning the lock is acknowledged but not applied.
+
+**The only reliable fix is the Elgato Camera Hub app** — see Camera Setup above.
+
+For other cameras that do respect AVFoundation: `AVCaptureExposureModeLocked` is applied at startup and re-applied by a background monitor thread if fps drops below 8fps. The OpenCV `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` calls are also issued as a fallback.
+
 ---
 
 ## Tuning
@@ -212,12 +250,12 @@ Key parameters in `blink_detector.py`:
 | `grid_step` | `8px` | Distance between sample points. At step=8 the farthest any pixel can be from the nearest grid centre is ~5.7px — a phone just 3px wide always overlaps a patch. Covers phones at 25–30m at 1080p. |
 | `sample_radius` | `4px` | Patch radius — 8×8=64px per point. Chosen specifically to keep the 25,920×64 sampling matrix at 1.66MB, which fits inside L2/L3 cache on M1. r=6 (3.7MB) spills to RAM and makes `np.partition` 10× slower — a hardware cache boundary, not an algorithmic difference. Coverage is equivalent: a phone pixel at the worst-case grid-corner position still lands in an adjacent point's r=4 patch. |
 | `brightness_pct` | `3` | Percentile used when sampling a patch. The ~2.8th percentile (k=1 of 64) catches even a single dark phone pixel during the dark phase. |
-| `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p75(all stds)) × 3.5`, clamped 0.015–0.15. |
-| `recent_n` | `24` | Samples in recent window (~0.5s at 50fps) |
+| `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. |
+| `recent_n` | `24` | Samples in recent window (~0.4s at 60fps) |
 | `history_seconds` | `30.0` | Rolling brightness history per point (≥ 2 full cycles) |
 | `decode_interval` | `0.2s` | Time between decode attempts per point |
 
-The variance gate adapts every frame: `gate = EMA(p75(all stds)) × 3.5`, α=0.05. The history gate is hardcoded at `0.003` (much lower than the decode gate) so guard-phase samples are always recorded even when a distant phone's std temporarily dips during the dark guard.
+The variance gate adapts every frame: `gate = EMA(p90(all stds)) × 3.5`, α=0.05, clamped to 0.05–0.15. p90 (not p75) is used to prevent the gate converging to the 0.05 floor in quiet scenes — with p75 the EMA drifts to near-zero after ~60 frames, flooding `above_gate` from ~20 to ~800 points. The 0.05 floor ensures gate stays above sensor noise (all real phone blink signals observed have std ≥ 0.08). Gate is reset to 0.10 on each `detector.reset()` so sessions don't inherit a drifted value.
 
 Decoded IDs persist for the entire detection session — they are never cleared when a phone enters its guard phase or leaves the frame. IDs are only reset when detection is toggled off and back on.
 
@@ -229,14 +267,16 @@ The display thread runs at full camera speed (~60fps). The detection thread runs
 
 Key optimisations:
 
-- **Threaded detection**: `process_frame` runs on a dedicated background thread. Frames are passed via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the display loop continues immediately. A crowd of people walking in front of the camera may slow detection but the camera feed stays smooth.
-- **Cache-friendly patch size**: `sample_radius=4` keeps the 25,920×64 sampling matrix at 1.66MB (fits L2/L3 cache). `r=6` produces a 3.7MB matrix that spills to RAM, making `np.partition` 10× slower with no detection benefit. This single parameter change drops partition time from 21.7ms to 2.2ms.
-- **Vectorised std**: single `np.std(buf, axis=1)` over an `(N, recent_n)` circular buffer — replaces 25K Python `std()` calls per frame
-- **Precomputed flat indices**: `(N, flat_size)` int32 array built once per grid/radius; patch sampling is one numpy gather per frame, no per-point slicing
-- **Decode budget cap**: at most 12 full decoder runs per frame, sorted by highest std first — prevents a sudden spike of high-variance points from stalling the detection thread
-- **Gated history recording**: `add_sample` only called for points with std ≥ 0.003 (avoids 25K Python list appends/frame)
-- **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points
-- **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation
+- **Threaded detection**: `process_frame` runs on a dedicated background thread. Frames are passed via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the display loop continues immediately.
+- **Decode budget cap**: at most 12 full decoder runs per frame, sorted by highest std first — bounds worst-case frame time regardless of how many points are above the gate.
+- **Cache-friendly patch size**: `sample_radius=4` keeps the 25,920×64 sampling matrix at 1.66MB (fits L2/L3 cache). `r=6` produces a 3.7MB matrix that spills to RAM, making `np.partition` 10× slower with no detection benefit.
+- **Vectorised std**: single `np.std(buf, axis=1)` over an `(N, recent_n)` circular buffer — replaces 25K Python `std()` calls per frame.
+- **Precomputed flat indices**: `(N, flat_size)` int32 array built once per grid/radius; patch sampling is one numpy gather per frame, no per-point slicing.
+- **Vectorised decoder window scans**: numpy boolean indexing replaces Python list comprehensions in the Manchester decoder, releasing the GIL and running ~10–20× faster.
+- **Decode budget cap**: at most 12 full decoder runs per frame, sorted by highest std first — prevents a sudden spike of high-variance points from stalling the detection thread.
+- **Gated history recording**: `add_sample` only called for points with std ≥ 0.003 (avoids 25K Python list appends/frame).
+- **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points.
+- **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation.
 
 ---
 

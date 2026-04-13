@@ -63,6 +63,11 @@ ui_queue: Queue = Queue()
 _detect_queue  = Queue(maxsize=1)
 _last_dbg_imgs = None   # DebugImages; written by detection thread, read by main
 _detect_fps:   float = 0.0   # EMA fps of detection thread, read by draw_hud
+_camera_fps:   float = 0.0   # EMA fps of camera frame delivery, read by exposure monitor
+
+MIN_RELIABLE_FPS    = 8.0   # below this, assume exposure has crept up in auto mode
+_EXP_MONITOR_SECS   = 5.0   # how often the exposure monitor checks fps
+_EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attempts
 
 # Detection timing
 _detection_start_time: float = 0.0
@@ -148,6 +153,134 @@ def find_cameras(max_idx: int = 8) -> list[int]:
     return found
 
 
+def _avf_lock_exposure(camera_name: str) -> bool:
+    """
+    Lock exposure on a named AVFoundation camera via pyobjc.
+
+    OpenCV's CAP_PROP_AUTO_EXPOSURE is unreliable on some cameras (e.g. Elgato
+    Facecam 4K ignores it entirely).  This calls AVFoundation directly to set
+    AVCaptureExposureModeLocked, preventing the camera from extending exposure
+    in dark conditions and dropping fps to 2-4.
+
+    Returns True if the lock was applied, False if unavailable or unsupported.
+    """
+    try:
+        from AVFoundation import (AVCaptureDevice,
+                                   AVCaptureExposureModeLocked)
+        devices = AVCaptureDevice.devicesWithMediaType_("vide")
+        for device in devices:
+            if camera_name.lower() not in device.localizedName().lower():
+                continue
+            if not device.isExposureModeSupported_(AVCaptureExposureModeLocked):
+                log.info(f"[camera] {device.localizedName()}: locked exposure not supported")
+                return False
+            err = None
+            if device.lockForConfiguration_(err):
+                device.setExposureMode_(AVCaptureExposureModeLocked)
+                device.unlockForConfiguration()
+                dur = device.exposureDuration()
+                fps_eq = (dur.timescale / dur.value) if dur.value else 0
+                log.info(
+                    f"[camera] AVF exposure locked on {device.localizedName()} "
+                    f"(duration={dur.value}/{dur.timescale}"
+                    + (f" ≈ {fps_eq:.0f}fps" if fps_eq else "")
+                    + ")"
+                )
+                return True
+        log.info(f"[camera] AVF lock: no device matching '{camera_name}'")
+    except Exception as e:
+        log.info(f"[camera] AVF lock unavailable: {e}")
+    return False
+
+
+def _avf_relock_exposure(camera_name: str) -> bool:
+    """
+    Adapt-then-lock: briefly re-enable ContinuousAutoExposure so the camera
+    adjusts to changed lighting conditions, then lock again at the new value.
+
+    Called by the exposure monitor when camera fps drops below MIN_RELIABLE_FPS.
+    In auto mode the camera extends exposure time in dark conditions, dropping
+    fps to 2-4.  This function lets it pick a new exposure that suits the current
+    room brightness, then freezes it to guarantee fast fps going forward.
+
+    Returns True if the re-lock succeeded.
+    """
+    try:
+        from AVFoundation import (AVCaptureDevice,
+                                   AVCaptureExposureModeLocked,
+                                   AVCaptureExposureModeContinuousAutoExposure)
+        devices = AVCaptureDevice.devicesWithMediaType_("vide")
+        for device in devices:
+            if camera_name.lower() not in device.localizedName().lower():
+                continue
+            err = None
+            # Step 1: re-enable ContinuousAE so camera adapts to new lighting
+            if not device.lockForConfiguration_(err):
+                log.info(f"[camera] relock: could not lock {device.localizedName()} for config")
+                return False
+            device.setExposureMode_(AVCaptureExposureModeContinuousAutoExposure)
+            device.unlockForConfiguration()
+            log.info(f"[camera] relock: ContinuousAE enabled on {device.localizedName()} — adapting...")
+            time.sleep(1.5)   # let camera settle on a new exposure
+            # Step 2: lock at whatever exposure the camera has now chosen
+            if not device.lockForConfiguration_(err):
+                return False
+            device.setExposureMode_(AVCaptureExposureModeLocked)
+            device.unlockForConfiguration()
+            dur = device.exposureDuration()
+            fps_eq = (dur.timescale / dur.value) if dur.value else 0
+            log.info(
+                f"[camera] relock: exposure re-locked on {device.localizedName()} "
+                f"(duration={dur.value}/{dur.timescale}"
+                + (f" ≈ {fps_eq:.0f}fps" if fps_eq else "")
+                + ")"
+            )
+            return True
+        log.info(f"[camera] relock: no device matching '{camera_name}'")
+    except Exception as e:
+        log.info(f"[camera] relock unavailable: {e}")
+    return False
+
+
+def _exposure_monitor_worker():
+    """
+    Background thread: watches camera fps.  If it drops below MIN_RELIABLE_FPS
+    (indicating auto-exposure extended shutter for changed room lighting), triggers
+    an adapt-and-relock cycle so fps recovers without a manual camera restart.
+    """
+    log.info(f"[exposure_monitor] started (check every {_EXP_MONITOR_SECS}s, "
+             f"threshold={MIN_RELIABLE_FPS}fps, cooldown={_EXP_RELOCK_COOLDOWN}s)")
+    time.sleep(6.0)   # startup grace — let camera stabilise first
+    _last_relock    = 0.0
+    _no_frames_logged = False   # suppress repeated "no frames" lines
+    _last_ok_log    = 0.0       # throttle "fps OK" to once per minute
+    while True:
+        with state.lock:
+            if not state.running:
+                break
+        time.sleep(_EXP_MONITOR_SECS)
+        fps = _camera_fps
+        if fps <= 0:
+            if not _no_frames_logged:
+                log.info("[exposure_monitor] no frames yet — waiting")
+                _no_frames_logged = True
+            continue
+        if fps < MIN_RELIABLE_FPS:
+            now = time.time()
+            if now - _last_relock < _EXP_RELOCK_COOLDOWN:
+                log.info(f"[exposure_monitor] fps={fps:.1f} still low but cooldown active "
+                         f"({_EXP_RELOCK_COOLDOWN - (now - _last_relock):.0f}s remaining)")
+                continue
+            log.info(f"[exposure_monitor] fps={fps:.1f} < {MIN_RELIABLE_FPS} — triggering re-lock")
+            _avf_relock_exposure("elgato")
+            _last_relock = now
+        else:
+            now = time.time()
+            if now - _last_ok_log >= 60.0:
+                log.info(f"[exposure_monitor] fps={fps:.1f} OK")
+                _last_ok_log = now
+
+
 def open_camera(idx: int) -> cv2.VideoCapture | None:
     cap = cv2.VideoCapture(idx, cv2.CAP_AVFOUNDATION)
     if not cap.isOpened():
@@ -155,12 +288,28 @@ def open_camera(idx: int) -> cv2.VideoCapture | None:
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS, TARGET_FPS)
-    # Disable autoexposure so the camera doesn't brighten dark phases
-    # (autoexposure during the 6-phase dark guard causes false bright frames
-    #  that break the run-length, making the guard undetectable)
-    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)   # 1 = manual on AVFoundation
+    # Lock exposure so the camera doesn't slow to 2-4 fps in dark rooms.
+    # On AVFoundation: 0 = locked (manual), non-zero = continuous auto.
+    # With auto-exposure, the camera extends exposure time in dark conditions —
+    # this drops fps from ~14 to 2-3 fps even with self-lit phone screens in
+    # view.  Locked exposure keeps fps high regardless of ambient light.
+    cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, 0)   # 0 = locked on AVFoundation
+
+    # Request short exposure to ensure fast fps.
+    # -6 ≈ 1/64 s on supported cameras.  Elgato Facecam 4K ignores this via
+    # OpenCV (returns 0.0), but it's harmless and works on other cameras.
+    cap.set(cv2.CAP_PROP_EXPOSURE, -6)
+
     actual_fps = cap.get(cv2.CAP_PROP_FPS)
-    log.info(f"[camera] idx={idx} actual_fps={actual_fps:.1f}")
+    actual_ae  = cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)
+    actual_exp = cap.get(cv2.CAP_PROP_EXPOSURE)
+    log.info(f"[camera] idx={idx} actual_fps={actual_fps:.1f} ae={actual_ae} exposure={actual_exp}")
+
+    # Belt-and-suspenders: directly lock via AVFoundation for cameras (like the
+    # Elgato Facecam 4K) that ignore OpenCV's CAP_PROP_AUTO_EXPOSURE.
+    # We try common Elgato name fragments; harmless if camera not found.
+    _avf_lock_exposure("elgato")
+
     return cap
 
 
@@ -234,10 +383,15 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * PREVIEW_WIDTH)
         py = int(v * PREVIEW_HEIGHT)
-        cv2.rectangle(canvas, (px - 6, py - 10), (px + 6, py + 10), (0, 255, 200), 1)
-        cv2.circle(canvas, (px, py), 3, (0, 255, 200), -1)
-        cv2.putText(canvas, str(blink_id), (px + 10, py - 6),
-                    FONT, 0.5, (220, 220, 220), 1, cv2.LINE_AA)
+        label = str(blink_id)
+        (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
+        pad = 5
+        x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
+        x2, y2 = px + tw // 2 + pad, py + th // 2 + pad + 1
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (20, 20, 20), -1)
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 220, 80), 2)
+        cv2.putText(canvas, label, (px - tw // 2, py + th // 2),
+                    FONT, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
 
 
 def draw_hud(canvas: np.ndarray, fps: float):
@@ -692,6 +846,7 @@ def on_camera_selected(label: str, holder: dict):
 # ------------------------------------------------------------------ #
 
 def main():
+    global _camera_fps
     holder = {"cap": None}
 
     setup_ui(holder)
@@ -700,6 +855,7 @@ def main():
     threading.Thread(target=poll_sync_stats, daemon=True).start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
+    threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
 
     texture_data = frame_to_texture(no_camera_canvas())
     _dbg_counter = 0   # local to main — throttles debug save_frame calls
@@ -766,13 +922,22 @@ def main():
                                 if di is not None and di.gray is not None:
                                     with state.lock:
                                         results_snap = list(state.last_detections)
+                                    # Only pass active/decoded points — passing all 25,920
+                                    # causes save_frame to iterate 600K+ Python objects
+                                    # per call, stalling the main thread for 50-100ms.
+                                    gate = detector.cfg["min_recent_std"]
+                                    active_blobs = [
+                                        pt for pt in detector.get_blobs()
+                                        if pt.decoded_id is not None
+                                        or pt.recent_std >= gate * 0.5
+                                    ]
                                     dbg_cap.save_frame(
                                         raw=raw,
                                         gray=di.gray,
                                         thresh=di.contrast if di.contrast is not None
                                                else np.zeros_like(di.gray),
                                         overlay=canvas.copy(),
-                                        blobs=detector.get_blobs(),
+                                        blobs=active_blobs,
                                         detections=results_snap,
                                     )
 
@@ -780,6 +945,7 @@ def main():
                         draw_device_overlay(canvas)
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
+                    _camera_fps = 0.9 * _camera_fps + 0.1 * fps
                     draw_hud(canvas, fps)
 
                     if vid_rec.active:
