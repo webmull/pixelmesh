@@ -504,10 +504,9 @@ function hslToRgb(h, s, l) {
 // Water canvas renderer
 // ------------------------------------------------------------------ //
 
-// Persistent low-res canvas — rasterise water function here then scale up.
-// Low resolution (WATER_SCALE=6) gives a soft liquid look and keeps the
-// pixel loop fast enough for 60fps on mobile.
-const WATER_SCALE = 6;
+// Water canvas renderer
+// Renders at 1/4 resolution, upscaled with smoothing — gives a fluid look.
+const WATER_SCALE = 4;
 let _wCanvas = null, _wCtx = null, _wImageData = null;
 
 function renderWater(t) {
@@ -516,7 +515,6 @@ function renderWater(t) {
   const rw = Math.ceil(W / WATER_SCALE);
   const rh = Math.ceil(H / WATER_SCALE);
 
-  // (Re)create off-screen canvas if size changed
   if (!_wCanvas || _wCanvas.width !== rw || _wCanvas.height !== rh) {
     _wCanvas = document.createElement('canvas');
     _wCanvas.width  = rw;
@@ -527,30 +525,46 @@ function renderWater(t) {
 
   const data = _wImageData.data;
 
-  // Each phone shows a window into the world-space wave field centred on
-  // its (myU, myV) position.  worldW controls how much of the room is
-  // visible on one screen — smaller = more zoomed in = more ripples visible.
-  const worldW = 0.06;
+  // World window: each phone shows a patch of the wave field centred on its
+  // room position.  worldW controls zoom — 0.08 gives ~2 wave crests visible.
+  const worldW = 0.08;
   const worldH = worldW * H / W;
-  // Scale wave frequency so effectSpatialFreq = ripple cycles visible across screen
-  const s  = effectSpatialFreq * Math.PI * 2 / worldW;
+  const TAU = Math.PI * 2;
+  const s  = effectSpatialFreq * TAU / worldW;  // wave spatial freq in world units
   const sp = effectSpeed;
-  const er = effectR, eg = effectG, eb = effectB;
+  const er = effectR / 255, eg = effectG / 255, eb = effectB / 255;
 
   for (let py = 0; py < rh; py++) {
     const wv = myV + (py / rh - 0.5) * worldH;
     for (let px = 0; px < rw; px++) {
       const wu = myU + (px / rw - 0.5) * worldW;
-      const h =
-        Math.sin((wu        + wv * 0.300) * s - t * sp * 1.00) +
-        Math.sin((wu * -0.5 + wv * 0.866) * s - t * sp * 0.73) +
-        Math.sin((wu * 0.707 - wv * 0.707) * s - t * sp * 1.17) +
-        Math.sin((wu * 0.200 + wv * 0.980) * s - t * sp * 0.89);
-      const i = 0.5 + h / 8;   // normalise 4-wave sum to 0–1
+
+      // Three wave components at different angles and speeds.
+      // Primary wave dominant; two smaller secondaries create interference.
+      const p1 =  wu * s               - t * sp;
+      const p2 = (wu * 0.8 + wv * 0.6) * s * 0.85  - t * sp * 0.9;
+      const p3 = (wu * 0.2 - wv * 1.0) * s * 0.6   - t * sp * 1.15;
+
+      // (1 - cos(x)) / 2 gives 0 at trough, 1 at crest — wave-shaped profile.
+      // Raising to power < 1 sharpens crests; > 1 flattens them.
+      const h1 = Math.pow((1 - Math.cos(p1)) / 2, 0.5);  // dominant
+      const h2 = Math.pow((1 - Math.cos(p2)) / 2, 0.5) * 0.5;
+      const h3 = Math.pow((1 - Math.cos(p3)) / 2, 0.5) * 0.25;
+
+      // Combined height 0–1, re-normalised
+      const height = Math.min(1, (h1 + h2 + h3) / 1.75);
+
+      // Transfer: dark trough → user colour at crest → bright white specular highlight
+      // at very high peaks.
+      const specular = Math.pow(height, 6) * 0.9;  // tiny bright spark at peak
+      const r = Math.min(255, (height * er + specular) * 255) | 0;
+      const g = Math.min(255, (height * eg + specular) * 255) | 0;
+      const b = Math.min(255, (height * eb + specular) * 255) | 0;
+
       const idx = (py * rw + px) * 4;
-      data[idx]   = (i * er + 0.5) | 0;
-      data[idx+1] = (i * eg + 0.5) | 0;
-      data[idx+2] = (i * eb + 0.5) | 0;
+      data[idx]   = r;
+      data[idx+1] = g;
+      data[idx+2] = b;
       data[idx+3] = 255;
     }
   }
@@ -560,7 +574,7 @@ function renderWater(t) {
   projCanvas.width  = W;
   projCanvas.height = H;
   ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'medium';
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(_wCanvas, 0, 0, W, H);
 }
 
