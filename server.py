@@ -261,6 +261,13 @@ async def blink_map():
 # TODO: after detection, verify all admin requests include the
 #       controller's client_id so only the detected controller can
 #       post positions/effects (prevents rogue devices spoofing admin).
+#
+# TODO: camera projection mode — for small groups (~45 phones).
+#       Controller samples camera frame at each phone's (u,v) position,
+#       POSTs batch {blink_id: [r,g,b]} to /admin/colors, server fans
+#       out set_color messages to each phone via WebSocket.
+#       Runs at camera framerate (~30fps); consider feedback loop /
+#       gain correction to handle phone screen overexposure.
 
 @app.post("/admin/detect")
 async def detect(payload: dict):

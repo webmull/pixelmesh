@@ -90,7 +90,7 @@ Logs are written to:
 |-----|--------|
 | `D` | Toggle detection on/off |
 | `K` | Switch camera |
-| `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, water) |
+| `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, aurora) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `B` | Blackout camera feed |
@@ -120,16 +120,19 @@ Orange (found) and yellow (waiting) clear when detection restarts or an effect f
 
 ## Effects editor
 
-Effects are launched from the controller sidebar (keys 1–6). Parameters apply to all effects:
+Effects are launched from the controller sidebar (keys 1–7) or the sidebar buttons. Each effect stores its own parameters — opening the `…` dialog next to an effect shows only that effect's relevant controls. Changing a parameter in the dialog immediately re-fires the effect with the new value.
 
-| Control | Effect |
-|---------|--------|
-| **Colour A** | Primary colour — wave, gradient, binary wave, pulse, rainbow (ignored), colour flood (left side) |
-| **Colour B** | Second colour — colour flood right side only |
-| **Split** | Where the two colours meet — 0.0=far left, 0.5=centre, 1.0=far right (colour flood only) |
-| **Speed** | Animation rate (0.05–4.0) |
-| **Direction** | Angle in degrees — 0°=left→right, 90°=top→bottom, 180°=right→left, 270°=bottom→top, any angle for diagonal |
-| **BPM** | Pulse rate (Pulse effect only) |
+Per-effect parameters:
+
+| Effect | Parameters |
+|--------|-----------|
+| Wave | Colour A, Speed, Direction |
+| Gradient | Colour A, Speed, Direction |
+| Binary Wave | Colour A, Speed, Direction |
+| Pulse | Colour A, BPM |
+| Rainbow | Speed, Direction |
+| Colour Flood | Colour A, Colour B, Split, Speed, Direction |
+| Aurora | Speed |
 
 | Key | Effect | Notes |
 |-----|--------|-------|
@@ -139,9 +142,9 @@ Effects are launched from the controller sidebar (keys 1–6). Parameters apply 
 | `4` | Pulse | Whole audience pulses to BPM |
 | `5` | Rainbow | Full spectrum hue sweep across the audience |
 | `6` | Colour Flood | Two colours flooding in from opposite sides, meeting at Split |
-| `7` | Water | Four sinusoidal plane waves at irrational angles — interference creates a shimmering, non-repeating water surface |
+| `7` | Aurora | Teal-purple curtain bands drifting across the room |
 
-Adjusting any slider immediately re-fires the current effect with the new settings. Clicking an effect button fires it fresh with the current settings. Keys 1–7 use the current settings.
+Clicking an effect button fires it with the current settings for that effect. Keys 1–7 do the same. Each effect has a `…` button in the sidebar that opens a settings dialog for that effect's parameters. Only one settings dialog is open at a time. Adjusting a parameter inside the dialog immediately re-fires the active effect.
 
 ---
 
@@ -206,6 +209,7 @@ The detection thread processes frames sequentially. Decode attempts are budget-c
 |------|------|
 | `server.py` | WebSocket server, device assignment, effect broadcast |
 | `controller.py` | Camera loop, GUI, detection thread management, exposure monitor |
+| `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
@@ -272,6 +276,10 @@ Key parameters in `blink_detector.py`:
 The variance gate adapts every frame: `gate = EMA(p90(all stds)) × 3.5`, α=0.05, clamped to 0.05–0.15. p90 (not p75) is used to prevent the gate converging to the 0.05 floor in quiet scenes — with p75 the EMA drifts to near-zero after ~60 frames, flooding `above_gate` from ~20 to ~800 points. The 0.05 floor ensures gate stays above sensor noise (all real phone blink signals observed have std ≥ 0.08). Gate is reset to 0.10 on each `detector.reset()` so sessions don't inherit a drifted value.
 
 Decoded IDs persist for the entire detection session and are **never re-decoded** — once a phone is found, it is skipped entirely so the full decode budget is available for undiscovered phones. IDs are only reset when detection is toggled off and back on (or `R` key).
+
+**Decode backoff**: grid points that fail to decode back off exponentially — retry interval is `min(decode_interval × 2^failures, 5.0s)`. This prevents noisy non-phone regions (reflective surfaces, ambient flicker) from consuming the decode budget every 0.2s indefinitely. The failure counter resets to zero on a successful decode.
+
+**Stream display gate**: the binary stream overlay (scrolling `0`/`1` bits drawn next to an active point) is only shown once the point has been active for at least 4 seconds. This suppresses streams on transient noise and reflections that pass the variance gate briefly but are not phones.
 
 ---
 
