@@ -90,7 +90,7 @@ Logs are written to:
 |-----|--------|
 | `D` | Toggle detection on/off |
 | `K` | Switch camera |
-| `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, sweep bar, rainbow, colour flood) |
+| `1`–`6` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `B` | Blackout camera feed |
@@ -120,11 +120,11 @@ Orange (found) and yellow (waiting) clear when detection restarts or an effect f
 
 ## Effects editor
 
-Effects are launched from the controller sidebar (keys 1–7). Parameters apply to all effects:
+Effects are launched from the controller sidebar (keys 1–6). Parameters apply to all effects:
 
 | Control | Effect |
 |---------|--------|
-| **Colour A** | Primary colour — wave, gradient, binary wave, pulse, sweep bar, rainbow (ignored), colour flood (left side) |
+| **Colour A** | Primary colour — wave, gradient, binary wave, pulse, rainbow (ignored), colour flood (left side) |
 | **Colour B** | Second colour — colour flood right side only |
 | **Split** | Where the two colours meet — 0.0=far left, 0.5=centre, 1.0=far right (colour flood only) |
 | **Speed** | Animation rate (0.05–4.0) |
@@ -137,9 +137,8 @@ Effects are launched from the controller sidebar (keys 1–7). Parameters apply 
 | `2` | Gradient | Scrolling brightness gradient |
 | `3` | Binary Wave | Hard on/off wave |
 | `4` | Pulse | Whole audience pulses to BPM |
-| `5` | Sweep Bar | Spotlight bar travelling phone-by-phone |
-| `6` | Rainbow | Full spectrum hue sweep across the audience |
-| `7` | Colour Flood | Two colours flooding in from opposite sides, meeting at Split |
+| `5` | Rainbow | Full spectrum hue sweep across the audience |
+| `6` | Colour Flood | Two colours flooding in from opposite sides, meeting at Split |
 
 Adjusting any slider immediately re-fires the current effect with the new settings. Clicking an effect button fires it fresh with the current settings. Keys 1–7 use the current settings.
 

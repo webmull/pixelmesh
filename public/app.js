@@ -84,8 +84,6 @@ let effectR2       = 255;
 let effectG2       = 0;
 let effectB2       = 0;
 let effectSplit    = 0.5;
-let deviceOrder    = [];
-let sweepDwell     = 0.18;
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -351,8 +349,6 @@ function handleMessage(msg) {
     effectG2       = msg.color2_g ?? 0;
     effectB2       = msg.color2_b ?? 0;
     effectSplit    = msg.split    ?? 0.5;
-    deviceOrder    = msg.device_order ?? [];
-    sweepDwell     = msg.dwell ?? 0.18;
     applyModeVisual();
     return;
   }
@@ -519,43 +515,9 @@ function renderLoop() {
     } else {
 
     const t = (serverNow() - effectStartTime) / 1000;
-
-    if (currentEffect === "sweep_bar" && deviceOrder.length > 0) {
-      const w = projCanvas.width  = window.innerWidth;
-      const h = projCanvas.height = window.innerHeight;
-      const eCtx = ctx;
-      eCtx.clearRect(0, 0, w, h);
-
-      const totalCycle  = sweepDwell * deviceOrder.length;
-      const elapsed     = t % totalCycle;
-      const activeIndex = Math.floor(elapsed / sweepDwell);
-      const localT      = (elapsed % sweepDwell) / sweepDwell;
-      const myIndex     = deviceOrder.indexOf(deviceId);
-
-      projCanvas.style.display = "block";
-      showtime.style.background = "#000";
-
-      if (myIndex === activeIndex) {
-        const stripeW = w * 0.36;
-        const stripeX = localT * w;
-        const grad = eCtx.createLinearGradient(
-          stripeX - stripeW / 2, 0,
-          stripeX + stripeW / 2, 0
-        );
-        grad.addColorStop(0,   "black");
-        grad.addColorStop(0.4, "rgba(255,140,80,0.6)");
-        grad.addColorStop(0.5, "rgba(255,210,170,1)");
-        grad.addColorStop(0.6, "rgba(255,140,80,0.6)");
-        grad.addColorStop(1,   "black");
-        eCtx.fillStyle = grad;
-        eCtx.fillRect(stripeX - stripeW / 2, 0, stripeW, h);
-      }
-
-    } else {
-      projCanvas.style.display = "none";
-      const [r, g, b] = shade(myU, myV, t);
-      showtime.style.background = `rgb(${r},${g},${b})`;
-    }
+    projCanvas.style.display = "none";
+    const [r, g, b] = shade(myU, myV, t);
+    showtime.style.background = `rgb(${r},${g},${b})`;
 
     } // end calibrated
   }
