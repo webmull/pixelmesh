@@ -265,6 +265,16 @@ Decoded IDs persist for the entire detection session and are **never re-decoded*
 
 The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both: `45 fps  det 48 fps  DET`.
 
+**Tested hardware: Apple M1 Pro, 16GB RAM**
+
+The M1 Pro is well-matched to this workload:
+- **12MB L2 cache** — the 1.66MB sampling matrix fits entirely in cache; this is why `sample_radius=4` is a hard threshold, not a soft tuning parameter
+- **GIL release during numpy window scans** — display thread (60fps camera) and detection thread run genuinely in parallel on separate cores
+- **Decode throughput** — a clean early-exit decode takes ~0.3–0.5ms on M1 Pro; within the 50ms budget ~100 phones can be processed per frame. With 300 phones and ~50 undiscovered at any point, undiscovered phones clear within a single frame pass
+- **Memory** — rolling 30s brightness history across 25,920 points peaks at ~50MB; no RAM pressure
+
+The bottleneck at 300+ phones is not compute — it is the 13.2s warmup cycle each phone must complete before its first decode attempt. That is a function of the signal protocol (PHASE_MS × CYCLE_LEN) and cannot be reduced in software without shortening phase duration or the cycle length.
+
 Key optimisations:
 
 - **Threaded detection**: `process_frame` runs on a dedicated background thread. Frames are passed via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the display loop continues immediately.
