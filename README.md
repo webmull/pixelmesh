@@ -90,7 +90,7 @@ Logs are written to:
 |-----|--------|
 | `D` | Toggle detection on/off |
 | `K` | Switch camera |
-| `1`–`8` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, orb, particles) |
+| `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, water) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `B` | Blackout camera feed |
@@ -127,7 +127,6 @@ Effects are launched from the controller sidebar (keys 1–6). Parameters apply 
 | **Colour A** | Primary colour — wave, gradient, binary wave, pulse, rainbow (ignored), colour flood (left side) |
 | **Colour B** | Second colour — colour flood right side only |
 | **Split** | Where the two colours meet — 0.0=far left, 0.5=centre, 1.0=far right (colour flood only) |
-| **Orb Radius** | Glow size — small for a tight point of light, large for a soft wash (orb/particles only) |
 | **Speed** | Animation rate (0.05–4.0) |
 | **Direction** | Angle in degrees — 0°=left→right, 90°=top→bottom, 180°=right→left, 270°=bottom→top, any angle for diagonal |
 | **BPM** | Pulse rate (Pulse effect only) |
@@ -140,8 +139,7 @@ Effects are launched from the controller sidebar (keys 1–6). Parameters apply 
 | `4` | Pulse | Whole audience pulses to BPM |
 | `5` | Rainbow | Full spectrum hue sweep across the audience |
 | `6` | Colour Flood | Two colours flooding in from opposite sides, meeting at Split |
-| `7` | Orb | Single glowing point drifting on a Lissajous path through the crowd |
-| `8` | Particles | Multiple orbs with staggered phases — firefly swarm |
+| `7` | Water | Four sinusoidal plane waves at irrational angles — interference creates a shimmering, non-repeating water surface |
 
 Adjusting any slider immediately re-fires the current effect with the new settings. Clicking an effect button fires it fresh with the current settings. Keys 1–7 use the current settings.
 
