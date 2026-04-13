@@ -482,6 +482,18 @@ function shade(u, v, t) {
     return [r, g, b];
   }
 
+  if (currentEffect === "aurora") {
+    const sp = effectSpeed;
+    // Horizontal curtain bands drifting across the room, rippled by v
+    const phase = u * 3.0 + Math.sin(v * 2.5 + t * sp * 0.5) * 0.5 - t * sp * 0.4;
+    // Brightness: power curve gives distinct bright ribbons against dark sky
+    const curtain = Math.pow(0.5 + 0.5 * Math.sin(phase * Math.PI), 2.5);
+    // Hue oscillates teal (150°) ↔ blue-purple (210°) as the bands evolve
+    const hue = (150 + Math.sin(phase * 0.8 - t * sp * 0.15) * 60 + 360) % 360;
+    const lum = 0.06 + curtain * 0.50;
+    return hslToRgb(hue / 360, 1.0, lum);
+  }
+
   return [0, 0, 0];
 }
 
@@ -501,91 +513,6 @@ function hslToRgb(h, s, l) {
 }
 
 // ------------------------------------------------------------------ //
-// Water canvas renderer
-// ------------------------------------------------------------------ //
-
-// Water canvas renderer
-// Renders at 1/4 resolution, upscaled with smoothing — gives a fluid look.
-const WATER_SCALE = 4;
-let _wCanvas = null, _wCtx = null, _wImageData = null;
-
-function renderWater(t) {
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  const rw = Math.ceil(W / WATER_SCALE);
-  const rh = Math.ceil(H / WATER_SCALE);
-
-  if (!_wCanvas || _wCanvas.width !== rw || _wCanvas.height !== rh) {
-    _wCanvas = document.createElement('canvas');
-    _wCanvas.width  = rw;
-    _wCanvas.height = rh;
-    _wCtx = _wCanvas.getContext('2d');
-    _wImageData = _wCtx.createImageData(rw, rh);
-  }
-
-  const data = _wImageData.data;
-  const TAU  = Math.PI * 2;
-  const sp   = effectSpeed;
-  const er   = effectR / 255, eg = effectG / 255, eb = effectB / 255;
-
-  // ---- Layer 1: room-scale wave ----------------------------------------
-  // effectSpatialFreq = wave cycles across the full room (u=0→1).
-  // This is evaluated at this phone's fixed room position (myU, myV),
-  // so neighbouring phones at different positions get different brightness —
-  // the wave flows across the whole audience as one surface.
-  const rs = effectSpatialFreq * TAU;
-  const roomWave =
-    0.50 * Math.sin( myU * rs                       - t * sp       ) +
-    0.30 * Math.sin((myU * 0.70 + myV * 0.714) * rs * 0.85 - t * sp * 0.90) +
-    0.20 * Math.sin( myV * rs * 1.10                - t * sp * 1.10);
-  // roomEnv: 0.15 at trough → 1.0 at crest
-  const roomEnv = 0.15 + 0.85 * (0.5 + 0.5 * roomWave);
-
-  // ---- Layer 2: per-phone screen texture ----------------------------------
-  // High-frequency waves rendered pixel-by-pixel so each phone looks like
-  // water close-up.  worldW = assumed phone width in room coordinates.
-  // ~3 wave crests visible per phone screen.
-  const worldW = 0.05;
-  const worldH = worldW * H / W;
-  const ts = 3 * TAU / worldW;   // 3 screen-width cycles → clearly visible ripples
-
-  for (let py = 0; py < rh; py++) {
-    const wv = myV + (py / rh - 0.5) * worldH;
-    for (let px = 0; px < rw; px++) {
-      const wu = myU + (px / rw - 0.5) * worldW;
-
-      const p1 =  wu * ts                       - t * sp * 1.30;
-      const p2 = (wu * 0.80 + wv * 0.60) * ts * 0.85 - t * sp * 1.15;
-      const p3 = (wu * -0.30 + wv * 1.00) * ts * 0.60 - t * sp * 1.40;
-
-      const h1 = Math.pow((1 - Math.cos(p1)) / 2, 0.5);
-      const h2 = Math.pow((1 - Math.cos(p2)) / 2, 0.5) * 0.50;
-      const h3 = Math.pow((1 - Math.cos(p3)) / 2, 0.5) * 0.25;
-      const screenH = Math.min(1, (h1 + h2 + h3) / 1.75);
-
-      // Multiply room envelope × screen texture:
-      // crest phones show bright water detail; trough phones are dark.
-      const combined = roomEnv * screenH;
-      const specular = Math.pow(combined, 5) * 0.85;
-
-      const idx = (py * rw + px) * 4;
-      data[idx]   = Math.min(255, (combined * er + specular) * 255) | 0;
-      data[idx+1] = Math.min(255, (combined * eg + specular) * 255) | 0;
-      data[idx+2] = Math.min(255, (combined * eb + specular) * 255) | 0;
-      data[idx+3] = 255;
-    }
-  }
-
-  _wCtx.putImageData(_wImageData, 0, 0);
-
-  projCanvas.width  = W;
-  projCanvas.height = H;
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(_wCanvas, 0, 0, W, H);
-}
-
-// ------------------------------------------------------------------ //
 // Render loop
 // ------------------------------------------------------------------ //
 
@@ -599,15 +526,9 @@ function renderLoop() {
     } else {
       const t = (serverNow() - effectStartTime) / 1000;
 
-      if (currentEffect === "water") {
-        showtime.style.background = "#000";
-        projCanvas.style.display = "block";
-        renderWater(t);
-      } else {
-        projCanvas.style.display = "none";
-        const [r, g, b] = shade(myU, myV, t);
-        showtime.style.background = `rgb(${r},${g},${b})`;
-      }
+      projCanvas.style.display = "none";
+      const [r, g, b] = shade(myU, myV, t);
+      showtime.style.background = `rgb(${r},${g},${b})`;
     }
   }
 
