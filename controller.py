@@ -447,7 +447,7 @@ def update_ui_from_state():
     safe_set("clients_text",   f"Clients: {clients}")
     safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
     safe_set("effect_text",    f"Effect: {effect}")
-    safe_set("debug_text",     dbg_label)
+
     safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
 
     safe_set("chk_detection", detecting)
@@ -706,7 +706,6 @@ def setup_ui(holder: dict):
                                  callback=lambda: toggle_device_overlay())
                 dpg.add_checkbox(label="Debug Capture  [G]", tag="chk_debug",
                                  callback=lambda: toggle_debug())
-                dpg.add_text("", tag="debug_text")
                 dpg.add_checkbox(label="Record Video  [V]", tag="chk_recording",
                                  callback=lambda: toggle_recording())
                 dpg.add_text("", tag="rec_status_text", color=(220, 60, 60))

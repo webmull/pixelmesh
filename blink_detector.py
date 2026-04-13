@@ -76,6 +76,7 @@ class _GridPoint:
     decode_fail_reason:  str  = ""
     recent_std:          float = 0.0  # updated each decode cycle
     last_active_ts:      float = 0.0  # last time this point was above the detection gate
+    decode_failures:     int   = 0    # consecutive failed decode attempts
 
     def add_sample(self, brightness, ts, history_seconds):
         self.history.append((ts, brightness))
@@ -88,7 +89,10 @@ class _GridPoint:
         # for undiscovered phones.  IDs are only cleared on detector.reset().
         if self.decoded_id is not None:
             return
-        if ts - self.last_decode_attempt < cfg["decode_interval"]:
+        # Exponential backoff after consecutive failures: 0.2s → 0.4 → 0.8 → … → 5s cap.
+        # Stops non-phone objects (LEDs, reflections) eating decode budget indefinitely.
+        backoff = min(cfg["decode_interval"] * (2 ** self.decode_failures), 5.0)
+        if ts - self.last_decode_attempt < backoff:
             return
         self.last_decode_attempt = ts
 
@@ -123,12 +127,14 @@ class _GridPoint:
         if result is not None:
             self.decoded_id, self.confidence = result
             self.decode_fail_reason = ""
+            self.decode_failures = 0
         else:
             lo, hi = min(vals), max(vals)
             self.decode_fail_reason = (
                 f"hist={len(vals)} std={self.recent_std:.2f} "
                 f"range={hi-lo:.2f} → {reason}"
             )
+            self.decode_failures += 1
 
 
 class BlinkDetector:
@@ -319,22 +325,29 @@ class BlinkDetector:
             for pt in self._points:
                 pt.try_decode(ts, cfg)
 
-        # 5. Collect best DetectedDevice per blink_id
-        #    Also rebuild _decoded_pts here — same pass, no extra O(N) scan.
-        id_map: dict[int, DetectedDevice] = {}
+        # 5. Collect DetectedDevice per blink_id.
+        #    A close/large phone covers several grid points that all decode the
+        #    same ID.  Average their pixel positions for a centroid estimate and
+        #    take the max confidence across all matching points.
+        id_pts:  dict[int, list] = {}   # blink_id → [_GridPoint, ...]
         decoded_pts_new: list = []
         for pt in self._points:
             if pt.decoded_id is None:
                 continue
             decoded_pts_new.append(pt)
-            existing = id_map.get(pt.decoded_id)
-            if existing is None or pt.confidence > existing.confidence:
-                id_map[pt.decoded_id] = DetectedDevice(
-                    blink_id=pt.decoded_id,
-                    cx_px=float(pt.px),
-                    cy_px=float(pt.py),
-                    confidence=pt.confidence,
-                )
+            id_pts.setdefault(pt.decoded_id, []).append(pt)
+
+        id_map: dict[int, DetectedDevice] = {}
+        for bid, pts in id_pts.items():
+            cx = sum(p.px for p in pts) / len(pts)
+            cy = sum(p.py for p in pts) / len(pts)
+            best_conf = max(p.confidence for p in pts)
+            id_map[bid] = DetectedDevice(
+                blink_id=bid,
+                cx_px=cx,
+                cy_px=cy,
+                confidence=best_conf,
+            )
 
         self.last_results = list(id_map.values())
         self._decoded_pts = decoded_pts_new
@@ -472,8 +485,16 @@ class BlinkDetector:
         else:
             candidates = []
 
+        # Only draw a stream once the signal has been sustained long enough to
+        # suggest a real phone rather than a transient reflection or noise blob.
+        STREAM_MIN_AGE_S = 4.0
+
         seen_canvas: list[tuple[int, int]] = []
         for pt in candidates:
+            # Require sustained history before drawing — filters short-lived noise
+            if len(pt.history) < 2 or (pt.history[-1][0] - pt.history[0][0]) < STREAM_MIN_AGE_S:
+                continue
+
             cx, cy = to_canvas(pt.px, pt.py)
             if any(abs(cx - ex) < CLUSTER_R and abs(cy - ey) < CLUSTER_R
                    for ex, ey in seen_canvas):
