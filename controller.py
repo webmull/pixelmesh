@@ -548,7 +548,6 @@ def trigger_effect(name: str):
         "color2_g":     int(color2[1]),
         "color2_b":     int(color2[2]),
         "split":        dpg.get_value("fx_split"),
-        "orb_radius":   dpg.get_value("fx_orb_radius"),
     }
     log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
@@ -679,10 +678,7 @@ def on_key_press(key, holder):
         trigger_effect("colour_flood")
 
     elif key == dpg.mvKey_7:
-        trigger_effect("orb")
-
-    elif key == dpg.mvKey_8:
-        trigger_effect("particles")
+        trigger_effect("water")
 
 
 # ------------------------------------------------------------------ #
@@ -762,11 +758,8 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="6  Colour Flood",
                                callback=lambda: trigger_effect("colour_flood"),
                                width=-1)
-                dpg.add_button(label="7  Orb",
-                               callback=lambda: trigger_effect("orb"),
-                               width=-1)
-                dpg.add_button(label="8  Particles",
-                               callback=lambda: trigger_effect("particles"),
+                dpg.add_button(label="7  Water",
+                               callback=lambda: trigger_effect("water"),
                                width=-1)
 
                 dpg.add_spacer(height=4)
@@ -795,16 +788,6 @@ def setup_ui(holder: dict):
                     tag="fx_split",
                     default_value=0.5,
                     min_value=0.0, max_value=1.0,
-                    format="%.2f",
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("Orb Radius  (orb/particles)", color=(160, 160, 160))
-                dpg.add_slider_float(
-                    label="##fx_orb_radius_lbl",
-                    tag="fx_orb_radius",
-                    default_value=0.25,
-                    min_value=0.05, max_value=0.6,
                     format="%.2f",
                     width=-1,
                     callback=_on_settings_changed,
