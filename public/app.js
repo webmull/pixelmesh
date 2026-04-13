@@ -471,8 +471,15 @@ function shade(u, v, t) {
   }
 
   if (currentEffect === "colour_flood") {
-    // Two colours meet at a controllable split point; soft blend at boundary
-    const blend = Math.max(0, Math.min(1, (d - effectSplit) / 0.08 + 0.5));
+    // Normalise the directed coordinate to 0–1 across the actual u,v range
+    // so the split point works correctly at any angle.
+    const a  = effectAngle * Math.PI / 180;
+    const ca = Math.cos(a), sa = Math.sin(a);
+    const raw = u * ca + v * sa;
+    const corners = [0, ca, sa, ca + sa];
+    const dMin = Math.min(...corners), dMax = Math.max(...corners);
+    const dn = dMax > dMin ? (raw - dMin) / (dMax - dMin) : 0.5;
+    const blend = Math.max(0, Math.min(1, (dn - effectSplit) / 0.08 + 0.5));
     const r = effectR + (effectR2 - effectR) * blend;
     const g = effectG + (effectG2 - effectG) * blend;
     const b = effectB + (effectB2 - effectB) * blend;
