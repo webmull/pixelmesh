@@ -258,6 +258,9 @@ async def blink_map():
 # ------------------------------------------------------------------ #
 # Admin — detection                                                    #
 # ------------------------------------------------------------------ #
+# TODO: after detection, verify all admin requests include the
+#       controller's client_id so only the detected controller can
+#       post positions/effects (prevents rogue devices spoofing admin).
 
 @app.post("/admin/detect")
 async def detect(payload: dict):

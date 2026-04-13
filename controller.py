@@ -37,6 +37,7 @@ from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
 from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
+import effects
 
 # ------------------------------------------------------------------ #
 # Config
@@ -440,15 +441,20 @@ def update_ui_from_state():
         detecting = state.detecting
         effect    = state.current_effect
 
-    dbg_label = f"Debug: REC ({dbg_cap.frame_idx} frames)" if dbg_cap.active else "Debug: OFF"
+    dbg_label = f"Debug: REC ({dbg_cap.frame_idx} frames)" if dbg_cap.active else ""
 
-    safe_set("status_text",     status)
-    safe_set("clients_text",    f"Clients: {clients}")
-    safe_set("detect_text",     f"Detection: {'ON' if detecting else 'OFF'}  |  Sync: {'ON' if state.syncing else 'OFF'}")
-    safe_set("det_count_text",  f"Blobs decoded: {len(_detected_ids)}")
-    safe_set("effect_text",     f"Effect: {effect}")
-    safe_set("debug_text",      dbg_label)
+    safe_set("status_text",    status)
+    safe_set("clients_text",   f"Clients: {clients}")
+    safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
+    safe_set("effect_text",    f"Effect: {effect}")
+    safe_set("debug_text",     dbg_label)
     safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
+
+    safe_set("chk_detection", detecting)
+    safe_set("chk_sync",     state.syncing)
+    safe_set("chk_overlays", state.show_device_overlay)
+    safe_set("chk_debug",    dbg_cap.active)
+    safe_set("chk_recording", vid_rec.active)
 
 
 # ------------------------------------------------------------------ #
@@ -532,36 +538,7 @@ def reset_server():
     set_status("Reset sent")
 
 
-def trigger_effect(name: str):
-    color  = dpg.get_value("fx_color")    # [0–255, 0–255, 0–255, 255]
-    color2 = dpg.get_value("fx_color2")
-    payload = {
-        "name":         name,
-        "speed":        dpg.get_value("fx_speed"),
-        "spatial_freq": 1.5,
-        "bpm":          dpg.get_value("fx_bpm"),
-        "angle":        dpg.get_value("fx_angle"),
-        "color_r":      int(color[0]),
-        "color_g":      int(color[1]),
-        "color_b":      int(color[2]),
-        "color2_r":     int(color2[0]),
-        "color2_g":     int(color2[1]),
-        "color2_b":     int(color2[2]),
-        "split":        dpg.get_value("fx_split"),
-    }
-    log.info(f"[effect] {payload}")
-    post_json_async("/admin/effect/fire", payload)
-    with state.lock:
-        state.current_effect = name
-    set_status(f"Effect: {name}")
-
-
-def _on_settings_changed(s, v):
-    """Re-fire current effect immediately when any setting slider changes."""
-    with state.lock:
-        current = state.current_effect
-    if current:
-        trigger_effect(current)
+trigger_effect = effects.trigger_effect
 
 
 
@@ -678,7 +655,8 @@ def on_key_press(key, holder):
         trigger_effect("colour_flood")
 
     elif key == dpg.mvKey_7:
-        trigger_effect("water")
+        trigger_effect("aurora")
+
 
 
 # ------------------------------------------------------------------ #
@@ -686,6 +664,7 @@ def on_key_press(key, holder):
 # ------------------------------------------------------------------ #
 
 def setup_ui(holder: dict):
+    effects.init(state, set_status)
     dpg.create_context()
 
     with dpg.texture_registry(show=False):
@@ -719,112 +698,44 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
 
                 dpg.add_text("Detection")
-                dpg.add_button(label="Toggle Detection  [D]",
-                               callback=toggle_detection, width=-1)
-                dpg.add_button(label="Toggle Clock Sync",
-                               callback=toggle_sync, width=-1)
-                dpg.add_button(label="Sync Debug Panel",
-                               callback=lambda: dpg.configure_item(
-                                   "sync_debug_window",
-                                   show=not dpg.is_item_shown("sync_debug_window")
-                               ),
-                               width=-1)
-                dpg.add_button(label="Toggle ID Overlays  [O]",
-                               callback=toggle_device_overlay, width=-1)
-                dpg.add_button(label="Toggle Debug Capture  [G]",
-                               callback=toggle_debug, width=-1)
+                dpg.add_checkbox(label="Detection  [D]", tag="chk_detection",
+                                 callback=lambda: toggle_detection())
+                dpg.add_checkbox(label="Clock Sync", tag="chk_sync",
+                                 callback=lambda: toggle_sync())
+                dpg.add_checkbox(label="ID Overlays  [O]", tag="chk_overlays",
+                                 callback=lambda: toggle_device_overlay())
+                dpg.add_checkbox(label="Debug Capture  [G]", tag="chk_debug",
+                                 callback=lambda: toggle_debug())
                 dpg.add_text("", tag="debug_text")
-                dpg.add_button(label="Record Video  [V]",
-                               callback=toggle_recording, width=-1)
+                dpg.add_checkbox(label="Record Video  [V]", tag="chk_recording",
+                                 callback=lambda: toggle_recording())
                 dpg.add_text("", tag="rec_status_text", color=(220, 60, 60))
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Effects")
-                dpg.add_button(label="1  Wave",
-                               callback=lambda: trigger_effect("wave"),
-                               width=-1)
-                dpg.add_button(label="2  Gradient",
-                               callback=lambda: trigger_effect("gradient"),
-                               width=-1)
-                dpg.add_button(label="3  Binary Wave",
-                               callback=lambda: trigger_effect("binary_wave"),
-                               width=-1)
-                dpg.add_button(label="4  Pulse",
-                               callback=lambda: trigger_effect("pulse"),
-                               width=-1)
-                dpg.add_button(label="5  Rainbow",
-                               callback=lambda: trigger_effect("rainbow"),
-                               width=-1)
-                dpg.add_button(label="6  Colour Flood",
-                               callback=lambda: trigger_effect("colour_flood"),
-                               width=-1)
-                dpg.add_button(label="7  Water",
-                               callback=lambda: trigger_effect("water"),
-                               width=-1)
-
-                dpg.add_spacer(height=4)
-                dpg.add_text("Effect Settings", color=(200, 200, 200))
-                dpg.add_text("Colour A", color=(160, 160, 160))
-                dpg.add_color_edit(
-                    label="##fx_color_lbl",
-                    tag="fx_color",
-                    default_value=(255, 255, 255, 255),
-                    no_alpha=True,
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("Colour B  (flood only)", color=(160, 160, 160))
-                dpg.add_color_edit(
-                    label="##fx_color2_lbl",
-                    tag="fx_color2",
-                    default_value=(255, 0, 0, 255),
-                    no_alpha=True,
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("Split  (flood only)", color=(160, 160, 160))
-                dpg.add_slider_float(
-                    label="##fx_split_lbl",
-                    tag="fx_split",
-                    default_value=0.5,
-                    min_value=0.0, max_value=1.0,
-                    format="%.2f",
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("Speed", color=(160, 160, 160))
-                dpg.add_slider_float(
-                    label="##fx_speed_lbl",
-                    tag="fx_speed",
-                    default_value=0.4,
-                    min_value=0.05, max_value=4.0,
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("Direction", color=(160, 160, 160))
-                dpg.add_slider_float(
-                    label="##fx_angle_lbl",
-                    tag="fx_angle",
-                    default_value=0.0,
-                    min_value=0.0, max_value=360.0,
-                    format="%.0f°",
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
-                dpg.add_text("BPM  (pulse)", color=(160, 160, 160))
-                dpg.add_slider_float(
-                    label="##fx_bpm_lbl",
-                    tag="fx_bpm",
-                    default_value=100.0,
-                    min_value=20.0, max_value=300.0,
-                    format="%.0f",
-                    width=-1,
-                    callback=_on_settings_changed,
-                )
+                for _ename, _elabel in effects.EFFECT_LABELS.items():
+                    with dpg.group(horizontal=True):
+                        dpg.add_button(
+                            label=_elabel,
+                            callback=lambda s, a, u: effects.trigger_effect(u),
+                            user_data=_ename,
+                            width=270,
+                        )
+                        dpg.add_button(
+                            label="...",
+                            callback=lambda s, a, u: effects._open_modal(u),
+                            user_data=_ename,
+                            width=34,
+                        )
 
                 dpg.add_spacer(height=6)
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server, width=-1)
+                dpg.add_button(label="Sync Stats Panel",
+                               callback=lambda: dpg.configure_item(
+                                   "sync_debug_window",
+                                   show=not dpg.is_item_shown("sync_debug_window")
+                               ), width=-1)
 
 
             # ---- Preview panel ----
@@ -832,6 +743,9 @@ def setup_ui(holder: dict):
                                   width=-1, height=-1):
                 dpg.add_image("camera_texture", tag="preview_image",
                               width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
+
+    # ---- Per-effect settings modals (hidden until ... is clicked) ----
+    effects.build_window()
 
     # ---- Sync debug window (hidden by default) ----
     with dpg.window(tag="sync_debug_window", label="Clock Sync Stats",
