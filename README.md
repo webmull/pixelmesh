@@ -253,11 +253,11 @@ Key parameters in `blink_detector.py`:
 | `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. |
 | `recent_n` | `24` | Samples in recent window (~0.4s at 60fps) |
 | `history_seconds` | `30.0` | Rolling brightness history per point (≥ 2 full cycles) |
-| `decode_interval` | `0.2s` | Time between decode attempts per point |
+| `decode_interval` | `0.2s` | Time between decode attempts per point (only applies to undiscovered phones) |
 
 The variance gate adapts every frame: `gate = EMA(p90(all stds)) × 3.5`, α=0.05, clamped to 0.05–0.15. p90 (not p75) is used to prevent the gate converging to the 0.05 floor in quiet scenes — with p75 the EMA drifts to near-zero after ~60 frames, flooding `above_gate` from ~20 to ~800 points. The 0.05 floor ensures gate stays above sensor noise (all real phone blink signals observed have std ≥ 0.08). Gate is reset to 0.10 on each `detector.reset()` so sessions don't inherit a drifted value.
 
-Decoded IDs persist for the entire detection session — they are never cleared when a phone enters its guard phase or leaves the frame. IDs are only reset when detection is toggled off and back on.
+Decoded IDs persist for the entire detection session and are **never re-decoded** — once a phone is found, it is skipped entirely so the full decode budget is available for undiscovered phones. IDs are only reset when detection is toggled off and back on (or `R` key).
 
 ---
 
@@ -268,12 +268,13 @@ The display thread runs at full camera speed (~60fps). The detection thread runs
 Key optimisations:
 
 - **Threaded detection**: `process_frame` runs on a dedicated background thread. Frames are passed via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the display loop continues immediately.
-- **Decode budget cap**: at most 12 full decoder runs per frame, sorted by highest std first — bounds worst-case frame time regardless of how many points are above the gate.
+- **Time-budget decode cap**: decode attempts run until a 50ms wall-clock budget is exhausted (not a fixed count). Fast decodes (clean signal, early-exit) consume less budget and allow more phones per frame; slow/noisy calls don't get more than their fair share.
+- **Early-exit decoder**: the 7-threshold decode loop exits as soon as confidence ≥ 0.95 — with ISO 624 fixed exposure the first threshold (0.25) always succeeds, giving ~7× speedup per decode.
+- **No re-decode of found phones**: once a phone's ID is known it is skipped entirely, reserving 100% of the decode budget for undiscovered phones. IDs reset only on `detector.reset()`.
 - **Cache-friendly patch size**: `sample_radius=4` keeps the 25,920×64 sampling matrix at 1.66MB (fits L2/L3 cache). `r=6` produces a 3.7MB matrix that spills to RAM, making `np.partition` 10× slower with no detection benefit.
 - **Vectorised std**: single `np.std(buf, axis=1)` over an `(N, recent_n)` circular buffer — replaces 25K Python `std()` calls per frame.
 - **Precomputed flat indices**: `(N, flat_size)` int32 array built once per grid/radius; patch sampling is one numpy gather per frame, no per-point slicing.
 - **Vectorised decoder window scans**: numpy boolean indexing replaces Python list comprehensions in the Manchester decoder, releasing the GIL and running ~10–20× faster.
-- **Decode budget cap**: at most 12 full decoder runs per frame, sorted by highest std first — prevents a sudden spike of high-variance points from stalling the detection thread.
 - **Gated history recording**: `add_sample` only called for points with std ≥ 0.003 (avoids 25K Python list appends/frame).
 - **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points.
 - **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation.
