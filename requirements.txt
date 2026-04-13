@@ -5,3 +5,4 @@ opencv-python>=4.9
 numpy>=1.26
 dearpygui>=1.11
 python-multipart>=0.0.9
+pyobjc-framework-AVFoundation>=9.0   # macOS only: direct AVFoundation exposure lock

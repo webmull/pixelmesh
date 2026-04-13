@@ -75,6 +75,7 @@ class _GridPoint:
     last_decode_attempt: float = 0.0
     decode_fail_reason:  str  = ""
     recent_std:          float = 0.0  # updated each decode cycle
+    last_active_ts:      float = 0.0  # last time this point was above the detection gate
 
     def add_sample(self, brightness, ts, history_seconds):
         self.history.append((ts, brightness))
@@ -94,7 +95,19 @@ class _GridPoint:
             self.decode_fail_reason = f"hist={len(vals)}<{n}"
             return
 
-        # Gate 1: must be actively blinking NOW
+        # Gate 1b: history must span at least one full decode cycle.
+        # At 60fps, 159 samples = 2.65s — far short of the 13.2s cycle duration.
+        # The decoder finds a guard run but has no samples for the Manchester
+        # bit windows that follow, producing empty_win / phase_ambig failures.
+        # This check was present in an earlier version and removed inadvertently.
+        _MIN_HIST_SECS = CYCLE_LEN * PHASE_MS / 1000   # 13.2s for default config
+        if len(self.history) >= 2:
+            span = self.history[-1][0] - self.history[0][0]
+            if span < _MIN_HIST_SECS:
+                self.decode_fail_reason = f"warmup {span:.1f}s/{_MIN_HIST_SECS:.1f}s"
+                return
+
+        # Gate 2: must be actively blinking NOW
         if self.recent_std < cfg["min_recent_std"]:
             self.decode_fail_reason = f"std={self.recent_std:.3f}<{cfg['min_recent_std']}"
             # Once decoded, keep the ID regardless — phone may have left or entered
@@ -227,22 +240,40 @@ class BlinkDetector:
         else:
             computed_stds = None
 
-        # Only maintain decode history for points showing non-trivial variance.
-        # _std_buf handles all points for recent_std; history is only for try_decode.
-        # IMPORTANT: history_gate must be much lower than min_recent_std so that guard
-        # phase samples are recorded even when the phone's recent_std temporarily dips
-        # (the dark guard pulls std down ~5× vs Manchester phase for distant phones).
-        # Using 0.003 — below any realistic phone signal but above sensor noise floor.
+        # Only maintain decode history for points at or near an active phone.
+        # Camera sensor noise typically produces std=0.003-0.009 across the whole frame,
+        # causing all 25,920 grid points to record history with the old 0.003 gate.
+        # At 25,920 active points with ~180 history entries each, the periodic trim
+        # (every 60 appends per point) processes 4.67M Python iterations per frame,
+        # degrading detection from 8fps to 2fps after ~20s.
+        #
+        # Fix: record history only for points currently above the detection gate (active
+        # phone signal) OR points that were recently above it within history_seconds
+        # (to capture the dark guard phase, which pulls std down ~5× for distant phones).
+        # Background noise points never exceed the gate, so they never start recording.
         if computed_stds is not None:
+            gate = cfg["min_recent_std"]
+            hist_secs = cfg["history_seconds"]
             for pt, b, s in zip(self._points, brightnesses, computed_stds):
-                if s >= 0.003:
-                    pt.add_sample(float(b), ts, cfg["history_seconds"])
+                if s >= gate:
+                    pt.last_active_ts = ts
+                    pt.add_sample(float(b), ts, hist_secs)
+                elif pt.last_active_ts > 0 and (ts - pt.last_active_ts) < hist_secs:
+                    pt.add_sample(float(b), ts, hist_secs)
         else:
             for pt, b in zip(self._points, brightnesses):
                 pt.add_sample(float(b), ts, cfg["history_seconds"])
 
         # 4. Adapt gate to current noise floor.
         #    Use the already-computed stds array to avoid rebuilding a Python list.
+        #    p90 (not p75) avoids the gate collapsing to its floor: with p75, the EMA
+        #    converges to near-zero after ~60 frames because 99%+ of grid points are
+        #    static background with std≈0.003-0.01.  p90 gives a 3-5× higher estimate
+        #    for the same noise distribution, keeping the gate above 0.05.
+        #    Floor raised from 0.015 → 0.05: at 0.015 a single spurious active frame
+        #    floods above_gate from ~20 to ~800, which stalls detection for the rest
+        #    of the session.  All real phone signals observed have std ≥ 0.08, so 0.05
+        #    provides comfortable headroom.
         if computed_stds is not None:
             active_mask = computed_stds > 0
             if active_mask.sum() >= 20:
@@ -252,11 +283,11 @@ class BlinkDetector:
         else:
             stds = []
         if len(stds) >= 20:
-            # p75 is robust — phones would need to cover 25%+ of the frame to bias it.
-            # Slow EMA (α=0.02, τ≈50 frames) prevents transient phone activity spiking the gate.
-            p75 = float(np.percentile(stds, 75))
-            self._noise_floor = 0.95 * self._noise_floor + 0.05 * p75
-            cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.015)
+            # p90 is robust — phones would need to cover 10%+ of the frame to bias it.
+            # Slow EMA (α=0.05, τ≈20 frames) prevents transient phone activity spiking the gate.
+            p90 = float(np.percentile(stds, 90))
+            self._noise_floor = 0.95 * self._noise_floor + 0.05 * p90
+            cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.05)
 
         # 5. Attempt decode on high-variance points only.
         #    Cap at MAX_DECODES_PER_FRAME full decoder runs per frame, prioritised by
@@ -266,7 +297,6 @@ class BlinkDetector:
         #    this could push frame time from ~50ms to >500ms.
         #    The budget only gates NEW decode attempts (interval elapsed); points whose
         #    interval hasn't elapsed fall through cheaply regardless.
-        #    Already-decoded points below the gate still get try_decode for ID cleanup.
         MAX_DECODES_PER_FRAME = 12
         gate = cfg["min_recent_std"]
         if computed_stds is not None:
@@ -277,11 +307,10 @@ class BlinkDetector:
             budget = MAX_DECODES_PER_FRAME
             for i in active_idx:
                 pt = self._points[i]
-                # Check if this point would actually run the decoder (interval elapsed)
                 will_decode = (ts - pt.last_decode_attempt) >= cfg["decode_interval"]
                 if will_decode:
                     if budget <= 0:
-                        continue   # skip this frame; try again next frame
+                        continue
                     budget -= 1
                 pt.try_decode(ts, cfg)
         else:
@@ -332,6 +361,18 @@ class BlinkDetector:
         n_above = sum(1 for p in active if p.recent_std >= cfg["min_recent_std"])
         decoded = [p for p in active if p.decoded_id is not None]
 
+        # Warn if the best candidate has low signal range — likely auto-exposure
+        # compensating for the blink and compressing amplitude (range < 0.5 means
+        # AE is fighting the signal; seen as range=0.28 vs expected 0.99).
+        top = by_std[0]
+        if top.history and len(top.history) >= 2:
+            raw_vals = [b for _, b in top.history]
+            top_range = max(raw_vals) - min(raw_vals)
+            if top_range < 0.5 and n_above > 0:
+                log.info(f"[blink] WARNING: low signal range={top_range:.2f} — "
+                         f"auto-exposure may be compensating for blink. "
+                         f"Use fixed exposure/ISO in camera app.")
+
         log.info(
             f"[blink] pts={len(active)} above_gate={n_above} "
             f"max_std={max_std:.3f} gate={cfg['min_recent_std']:.3f} decoded={len(decoded)}"
@@ -351,10 +392,14 @@ class BlinkDetector:
         img = np.zeros((h, w), dtype=np.uint8)
         if self._last_stds is None:
             return img
-        # Vectorised: compute all v values at once, then only call cv2.circle
-        # for active points (v >= 10).  Avoids iterating 25K points per frame.
+        # Draw circles only for points meaningfully above the detection gate.
+        # Using a hard threshold (vs >= 10, i.e. std >= 0.013) caused thousands
+        # of cv2.circle calls per frame once the gate drifted to its 0.015 floor,
+        # stalling the detection thread.  Tying the threshold to the current gate
+        # keeps the circle count proportional to the number of real candidates.
+        gate = self.cfg["min_recent_std"]
         vs = np.clip(self._last_stds * 3.0, 0.0, 1.0) * 255
-        active = np.where(vs >= 10)[0]
+        active = np.where(self._last_stds >= gate * 0.5)[0]
         r = max(1, self.cfg["grid_step"] // 2 - 2)
         for i in active:
             pt = self._points[i]
@@ -378,6 +423,18 @@ class BlinkDetector:
 
         # Decoded labels — iterate only the tiny _decoded_pts list (0-5 points),
         # not all 25K grid points.
+        def _draw_id_box(img, cx, cy, label, border_color):
+            """Small dark box with centred ID number — shared style for detection
+            and device-overlay tags so they look identical."""
+            (tw, th), _ = cv2.getTextSize(label, font, 0.55, 1)
+            pad = 5
+            x1, y1 = cx - tw // 2 - pad, cy - th // 2 - pad - 1
+            x2, y2 = cx + tw // 2 + pad, cy + th // 2 + pad + 1
+            cv2.rectangle(img, (x1, y1), (x2, y2), (20, 20, 20), -1)
+            cv2.rectangle(img, (x1, y1), (x2, y2), border_color, 2)
+            cv2.putText(img, label, (cx - tw // 2, cy + th // 2),
+                        font, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+
         drawn_ids: set[int] = set()
         for pt in self._decoded_pts:
             if pt.decoded_id is None:   # may have been cleared since last frame
@@ -386,11 +443,7 @@ class BlinkDetector:
                 continue
             drawn_ids.add(pt.decoded_id)
             px, py = to_canvas(pt.px, pt.py)
-            cv2.circle(frame, (px, py), 7, (0, 220, 80), -1)
-            cv2.putText(frame, str(pt.decoded_id),
-                        (px + 12, py + 7), font, 0.9, (0, 0, 0), 5, cv2.LINE_AA)
-            cv2.putText(frame, str(pt.decoded_id),
-                        (px + 12, py + 7), font, 0.9, (80, 255, 80), 2, cv2.LINE_AA)
+            _draw_id_box(frame, px, py, str(pt.decoded_id), (0, 220, 80))
 
         # Actively blinking but not yet decoded — show a scrolling binary stream.
         # Filter: must swing from near-zero (dark phase) to bright (white phase).
@@ -450,7 +503,15 @@ class BlinkDetector:
             pt.last_decode_attempt = 0.0
             pt.decode_fail_reason = ""
             pt.recent_std = 0.0
+            pt.last_active_ts = 0.0
         self.last_results.clear()
         self._std_buf = None
         self._std_buf_pos = 0
         self._std_buf_count = 0
+        # Reset gate so each detection session starts from the default.
+        # Without this, the noise_floor EMA inherited from a previous session
+        # can immediately set gate=0.05 (the floor), flooding above_gate with
+        # hundreds of background points before any real phone is detected.
+        self._noise_floor = DEFAULTS["min_recent_std"]
+        self.cfg["min_recent_std"] = DEFAULTS["min_recent_std"]
+

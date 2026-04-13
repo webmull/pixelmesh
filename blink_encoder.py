@@ -18,14 +18,16 @@ Decoder is time-based: uses actual frame timestamps and PHASE_MS as the
 ground truth for phase boundaries, so it works correctly at any camera fps.
 """
 
+import numpy as _np
+
 NUM_BITS  = 9        # supports IDs 0-511
 PHASE_MS  = 300      # milliseconds per screen phase
 NUM_GUARD = 4        # dark guard frames before Manchester data
 
 # Total Manchester bits: start(1) + data(N) + data(N) + end(1) = 2+2N
-_MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 12
-_MANCHESTER_PHASES = _MANCHESTER_BITS * 2      # = 24
-CYCLE_LEN = NUM_GUARD + _MANCHESTER_PHASES     # = 30
+_MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 20  (for NUM_BITS=9)
+_MANCHESTER_PHASES = _MANCHESTER_BITS * 2      # = 40
+CYCLE_LEN = NUM_GUARD + _MANCHESTER_PHASES     # = 44
 
 
 # ------------------------------------------------------------------ #
@@ -75,9 +77,11 @@ def _run_length(binary: list[int]) -> list[tuple[int, int]]:
 
 
 def _try_decode_at_threshold(
-    times: list[float],
-    norm:  list[float],
+    times:    list[float],
+    norm:     list[float],
     threshold: float,
+    times_np = None,   # pre-converted numpy arrays (passed from decode_phases_verbose)
+    norm_np  = None,   # to avoid 7× redundant conversion per decode call
 ) -> tuple[int, float, str] | tuple[None, None, str]:
     """
     Time-based Manchester decode at one brightness threshold.
@@ -89,10 +93,18 @@ def _try_decode_at_threshold(
     runs   = _run_length(binary)
 
     phase_secs          = PHASE_MS / 1000.0
-    min_guard_secs      = phase_secs * 2        # at least 2 guard phases
+    min_guard_secs      = phase_secs * 1        # at least 1 guard phase worth of time
     expected_guard_secs = phase_secs * NUM_GUARD
 
     best_fail = "no_guard"   # most informative failure seen so far
+
+    # Use pre-converted arrays if provided; otherwise convert here.
+    # numpy boolean indexing for window scans releases the GIL and runs
+    # ~10–20× faster than equivalent Python list comprehensions.
+    if times_np is None:
+        times_np = _np.array(times, dtype=_np.float64)
+    if norm_np is None:
+        norm_np  = _np.array(norm,  dtype=_np.float32)
 
     # Walk runs, tracking the frame index where each run starts
     frame_pos = 0
@@ -105,15 +117,23 @@ def _try_decode_at_threshold(
 
         run_end = run_start + length   # exclusive index
 
-        # Guard duration check (time-based)
+        # Guard duration check (time-based).
+        # Also accept the guard when sample count >= NUM_GUARD regardless of time
+        # span — cameras sometimes deliver bursts of frames in rapid succession
+        # (e.g. 5 frames in 110 ms) whose time span is far below min_guard_secs,
+        # but the sample count confirms a genuine multi-phase guard period.
         if run_end > len(times):
             break
         guard_secs = times[run_end - 1] - times[run_start]
-        if guard_secs < min_guard_secs:
+        if guard_secs < min_guard_secs and length < NUM_GUARD:
             best_fail = f"short_guard={guard_secs:.2f}s"
             continue
 
         best_fail = "guard_ok_no_bits"
+
+        # Slice the tail once per guard candidate (reused across all t_offsets).
+        t_tail = times_np[run_end:]
+        n_tail = norm_np[run_end:]
 
         # Estimate when the Manchester data starts.
         # Anchor from the END of the dark run (times[run_end-1]) rather than
@@ -134,18 +154,16 @@ def _try_decode_at_threshold(
                 p2_t0 = p1_t1
                 p2_t1 = p2_t0 + phase_secs
 
-                win1 = [norm[i] for i in range(run_end, len(times))
-                        if p1_t0 <= times[i] < p1_t1]
-                win2 = [norm[i] for i in range(run_end, len(times))
-                        if p2_t0 <= times[i] < p2_t1]
+                win1 = n_tail[(t_tail >= p1_t0) & (t_tail < p1_t1)]
+                win2 = n_tail[(t_tail >= p2_t0) & (t_tail < p2_t1)]
 
-                if not win1 or not win2:
+                if len(win1) == 0 or len(win2) == 0:
                     fail  = f"empty_win bit={bit_i}"
                     valid = False
                     break
 
-                p1 = 1 if sum(win1) / len(win1) >= 0.5 else 0
-                p2 = 1 if sum(win2) / len(win2) >= 0.5 else 0
+                p1 = 1 if float(win1.mean()) >= 0.5 else 0
+                p2 = 1 if float(win2.mean()) >= 0.5 else 0
 
                 if   p1 == 1 and p2 == 0:
                     bits.append(1)
@@ -218,18 +236,42 @@ def decode_phases_verbose(
     times = [t for t, _ in ts_history]
     vals  = [b for _, b in ts_history]
 
-    lo = min(vals)
-    hi = max(vals)
-    if hi - lo < 0.03:
-        return None, f"flat_range={hi-lo:.3f}"
+    lo     = min(vals)
+    hi_all = max(vals)
+
+    if hi_all - lo < 0.03:
+        return None, f"flat_range={hi_all-lo:.3f}"
+
+    # Use the most recent cycle window for `hi` rather than the all-time max.
+    # Phone screens auto-dim over time (ambient light sensor), which can drop
+    # the bright-phase brightness by 4-5×.  With the old all-time max as `hi`,
+    # current bright phases (e.g. 0.22) normalise to 0.22/0.99 = 0.22 — below
+    # every decode threshold (min 0.25) — so they appear dark, creating a
+    # spurious long "guard" run that breaks the decoder.
+    # Using the recent-window max keeps `hi` calibrated to the phone's current
+    # brightness.  Old bright values normalise to >1 (still ≥ 0.25) so the
+    # binary sequence for older samples is unchanged.
+    _one_cycle_s = CYCLE_LEN * PHASE_MS / 1000  # 13.2 s
+    if len(times) > 1 and (times[-1] - times[0]) > _one_cycle_s:
+        _cutoff     = times[-1] - _one_cycle_s
+        _recent_hi  = max(b for t, b in ts_history if t >= _cutoff)
+        hi = _recent_hi if _recent_hi > lo + 0.03 else hi_all
+    else:
+        hi = hi_all
 
     norm = [(b - lo) / (hi - lo) for b in vals]
 
     best:        tuple[int, float] | None = None
     best_reason: str = "no_threshold_succeeded"
 
+    # Pre-convert once; _try_decode_at_threshold uses these for numpy window scans.
+    times_np = _np.array(times, dtype=_np.float64)
+    norm_np  = _np.array(norm,  dtype=_np.float32)
+
     for threshold in (0.25, 0.35, 0.40, 0.50, 0.60, 0.65, 0.75):
-        dev_id, conf, reason = _try_decode_at_threshold(times, norm, threshold)
+        dev_id, conf, reason = _try_decode_at_threshold(times, norm, threshold,
+                                                        times_np=times_np,
+                                                        norm_np=norm_np)
         if dev_id is not None:
             if best is None or conf > best[1]:
                 best = (dev_id, conf)
