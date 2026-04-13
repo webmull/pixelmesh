@@ -84,11 +84,11 @@ class _GridPoint:
             self.history = [(t, b) for t, b in self.history if t >= cutoff]
 
     def try_decode(self, ts, cfg):
-        # Already-decoded points re-check slowly — they don't need the tight
-        # 0.2s interval.  This frees the per-frame decode budget for undiscovered
-        # phones, which matters when 300+ devices are all trying to decode at once.
-        interval = cfg["decode_interval"] if self.decoded_id is None else 10.0
-        if ts - self.last_decode_attempt < interval:
+        # Never re-decode a phone that's already been found — budget is reserved
+        # for undiscovered phones.  IDs are only cleared on detector.reset().
+        if self.decoded_id is not None:
+            return
+        if ts - self.last_decode_attempt < cfg["decode_interval"]:
             return
         self.last_decode_attempt = ts
 
