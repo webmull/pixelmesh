@@ -80,6 +80,10 @@ let effectAngle    = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
 let effectR        = 255;
 let effectG        = 255;
 let effectB        = 255;
+let effectR2       = 255;
+let effectG2       = 0;
+let effectB2       = 0;
+let effectSplit    = 0.5;
 let deviceOrder    = [];
 let sweepDwell     = 0.18;
 
@@ -319,9 +323,13 @@ function handleMessage(msg) {
     effectOriginU  = msg.origin_u ?? 0.5;
     effectOriginV  = msg.origin_v ?? 0.5;
     effectAngle    = msg.angle ?? 0;
-    effectR        = msg.color_r ?? 255;
-    effectG        = msg.color_g ?? 255;
-    effectB        = msg.color_b ?? 255;
+    effectR        = msg.color_r  ?? 255;
+    effectG        = msg.color_g  ?? 255;
+    effectB        = msg.color_b  ?? 255;
+    effectR2       = msg.color2_r ?? 255;
+    effectG2       = msg.color2_g ?? 0;
+    effectB2       = msg.color2_b ?? 0;
+    effectSplit    = msg.split    ?? 0.5;
     deviceOrder    = msg.device_order ?? [];
     sweepDwell     = msg.dwell ?? 0.18;
     applyModeVisual();
@@ -435,7 +443,37 @@ function shade(u, v, t) {
     return [i * effectR, i * effectG, i * effectB];
   }
 
+  if (currentEffect === "rainbow") {
+    // Hue sweeps across the directed axis, cycling over time
+    const hue = ((d * effectSpatialFreq - t * effectSpeed) % 1 + 1) % 1;
+    return hslToRgb(hue, 1.0, 0.5);
+  }
+
+  if (currentEffect === "colour_flood") {
+    // Two colours meet at a controllable split point; soft blend at boundary
+    const blend = Math.max(0, Math.min(1, (d - effectSplit) / 0.08 + 0.5));
+    const r = effectR + (effectR2 - effectR) * blend;
+    const g = effectG + (effectG2 - effectG) * blend;
+    const b = effectB + (effectB2 - effectB) * blend;
+    return [r, g, b];
+  }
+
   return [0, 0, 0];
+}
+
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+  const m = l - c / 2;
+  let r, g, b;
+  const i = Math.floor(h * 6);
+  if      (i === 0) { r = c; g = x; b = 0; }
+  else if (i === 1) { r = x; g = c; b = 0; }
+  else if (i === 2) { r = 0; g = c; b = x; }
+  else if (i === 3) { r = 0; g = x; b = c; }
+  else if (i === 4) { r = x; g = 0; b = c; }
+  else              { r = c; g = 0; b = x; }
+  return [(r + m) * 255, (g + m) * 255, (b + m) * 255];
 }
 
 // ------------------------------------------------------------------ //

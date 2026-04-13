@@ -532,7 +532,8 @@ def reset_server():
 
 
 def trigger_effect(name: str):
-    color = dpg.get_value("fx_color")   # [0–255, 0–255, 0–255, 255]
+    color  = dpg.get_value("fx_color")    # [0–255, 0–255, 0–255, 255]
+    color2 = dpg.get_value("fx_color2")
     payload = {
         "name":         name,
         "speed":        dpg.get_value("fx_speed"),
@@ -542,6 +543,10 @@ def trigger_effect(name: str):
         "color_r":      int(color[0]),
         "color_g":      int(color[1]),
         "color_b":      int(color[2]),
+        "color2_r":     int(color2[0]),
+        "color2_g":     int(color2[1]),
+        "color2_b":     int(color2[2]),
+        "split":        dpg.get_value("fx_split"),
     }
     log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
@@ -668,6 +673,12 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_5:
         trigger_effect("sweep_bar")
 
+    elif key == dpg.mvKey_6:
+        trigger_effect("rainbow")
+
+    elif key == dpg.mvKey_7:
+        trigger_effect("colour_flood")
+
 
 # ------------------------------------------------------------------ #
 # UI setup
@@ -743,15 +754,40 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="5  Sweep Bar",
                                callback=lambda: trigger_effect("sweep_bar"),
                                width=-1)
+                dpg.add_button(label="6  Rainbow",
+                               callback=lambda: trigger_effect("rainbow"),
+                               width=-1)
+                dpg.add_button(label="7  Colour Flood",
+                               callback=lambda: trigger_effect("colour_flood"),
+                               width=-1)
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("Effect Settings", color=(200, 200, 200))
-                dpg.add_text("Colour", color=(160, 160, 160))
+                dpg.add_text("Colour A", color=(160, 160, 160))
                 dpg.add_color_edit(
                     label="##fx_color_lbl",
                     tag="fx_color",
                     default_value=(255, 255, 255, 255),
                     no_alpha=True,
+                    width=-1,
+                    callback=_on_settings_changed,
+                )
+                dpg.add_text("Colour B  (flood only)", color=(160, 160, 160))
+                dpg.add_color_edit(
+                    label="##fx_color2_lbl",
+                    tag="fx_color2",
+                    default_value=(255, 0, 0, 255),
+                    no_alpha=True,
+                    width=-1,
+                    callback=_on_settings_changed,
+                )
+                dpg.add_text("Split  (flood only)", color=(160, 160, 160))
+                dpg.add_slider_float(
+                    label="##fx_split_lbl",
+                    tag="fx_split",
+                    default_value=0.5,
+                    min_value=0.0, max_value=1.0,
+                    format="%.2f",
                     width=-1,
                     callback=_on_settings_changed,
                 )
