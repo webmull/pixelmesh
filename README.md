@@ -291,8 +291,3 @@ Key optimisations:
 - **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points.
 - **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation.
 
----
-
-## Planned
-
-- Two-camera setup for Brighton Dome stalls coverage
