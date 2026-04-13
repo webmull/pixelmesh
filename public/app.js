@@ -460,21 +460,6 @@ function shade(u, v, t) {
     return [i * effectR, i * effectG, i * effectB];
   }
 
-  if (currentEffect === "water") {
-    // Sum of sinusoidal plane waves at irrational angles and frequencies.
-    // Interference between them creates the characteristic shimmering,
-    // non-repeating water surface texture.
-    const s = effectSpatialFreq * Math.PI * 2;
-    const sp = effectSpeed;
-    const h =
-      Math.sin((u * 1.000 + v * 0.300) * s - t * sp * 1.00) +
-      Math.sin((u * -0.500 + v * 0.866) * s - t * sp * 0.73) +
-      Math.sin((u * 0.707 + v * -0.707) * s - t * sp * 1.17) +
-      Math.sin((u * 0.200 + v * 0.980) * s - t * sp * 0.89);
-    const i = 0.5 + 0.5 * (h / 4);
-    return [i * effectR, i * effectG, i * effectB];
-  }
-
   if (currentEffect === "rainbow") {
     // Hue sweeps across the directed axis, cycling over time
     const hue = ((d * effectSpatialFreq - t * effectSpeed) % 1 + 1) % 1;
@@ -516,6 +501,70 @@ function hslToRgb(h, s, l) {
 }
 
 // ------------------------------------------------------------------ //
+// Water canvas renderer
+// ------------------------------------------------------------------ //
+
+// Persistent low-res canvas — rasterise water function here then scale up.
+// Low resolution (WATER_SCALE=6) gives a soft liquid look and keeps the
+// pixel loop fast enough for 60fps on mobile.
+const WATER_SCALE = 6;
+let _wCanvas = null, _wCtx = null, _wImageData = null;
+
+function renderWater(t) {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const rw = Math.ceil(W / WATER_SCALE);
+  const rh = Math.ceil(H / WATER_SCALE);
+
+  // (Re)create off-screen canvas if size changed
+  if (!_wCanvas || _wCanvas.width !== rw || _wCanvas.height !== rh) {
+    _wCanvas = document.createElement('canvas');
+    _wCanvas.width  = rw;
+    _wCanvas.height = rh;
+    _wCtx = _wCanvas.getContext('2d');
+    _wImageData = _wCtx.createImageData(rw, rh);
+  }
+
+  const data = _wImageData.data;
+
+  // Each phone shows a window into the world-space wave field centred on
+  // its (myU, myV) position.  worldW controls how much of the room is
+  // visible on one screen — smaller = more zoomed in = more ripples visible.
+  const worldW = 0.06;
+  const worldH = worldW * H / W;
+  // Scale wave frequency so effectSpatialFreq = ripple cycles visible across screen
+  const s  = effectSpatialFreq * Math.PI * 2 / worldW;
+  const sp = effectSpeed;
+  const er = effectR, eg = effectG, eb = effectB;
+
+  for (let py = 0; py < rh; py++) {
+    const wv = myV + (py / rh - 0.5) * worldH;
+    for (let px = 0; px < rw; px++) {
+      const wu = myU + (px / rw - 0.5) * worldW;
+      const h =
+        Math.sin((wu        + wv * 0.300) * s - t * sp * 1.00) +
+        Math.sin((wu * -0.5 + wv * 0.866) * s - t * sp * 0.73) +
+        Math.sin((wu * 0.707 - wv * 0.707) * s - t * sp * 1.17) +
+        Math.sin((wu * 0.200 + wv * 0.980) * s - t * sp * 0.89);
+      const i = 0.5 + h / 8;   // normalise 4-wave sum to 0–1
+      const idx = (py * rw + px) * 4;
+      data[idx]   = (i * er + 0.5) | 0;
+      data[idx+1] = (i * eg + 0.5) | 0;
+      data[idx+2] = (i * eb + 0.5) | 0;
+      data[idx+3] = 255;
+    }
+  }
+
+  _wCtx.putImageData(_wImageData, 0, 0);
+
+  projCanvas.width  = W;
+  projCanvas.height = H;
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'medium';
+  ctx.drawImage(_wCanvas, 0, 0, W, H);
+}
+
+// ------------------------------------------------------------------ //
 // Render loop
 // ------------------------------------------------------------------ //
 
@@ -524,17 +573,21 @@ function renderLoop() {
 
   if (phoneState === PS.SHOWTIME && currentEffect) {
     if (!calibrated) {
-      // Not calibrated — stay black, detection phase already flagged this device
       projCanvas.style.display = "none";
       showtime.style.background = "#000";
     } else {
+      const t = (serverNow() - effectStartTime) / 1000;
 
-    const t = (serverNow() - effectStartTime) / 1000;
-    projCanvas.style.display = "none";
-    const [r, g, b] = shade(myU, myV, t);
-    showtime.style.background = `rgb(${r},${g},${b})`;
-
-    } // end calibrated
+      if (currentEffect === "water") {
+        showtime.style.background = "#000";
+        projCanvas.style.display = "block";
+        renderWater(t);
+      } else {
+        projCanvas.style.display = "none";
+        const [r, g, b] = shade(myU, myV, t);
+        showtime.style.background = `rgb(${r},${g},${b})`;
+      }
+    }
   }
 
   requestAnimationFrame(renderLoop);
