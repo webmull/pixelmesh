@@ -524,47 +524,54 @@ function renderWater(t) {
   }
 
   const data = _wImageData.data;
+  const TAU  = Math.PI * 2;
+  const sp   = effectSpeed;
+  const er   = effectR / 255, eg = effectG / 255, eb = effectB / 255;
 
-  // World window: each phone shows a patch of the wave field centred on its
-  // room position.  worldW controls zoom — 0.08 gives ~2 wave crests visible.
-  const worldW = 0.08;
+  // ---- Layer 1: room-scale wave ----------------------------------------
+  // effectSpatialFreq = wave cycles across the full room (u=0→1).
+  // This is evaluated at this phone's fixed room position (myU, myV),
+  // so neighbouring phones at different positions get different brightness —
+  // the wave flows across the whole audience as one surface.
+  const rs = effectSpatialFreq * TAU;
+  const roomWave =
+    0.50 * Math.sin( myU * rs                       - t * sp       ) +
+    0.30 * Math.sin((myU * 0.70 + myV * 0.714) * rs * 0.85 - t * sp * 0.90) +
+    0.20 * Math.sin( myV * rs * 1.10                - t * sp * 1.10);
+  // roomEnv: 0.15 at trough → 1.0 at crest
+  const roomEnv = 0.15 + 0.85 * (0.5 + 0.5 * roomWave);
+
+  // ---- Layer 2: per-phone screen texture ----------------------------------
+  // High-frequency waves rendered pixel-by-pixel so each phone looks like
+  // water close-up.  worldW = assumed phone width in room coordinates.
+  // ~3 wave crests visible per phone screen.
+  const worldW = 0.05;
   const worldH = worldW * H / W;
-  const TAU = Math.PI * 2;
-  const s  = effectSpatialFreq * TAU / worldW;  // wave spatial freq in world units
-  const sp = effectSpeed;
-  const er = effectR / 255, eg = effectG / 255, eb = effectB / 255;
+  const ts = 3 * TAU / worldW;   // 3 screen-width cycles → clearly visible ripples
 
   for (let py = 0; py < rh; py++) {
     const wv = myV + (py / rh - 0.5) * worldH;
     for (let px = 0; px < rw; px++) {
       const wu = myU + (px / rw - 0.5) * worldW;
 
-      // Three wave components at different angles and speeds.
-      // Primary wave dominant; two smaller secondaries create interference.
-      const p1 =  wu * s               - t * sp;
-      const p2 = (wu * 0.8 + wv * 0.6) * s * 0.85  - t * sp * 0.9;
-      const p3 = (wu * 0.2 - wv * 1.0) * s * 0.6   - t * sp * 1.15;
+      const p1 =  wu * ts                       - t * sp * 1.30;
+      const p2 = (wu * 0.80 + wv * 0.60) * ts * 0.85 - t * sp * 1.15;
+      const p3 = (wu * -0.30 + wv * 1.00) * ts * 0.60 - t * sp * 1.40;
 
-      // (1 - cos(x)) / 2 gives 0 at trough, 1 at crest — wave-shaped profile.
-      // Raising to power < 1 sharpens crests; > 1 flattens them.
-      const h1 = Math.pow((1 - Math.cos(p1)) / 2, 0.5);  // dominant
-      const h2 = Math.pow((1 - Math.cos(p2)) / 2, 0.5) * 0.5;
+      const h1 = Math.pow((1 - Math.cos(p1)) / 2, 0.5);
+      const h2 = Math.pow((1 - Math.cos(p2)) / 2, 0.5) * 0.50;
       const h3 = Math.pow((1 - Math.cos(p3)) / 2, 0.5) * 0.25;
+      const screenH = Math.min(1, (h1 + h2 + h3) / 1.75);
 
-      // Combined height 0–1, re-normalised
-      const height = Math.min(1, (h1 + h2 + h3) / 1.75);
-
-      // Transfer: dark trough → user colour at crest → bright white specular highlight
-      // at very high peaks.
-      const specular = Math.pow(height, 6) * 0.9;  // tiny bright spark at peak
-      const r = Math.min(255, (height * er + specular) * 255) | 0;
-      const g = Math.min(255, (height * eg + specular) * 255) | 0;
-      const b = Math.min(255, (height * eb + specular) * 255) | 0;
+      // Multiply room envelope × screen texture:
+      // crest phones show bright water detail; trough phones are dark.
+      const combined = roomEnv * screenH;
+      const specular = Math.pow(combined, 5) * 0.85;
 
       const idx = (py * rw + px) * 4;
-      data[idx]   = r;
-      data[idx+1] = g;
-      data[idx+2] = b;
+      data[idx]   = Math.min(255, (combined * er + specular) * 255) | 0;
+      data[idx+1] = Math.min(255, (combined * eg + specular) * 255) | 0;
+      data[idx+2] = Math.min(255, (combined * eb + specular) * 255) | 0;
       data[idx+3] = 255;
     }
   }
