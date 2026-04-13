@@ -84,6 +84,7 @@ let effectR2       = 255;
 let effectG2       = 0;
 let effectB2       = 0;
 let effectSplit    = 0.5;
+let effectOrbRadius = 0.25;
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -348,7 +349,8 @@ function handleMessage(msg) {
     effectR2       = msg.color2_r ?? 255;
     effectG2       = msg.color2_g ?? 0;
     effectB2       = msg.color2_b ?? 0;
-    effectSplit    = msg.split    ?? 0.5;
+    effectSplit     = msg.split      ?? 0.5;
+    effectOrbRadius = msg.orb_radius ?? 0.25;
     applyModeVisual();
     return;
   }
@@ -458,6 +460,29 @@ function shade(u, v, t) {
     const beat = Math.sin(2 * Math.PI * (effectBpm / 60) * t);
     const i = Math.max(0, beat);
     return [i * effectR, i * effectG, i * effectB];
+  }
+
+  if (currentEffect === "orb") {
+    // Single orb drifting on a Lissajous path around the room
+    const ox = 0.5 + 0.4 * Math.cos(t * effectSpeed);
+    const oy = 0.5 + 0.35 * Math.sin(t * effectSpeed * 1.3);
+    const dist = Math.sqrt((u - ox) ** 2 + (v - oy) ** 2);
+    const i = Math.max(0, 1 - dist / effectOrbRadius) ** 2;
+    return [i * effectR, i * effectG, i * effectB];
+  }
+
+  if (currentEffect === "particles") {
+    // Multiple orbs with staggered phases — firefly swarm
+    const n = Math.max(2, Math.round(effectSpatialFreq * 2));
+    let brightness = 0;
+    for (let p = 0; p < n; p++) {
+      const phase = (p / n) * Math.PI * 2;
+      const ox = 0.5 + 0.38 * Math.cos(t * effectSpeed + phase);
+      const oy = 0.5 + 0.38 * Math.sin(t * effectSpeed * 0.7 + phase * 1.3);
+      const dist = Math.sqrt((u - ox) ** 2 + (v - oy) ** 2);
+      brightness = Math.max(brightness, Math.max(0, 1 - dist / effectOrbRadius) ** 2);
+    }
+    return [brightness * effectR, brightness * effectG, brightness * effectB];
   }
 
   if (currentEffect === "rainbow") {
