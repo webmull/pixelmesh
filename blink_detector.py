@@ -84,7 +84,11 @@ class _GridPoint:
             self.history = [(t, b) for t, b in self.history if t >= cutoff]
 
     def try_decode(self, ts, cfg):
-        if ts - self.last_decode_attempt < cfg["decode_interval"]:
+        # Already-decoded points re-check slowly — they don't need the tight
+        # 0.2s interval.  This frees the per-frame decode budget for undiscovered
+        # phones, which matters when 300+ devices are all trying to decode at once.
+        interval = cfg["decode_interval"] if self.decoded_id is None else 10.0
+        if ts - self.last_decode_attempt < interval:
             return
         self.last_decode_attempt = ts
 
@@ -290,28 +294,26 @@ class BlinkDetector:
             cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.05)
 
         # 5. Attempt decode on high-variance points only.
-        #    Cap at MAX_DECODES_PER_FRAME full decoder runs per frame, prioritised by
-        #    highest std, so a sudden crowd of high-variance points (person walking in
-        #    front of camera) cannot stall the frame loop with hundreds of decode calls.
-        #    Each decode_phases_verbose call on 30s of history costs ~1-5ms; uncapped
-        #    this could push frame time from ~50ms to >500ms.
-        #    The budget only gates NEW decode attempts (interval elapsed); points whose
-        #    interval hasn't elapsed fall through cheaply regardless.
-        MAX_DECODES_PER_FRAME = 12
+        #    Time-budget approach: decode highest-std points first, stop when the
+        #    per-frame decode allocation is exhausted.  A fixed count cap assumes
+        #    all calls cost the same; a time budget adapts — fast decodes (clean
+        #    signal, early-exit at conf≥0.95) consume little budget and allow more
+        #    phones to be processed in the same frame.  50ms keeps the detection
+        #    thread above 15fps even if a handful of calls are expensive.
+        #    Points whose interval hasn't elapsed fall through the loop cheaply.
+        DECODE_BUDGET_SECS = 0.050
         gate = cfg["min_recent_std"]
         if computed_stds is not None:
             active_idx = np.where(computed_stds >= gate)[0]
             # Sort highest-std first so real phones (strong blink) get priority
             if len(active_idx) > 1:
                 active_idx = active_idx[np.argsort(-computed_stds[active_idx])]
-            budget = MAX_DECODES_PER_FRAME
+            deadline = time.time() + DECODE_BUDGET_SECS
             for i in active_idx:
                 pt = self._points[i]
                 will_decode = (ts - pt.last_decode_attempt) >= cfg["decode_interval"]
-                if will_decode:
-                    if budget <= 0:
-                        continue
-                    budget -= 1
+                if will_decode and time.time() >= deadline:
+                    continue
                 pt.try_decode(ts, cfg)
         else:
             for pt in self._points:
