@@ -372,15 +372,6 @@ async def start_effect(effect_name: str, params: dict):
 async def effect_fire(payload: dict):
     name = payload.get("name", "wave")
     params = {k: v for k, v in payload.items() if k != "name"}
-    if name == "sweep_bar":
-        devices = []
-        for device_id in connections:
-            pos = positions.get(device_id)
-            if pos:
-                devices.append((device_id, pos["u"]))
-        devices.sort(key=lambda x: x[1])
-        params.setdefault("device_order", [d for d, _ in devices])
-        params.setdefault("dwell", 0.18)
     await start_effect(name, params)
     return {"ok": True}
 
@@ -410,28 +401,6 @@ async def pulse():
 
 
 
-@app.post("/admin/proof/sweep_bar")
-async def sweep_bar():
-    now = int(time.time() * 1000)
-
-    # Sort devices by u-position
-    devices = []
-    for device_id in connections:
-        pos = positions.get(device_id)
-        if pos:
-            devices.append((device_id, pos["u"]))
-    devices.sort(key=lambda x: x[1])
-
-    device_ids = [d for d, _ in devices]
-
-    await broadcast({
-        "type":         "effect",
-        "effect":       "sweep_bar",
-        "start_time":   now,
-        "device_order": device_ids,
-        "dwell":        0.18,
-    })
-    return {"ok": True}
 
 
 # ------------------------------------------------------------------ #

@@ -671,12 +671,9 @@ def on_key_press(key, holder):
         trigger_effect("pulse")
 
     elif key == dpg.mvKey_5:
-        trigger_effect("sweep_bar")
-
-    elif key == dpg.mvKey_6:
         trigger_effect("rainbow")
 
-    elif key == dpg.mvKey_7:
+    elif key == dpg.mvKey_6:
         trigger_effect("colour_flood")
 
 
@@ -751,13 +748,10 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="4  Pulse",
                                callback=lambda: trigger_effect("pulse"),
                                width=-1)
-                dpg.add_button(label="5  Sweep Bar",
-                               callback=lambda: trigger_effect("sweep_bar"),
-                               width=-1)
-                dpg.add_button(label="6  Rainbow",
+                dpg.add_button(label="5  Rainbow",
                                callback=lambda: trigger_effect("rainbow"),
                                width=-1)
-                dpg.add_button(label="7  Colour Flood",
+                dpg.add_button(label="6  Colour Flood",
                                callback=lambda: trigger_effect("colour_flood"),
                                width=-1)
 
