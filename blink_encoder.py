@@ -275,6 +275,13 @@ def decode_phases_verbose(
         if dev_id is not None:
             if best is None or conf > best[1]:
                 best = (dev_id, conf)
+            # High-confidence decode — no point trying remaining thresholds.
+            # At good signal quality (ISO 624, fixed exposure) threshold 0.25
+            # always yields conf ≥ 0.95.  Skipping the other 6 thresholds gives
+            # ~7× speedup per call, critical when 300+ phones need simultaneous
+            # first-time decoding after the 13.2s warmup expires.
+            if best[1] >= 0.95:
+                break
         else:
             # Keep the most informative failure (guard_ok > short_guard > no_guard)
             priority = {"guard_ok_no_bits": 3, "phase_ambig": 2,
