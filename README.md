@@ -223,6 +223,8 @@ Each device blinks one full cycle continuously:
 
 Detection uses actual frame timestamps + known `PHASE_MS` as ground truth — immune to variable camera fps. Anchor is computed from the end of the guard run (not the start) so phones that arrive mid-cycle are decoded correctly.
 
+**Detection warmup**: the decoder requires a brightness history spanning at least one full cycle (13.2s) before it can attempt a decode. A phone that connects at T=0 will not be detected until T=13.2s at the earliest — and only if it has been in frame and blinking the whole time. In practice, expect 15–20s from connection to first detection per phone. This is a hard floor set by the protocol: each Manchester bit needs to be observed across its full phase window, which requires history long enough to contain at least one complete guard + data sequence. It cannot be reduced without shortening `PHASE_MS` (which reduces noise tolerance) or `NUM_BITS` (which reduces the ID space). At a live event with 300 phones joining over a few minutes, the staggered arrival means most phones will be detected within 20s of connecting — not 300 × 13.2s sequentially.
+
 **Minimum camera fps**: the decoder needs at least ~10 fps to reliably sample 300 ms phases (≥3 samples/phase). The camera is locked to manual exposure via AVFoundation on open to prevent it from slowing to 2–4 fps in dark rooms.
 
 **Adaptive normalisation**: `hi` used for brightness normalisation is taken from the most recent one-cycle window (13.2 s) rather than the all-time max. This prevents phone screen auto-dimming (ambient light sensor can reduce brightness by 4–5×) from pushing "bright" phases below the detection threshold and creating a spurious all-dark run that blocks the decoder.
