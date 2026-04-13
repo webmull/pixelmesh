@@ -93,6 +93,23 @@ let connectWatchdog = null;
 let heartbeatTimer  = null;
 let wakeLock        = null;
 
+// ---- Pre-sync desync offset ----
+// Before clock sync is active each phone adds a large random time offset so
+// effects look deliberately chaotic.  When sync kicks in the offset is cleared
+// and everything snaps to server time simultaneously — the "wow moment".
+// Seeded from deviceId so the offset is stable across reconnects.
+function _deviceSeed(id) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = (h * 0x01000193) >>> 0;
+  }
+  return h;
+}
+const DESYNC_RANGE_MS = 8000;   // up to 8s of random pre-sync offset
+let preSyncOffset = (_deviceSeed(deviceId) / 0xffffffff) * DESYNC_RANGE_MS;
+let synced = false;   // true once we have at least one good clock sample
+
 // ---- Adaptive clock sync ----
 const SYNC_INTERVAL_MS  = 5000;   // ping every 5s while sync is active
 const SYNC_BUFFER_SIZE  = 8;      // keep last N samples
@@ -110,6 +127,8 @@ function stopSync() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
   syncSamples  = [];
   clockOffset  = 0;
+  synced       = false;
+  preSyncOffset = (_deviceSeed(deviceId) / 0xffffffff) * DESYNC_RANGE_MS;
 }
 
 function _sendSyncPing() {
@@ -138,6 +157,7 @@ document.addEventListener("visibilitychange", async () => {
 // ------------------------------------------------------------------ //
 
 function serverNow() {
+  if (!synced) return Date.now() + clockOffset + preSyncOffset;
   return Date.now() + clockOffset;
 }
 
@@ -261,6 +281,7 @@ function handleMessage(msg) {
     // Best estimate = sample with lowest RTT (least network jitter)
     const best = syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
     clockOffset = clockOffset * (1 - SYNC_EMA_ALPHA) + best.offset * SYNC_EMA_ALPHA;
+    synced = true;
     // Report stats back so the controller can display them
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
