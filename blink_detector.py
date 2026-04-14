@@ -158,6 +158,7 @@ class BlinkDetector:
         self._patch_idx_r:   int = -1                   # radius used to build _patch_idx
         self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
         self._decoded_pts:   list = []                  # points with decoded_id != None (tiny list)
+        self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
 
     # ---------------------------------------------------------------- #
 
@@ -184,6 +185,7 @@ class BlinkDetector:
         self._std_buf = None
         self._std_buf_pos = 0
         self._std_buf_count = 0
+        self._ever_active.clear()  # indices are position-dependent; invalidate on grid change
 
     # ---------------------------------------------------------------- #
 
@@ -267,24 +269,28 @@ class BlinkDetector:
         # phone signal) OR points that were recently above it within history_seconds
         # (to capture the dark guard phase, which pulls std down ~5× for distant phones).
         # Background noise points never exceed the gate, so they never start recording.
-        # TODO PERF: vectorize this loop — currently iterates all ~25,920 points in
-        #   Python even though only ~50 pass the gate.  Use np.where(computed_stds >= gate)
-        #   to get active indices first, then iterate only those.  For the elif branch
-        #   (guard-phase samples from recently-active-but-quiet points), maintain a
-        #   _ever_active: set[int] of point indices populated when last_active_ts is set —
-        #   iterate that set (~hundreds) instead of all 25K.  Measured saving: 18 ms/frame
-        #   on detection thread (~900 ms/s CPU).  Risk: guard-phase samples must be
-        #   preserved — the elif branch is critical for decoder correctness during the
-        #   4-dark-phase guard run; the _ever_active set preserves this.
+        # Record brightness history only for points near an active phone.
+        # Use np.where to get the ~50 above-gate indices first, then iterate only
+        # those — avoids 25K Python loop iterations per frame (measured: 18ms/frame).
+        # Guard-phase preservation: phones go quiet during the 4 dark guard phases
+        # (~1.2s); _ever_active tracks all indices that have ever been above gate so
+        # their samples are still recorded while std is temporarily below gate.
         if computed_stds is not None:
-            gate = cfg["min_recent_std"]
+            gate      = cfg["min_recent_std"]
             hist_secs = cfg["history_seconds"]
-            for pt, b, s in zip(self._points, brightnesses, computed_stds):
-                if s >= gate:
-                    pt.last_active_ts = ts
-                    pt.add_sample(float(b), ts, hist_secs)
-                elif pt.last_active_ts > 0 and (ts - pt.last_active_ts) < hist_secs:
-                    pt.add_sample(float(b), ts, hist_secs)
+            active_idx = np.where(computed_stds >= gate)[0]
+            for i in active_idx:
+                pt = self._points[i]
+                pt.last_active_ts = ts
+                pt.add_sample(float(brightnesses[i]), ts, hist_secs)
+                self._ever_active.add(i)
+            # Record guard-phase samples for points that were recently active but
+            # are currently quiet — iterate only the small ever-active set, not all 25K.
+            for i in self._ever_active:
+                if computed_stds[i] < gate:
+                    pt = self._points[i]
+                    if pt.last_active_ts > 0 and (ts - pt.last_active_ts) < hist_secs:
+                        pt.add_sample(float(brightnesses[i]), ts, hist_secs)
         else:
             for pt, b in zip(self._points, brightnesses):
                 pt.add_sample(float(b), ts, cfg["history_seconds"])
@@ -364,7 +370,23 @@ class BlinkDetector:
                 confidence=best_conf,
             )
 
-        self.last_results = list(id_map.values())
+        # Spatial dedup: if two different IDs have centroids within CLUSTER_R pixels
+        # of each other, keep only the higher-confidence one.  Prevents phantom IDs
+        # caused by phase-shifted decodes of the same phone — most common with IDs
+        # whose Manchester pattern is purely alternating (e.g. ID=0 → all-dark-bright,
+        # whose 1-phase-shifted complement decodes as ID=511 = all-ones).
+        CLUSTER_R = 120  # px — same radius used in draw_overlay stream dedup
+        detections = sorted(id_map.values(), key=lambda d: d.confidence, reverse=True)
+        kept: list[DetectedDevice] = []
+        for det in detections:
+            if any(
+                abs(det.cx_px - k.cx_px) < CLUSTER_R and abs(det.cy_px - k.cy_px) < CLUSTER_R
+                for k in kept
+            ):
+                continue
+            kept.append(det)
+
+        self.last_results = kept
         self._decoded_pts = decoded_pts_new
 
         # 6. Diagnostic logging
@@ -560,4 +582,5 @@ class BlinkDetector:
         # hundreds of background points before any real phone is detected.
         self._noise_floor = DEFAULTS["min_recent_std"]
         self.cfg["min_recent_std"] = DEFAULTS["min_recent_std"]
+        self._ever_active.clear()
 
