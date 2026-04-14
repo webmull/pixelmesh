@@ -281,6 +281,8 @@ Decoded IDs persist for the entire detection session and are **never re-decoded*
 
 **Stream display gate**: the binary stream overlay is only shown once the point has been active for at least 4 seconds AND has fewer than 6 consecutive decode failures. Age alone isn't enough — sustained LEDs and reflections also pass the age gate. Decode failures are the stronger signal: real phones decode within ~26s; noise accumulates failures indefinitely. The failure counter resets to zero on a successful decode so legitimate phones are never suppressed.
 
+**Phantom ID suppression**: some IDs have symmetric Manchester patterns (e.g. ID=0 = all zeros, ID=511 = all ones). A grid point sampling the same phone at a 1-phase offset decodes the bit-complement ID. After building the detected-device list, any two IDs whose centroids are within 120px of each other are deduplicated — the lower-confidence one is dropped. This prevents a single phone from reporting two IDs and avoids ghosting a distant phone at the wrong position.
+
 ---
 
 ## Performance
@@ -311,4 +313,9 @@ Key optimisations:
 - **Gated try_decode / draw_overlay**: `np.where(stds >= gate)` finds active indices in one pass; Python loops only run over the ~0–50 active points.
 - **Pre-allocated texture buffer**: `frame_to_texture` uses a persistent `(H, W, 4)` float32 buffer with in-place `cv2.cvtColor` — eliminates a 14 MB/frame allocation.
 - **Conditional heatmap**: the recent-std heatmap (variance visualisation for debug capture) is only built when debug capture is active (`G` key). Skipped on normal detection runs — saves a 1080p zeros allocation + circle loop per frame.
+- **Vectorised history recording**: `np.where(stds >= gate)` reduces the history-update loop from ~25,920 Python iterations to ~50 per frame (measured: 18ms/frame saved). Guard-phase samples (phones temporarily below gate during 4 dark phases) are preserved via a `_ever_active` index set that tracks all points that have ever been above gate.
+
+Remaining perf TODOs (in code):
+- Pre-allocate gray pad buffer (0.13ms/frame, low risk)
+- Skip gamma + contrast when blackout is on (2.24ms/frame, no risk)
 
