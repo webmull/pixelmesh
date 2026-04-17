@@ -283,6 +283,8 @@ Decoded IDs persist for the entire detection session and are **never re-decoded*
 
 **Phantom ID suppression**: some IDs have symmetric Manchester patterns (e.g. ID=0 = all zeros, ID=511 = all ones). A grid point sampling the same phone at a 1-phase offset decodes the bit-complement ID. After building the detected-device list, any two IDs whose centroids are within 120px of each other are deduplicated — the lower-confidence one is dropped. This prevents a single phone from reporting two IDs and avoids ghosting a distant phone at the wrong position.
 
+**Guard-phase decode extension**: the 4 dark guard phases (~1.2s) can coincide with the moment a phone's history first crosses the 13.2s warmup threshold. When this happens, Gate 2 (std < gate) blocks every decode attempt during the guard window and the phone loses an entire cycle. To recover it: after the main decode loop, the detector also tries points in `_ever_active` (proven signal history) whose std has dropped below gate within the last 1.8s. These attempts bypass Gate 2 only — warmup and backoff gates still apply. This eliminates the edge case for phones with weak signal (std near the gate floor of 0.05) that are particularly vulnerable to the timing collision.
+
 ---
 
 ## Performance

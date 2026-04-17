@@ -84,7 +84,7 @@ class _GridPoint:
             cutoff = ts - history_seconds
             self.history = [(t, b) for t, b in self.history if t >= cutoff]
 
-    def try_decode(self, ts, cfg):
+    def try_decode(self, ts, cfg, skip_std_gate: bool = False):
         # Never re-decode a phone that's already been found — budget is reserved
         # for undiscovered phones.  IDs are only cleared on detector.reset().
         if self.decoded_id is not None:
@@ -115,11 +115,12 @@ class _GridPoint:
                 self.decode_fail_reason = f"warmup {span:.1f}s/{_MIN_HIST_SECS:.1f}s"
                 return
 
-        # Gate 2: must be actively blinking NOW
-        if self.recent_std < cfg["min_recent_std"]:
+        # Gate 2: must be actively blinking NOW.
+        # skip_std_gate is set for guard-phase candidates: points that were recently
+        # above gate but have gone quiet during the dark guard phases.  Their history
+        # is complete and valid — only their current std is temporarily suppressed.
+        if not skip_std_gate and self.recent_std < cfg["min_recent_std"]:
             self.decode_fail_reason = f"std={self.recent_std:.3f}<{cfg['min_recent_std']}"
-            # Once decoded, keep the ID regardless — phone may have left or entered
-            # a guard phase.  IDs are only cleared on detector.reset().
             return
 
 
@@ -342,6 +343,26 @@ class BlinkDetector:
                 if will_decode and time.time() >= deadline:
                     continue
                 pt.try_decode(ts, cfg)
+
+            # Guard-phase extension: also attempt decode on recently-active points
+            # that are currently below gate.  A phone entering its 4-phase dark guard
+            # (~1.2s) goes quiet right when the warmup threshold may be crossing 13.2s,
+            # meaning Gate 2 blocks every attempt during that window and an entire cycle
+            # is lost.  Points in _ever_active have proven signal — if they went quiet
+            # within the last 1.8s (1.5× guard duration) we bypass Gate 2 only.
+            _GUARD_WINDOW = 4 * PHASE_MS / 1000 * 1.5   # 1.8s
+            for i in self._ever_active:
+                if computed_stds[i] >= gate:
+                    continue   # already handled in main loop above
+                pt = self._points[i]
+                if pt.decoded_id is not None:
+                    continue
+                if pt.last_active_ts <= 0 or (ts - pt.last_active_ts) > _GUARD_WINDOW:
+                    continue
+                will_decode = (ts - pt.last_decode_attempt) >= cfg["decode_interval"]
+                if will_decode and time.time() >= deadline:
+                    continue
+                pt.try_decode(ts, cfg, skip_std_gate=True)
         else:
             for pt in self._points:
                 pt.try_decode(ts, cfg)
