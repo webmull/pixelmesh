@@ -208,6 +208,133 @@ def _try_decode_at_threshold(
             confidence = min(1.0, guard_secs / expected_guard_secs) * (1.0 - errors * 0.3)
             return (device_id, confidence, "")
 
+        # ---- backward scan: pre-guard Manchester data ----
+        # When a phone's cycle began before detection started, the guard run
+        # ends up near the END of the history window.  The complete previous
+        # cycle's Manchester data lies BEFORE the guard — the decoder's
+        # forward-only scan misses it entirely (empty_win bit=0).
+        #
+        # Here we anchor t_manchester from the guard START and scan the
+        # pre-guard data.  Leading bits whose windows fall before history[0]
+        # are handled using protocol-mandated values:
+        #   bit 0  = start marker = 1  (always — safe to assume)
+        #   bits 1…NUM_BITS-1 (first copy) = inferred from matching second-copy bits
+        # The second copy and end marker must be fully observed.
+        _manchester_secs = _MANCHESTER_PHASES * phase_secs  # 12.0 s
+
+        pre_guard_secs = (times[run_start] - times[0]) if run_start > 0 else 0.0
+        fwd_secs       = (times[-1] - times[run_end - 1]) if run_end <= len(times) else 0.0
+
+        # Only run when:
+        #  1. forward data is short — forward scan cannot succeed
+        #  2. enough pre-guard history — second copy of ID is fully visible
+        #  3. guard looks like a real 4-phase guard (≥ 0.9 s).  Spurious double-dark
+        #     boundaries from adjacent Manchester 0-bits last only ~0.5–0.6 s; anchoring
+        #     a backward scan on them produces wrong IDs.
+        if (fwd_secs < _manchester_secs * 0.5
+                and pre_guard_secs > _manchester_secs * 0.55
+                and guard_secs >= expected_guard_secs * 0.75):
+            t_head = times_np[:run_start]
+            n_head = norm_np[:run_start]
+
+            for t_offset in (-0.75, -0.625, -0.5, -0.375, -0.25, -0.125,
+                             0.0,
+                             0.125, 0.25, 0.375, 0.5, 0.625, 0.75):
+                # Anchor: guard start is (0.5+t_offset) phases after last Manchester sample.
+                t_manchester_b = (times[run_start]
+                                  - (0.5 + t_offset) * phase_secs
+                                  - _manchester_secs)
+
+                bits_b    = []
+                n_assumed = 0   # leading bits inferred from protocol
+                valid_b   = True
+                fail_b    = ""
+
+                for bit_i in range(_MANCHESTER_BITS):
+                    p1_t0 = t_manchester_b + bit_i * 2 * phase_secs
+                    p1_t1 = p1_t0 + phase_secs
+                    p2_t0 = p1_t1
+                    p2_t1 = p2_t0 + phase_secs
+
+                    w1 = n_head[(t_head >= p1_t0) & (t_head < p1_t1)]
+                    w2 = n_head[(t_head >= p2_t0) & (t_head < p2_t1)]
+
+                    if len(w1) == 0 or len(w2) == 0:
+                        # Window falls before history — use protocol knowledge.
+                        if bit_i == 0:
+                            bits_b.append(1)   # start marker is always 1
+                            n_assumed += 1
+                            continue
+                        if 1 <= bit_i <= NUM_BITS:
+                            # First-copy bit — value unknown; infer from second copy later.
+                            bits_b.append(None)
+                            n_assumed += 1
+                            continue
+                        # Second copy or end marker is missing — cannot decode.
+                        fail_b  = f"back:empty_win bit={bit_i}"
+                        valid_b = False
+                        break
+
+                    p1_b = 1 if float(w1.mean()) >= 0.5 else 0
+                    p2_b = 1 if float(w2.mean()) >= 0.5 else 0
+
+                    if   p1_b == 1 and p2_b == 0: bits_b.append(1)
+                    elif p1_b == 0 and p2_b == 1: bits_b.append(0)
+                    else:
+                        fail_b  = f"back:phase_ambig bit={bit_i}"
+                        valid_b = False
+                        break
+
+                if not valid_b or len(bits_b) != _MANCHESTER_BITS:
+                    if fail_b:
+                        best_fail = fail_b
+                    continue
+
+                # End marker must be observed (not assumed) and equal 0.
+                if bits_b[-1] != 0:
+                    best_fail = f"back:bad_end e={bits_b[-1]}"
+                    continue
+                # Start marker: if observed it must be 1; if assumed it's guaranteed 1.
+                if n_assumed == 0 and bits_b[0] != 1:
+                    best_fail = f"back:bad_start s={bits_b[0]}"
+                    continue
+
+                data1_b = bits_b[1 : 1 + NUM_BITS]
+                data2_b = bits_b[1 + NUM_BITS : 1 + NUM_BITS * 2]
+
+                # Second copy must be fully observed (no Nones).
+                if any(b is None for b in data2_b):
+                    best_fail = "back:incomplete_data2"
+                    continue
+
+                # Merge copies: use observed data1 bits; fill missing ones from data2
+                # (unobservable ≠ wrong — don't count them as errors).
+                errors_b = 0
+                resolved_b = []
+                for b1, b2 in zip(data1_b, data2_b):
+                    if b1 is None:
+                        resolved_b.append(b2)
+                    elif b1 == b2:
+                        resolved_b.append(b1)
+                    else:
+                        resolved_b.append(b1)   # keep data1 on genuine mismatch
+                        errors_b += 1
+
+                if errors_b > 1:
+                    best_fail = f"back:copy_mismatch err={errors_b}"
+                    continue
+
+                device_id_b = 0
+                for b in resolved_b:
+                    device_id_b = (device_id_b << 1) | b
+
+                # 5 % confidence penalty per assumed bit; additional 30 % per copy error.
+                confidence_b = (min(1.0, guard_secs / expected_guard_secs)
+                                * (1.0 - errors_b * 0.3)
+                                * (0.95 ** n_assumed))
+
+                return (device_id_b, confidence_b, "")
+
     return (None, None, best_fail)
 
 
