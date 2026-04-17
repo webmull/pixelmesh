@@ -767,7 +767,14 @@ def setup_ui(holder: dict):
         for i in range(32):
             dpg.add_text("", tag=f"sync_row_{i}", show=False)
 
-    dpg.create_viewport(title=WINDOW_TITLE, width=1660, height=780)
+    # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
+    try:
+        from AppKit import NSScreen
+        r = NSScreen.mainScreen().frame()
+        _sw, _sh = int(r.size.width), int(r.size.height)
+    except Exception:
+        _sw, _sh = 1660, 780
+    dpg.create_viewport(title=WINDOW_TITLE, width=_sw, height=_sh, x_pos=0, y_pos=0)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
@@ -920,7 +927,7 @@ def main():
                     else:
                         iw, ih = pw, int(pw / aspect)
                     x0 = max((pw - iw) // 2, 0)
-                    y0 = max((ph - ih) // 2, 0)
+                    y0 = 0  # pin to top — vertical centering creates a gap at full-screen height
                     dpg.configure_item("preview_image", width=iw, height=ih)
                     dpg.set_item_pos("preview_image", [x0, y0])
             except Exception:

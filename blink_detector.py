@@ -415,17 +415,18 @@ class BlinkDetector:
         n_above = sum(1 for p in active if p.recent_std >= cfg["min_recent_std"])
         decoded = [p for p in active if p.decoded_id is not None]
 
-        # Warn if the best candidate has low signal range — likely auto-exposure
-        # compensating for the blink and compressing amplitude (range < 0.5 means
-        # AE is fighting the signal; seen as range=0.28 vs expected 0.99).
+        # Warn if the best candidate has low signal range.
+        # Causes: auto-exposure compressing amplitude, low screen brightness,
+        # or phone screen dimmed by ambient light sensor.
+        # Expected range with manual exposure and full brightness: ~0.99.
         top = by_std[0]
         if top.history and len(top.history) >= 2:
             raw_vals = [b for _, b in top.history]
             top_range = max(raw_vals) - min(raw_vals)
             if top_range < 0.5 and n_above > 0:
                 log.info(f"[blink] WARNING: low signal range={top_range:.2f} — "
-                         f"auto-exposure may be compensating for blink. "
-                         f"Use fixed exposure/ISO in camera app.")
+                         f"weak signal (low screen brightness, AE, or ambient dimming). "
+                         f"Detection will be slower.")
 
         log.info(
             f"[blink] pts={len(active)} above_gate={n_above} "

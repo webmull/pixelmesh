@@ -30,7 +30,7 @@ The code attempts to lock exposure via AVFoundation at startup, but the Elgato's
 3. Set **ISO to 624**
 4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
 
-If signal range drops below 0.5 during a session the log will warn: `WARNING: low signal range=X.XX — auto-exposure may be compensating for blink.`
+If signal range drops below 0.5 during a session the log will warn: `WARNING: low signal range=X.XX`. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s.
 
 ---
 

@@ -199,3 +199,20 @@ def build_window():
     # Pre-build all modal dialogs (hidden)
     for name in EFFECT_LABELS:
         _build_modal(name)
+
+
+# ------------------------------------------------------------------ #
+# TODO: new effects                                                    #
+# ------------------------------------------------------------------ #
+#
+# ripple_wave — concentric rings expanding outward from a centre point.
+#   Each ring is a bright band that fades as it travels outward.
+#   Params: speed, colour, ring_width, origin_u, origin_v.
+#   Client: dist = sqrt((u-ou)²+(v-ov)²); brightness = wave(dist - t*speed).
+#
+# snake — a bright head travels a continuous path across the room,
+#   leaving a fading tail.  Path is a row-by-row sweep (u 0→1, then
+#   next v row, alternating direction).
+#   Params: speed, colour, tail_length.
+#   Client: phone lit when head position is within tail_length of (u,v);
+#   brightness falls off with distance behind the head.
