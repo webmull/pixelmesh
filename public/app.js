@@ -50,7 +50,7 @@ function _spawnFlyHearts() {
     el.style.top   = cy + "px";
     el.style.setProperty("--dx", ((Math.random() - 0.5) * window.innerWidth * 1.2) + "px");
     el.style.animationDelay = (Math.random() * 0.3) + "s";
-    document.body.appendChild(el);
+    blinkScreen.appendChild(el);
     el.addEventListener("animationend", () => el.remove());
   }
 }
