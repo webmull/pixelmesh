@@ -48,6 +48,7 @@ function _spawnFlyHearts() {
     el.textContent = "♥";
     el.style.left  = (cx + (Math.random() - 0.5) * 40) + "px";
     el.style.top   = cy + "px";
+    el.style.setProperty("--dx", ((Math.random() - 0.5) * 120) + "px");
     el.style.animationDelay = (Math.random() * 0.2) + "s";
     document.body.appendChild(el);
     el.addEventListener("animationend", () => el.remove());

@@ -59,25 +59,26 @@ body {
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 40px 32px;
+  padding: 32px 32px;
   pointer-events: none;
+  gap: 0;
 }
 #waitingMsg .wm-headline {
   color: rgba(255,255,255,0.92);
-  font: 600 32px -apple-system, system-ui, sans-serif;
+  font: 600 28px -apple-system, system-ui, sans-serif;
   letter-spacing: -0.5px;
 }
 #waitingMsg .wm-sub {
-  margin-top: 12px;
+  margin-top: 10px;
   color: rgba(255,255,255,0.35);
-  font: 15px -apple-system, system-ui, sans-serif;
+  font: 14px -apple-system, system-ui, sans-serif;
 }
 #waitingMsg .wm-divider {
   width: 70%;
   max-width: 280px;
   height: 1px;
   background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 36px auto;
+  margin: 24px auto;
 }
 .wm-id {
   color: rgba(255,255,255,0.7);
@@ -89,7 +90,7 @@ body {
   gap: 8px;
 }
 #crowdMsg {
-  margin-top: 10px;
+  margin-top: 8px;
   color: rgba(255,255,255,0.3);
   font: 13px -apple-system, system-ui, sans-serif;
   min-height: 18px;
@@ -148,14 +149,15 @@ body {
 .fly-heart {
   position: fixed;
   pointer-events: none;
-  font-size: 22px;
-  animation: fly-up 1.2s ease-out forwards;
+  font-size: 24px;
+  color: rgba(255, 120, 140, 0.9);
+  animation: fly-up 1.4s ease-out forwards;
   z-index: 999;
 }
 
 @keyframes fly-up {
-  0%   { opacity: 1;   transform: translateY(0)   scale(1); }
-  100% { opacity: 0;   transform: translateY(-160px) scale(0.6); }
+  0%   { opacity: 1; transform: translateY(0)      translateX(0)        scale(1); }
+  100% { opacity: 0; transform: translateY(-220px) translateX(var(--dx)) scale(0.5); }
 }
 
 /* ---- Showtime screen (effects) ---- */
