@@ -767,7 +767,9 @@ def setup_ui(holder: dict):
                 dpg.add_text("", tag="effect_text")
                 dpg.add_separator()
 
-                dpg.add_text("Detection")
+                dpg.add_spacer(height=4)
+                dpg.add_text("DETECTION", color=(160, 160, 160))
+                dpg.add_separator()
                 dpg.add_checkbox(label="Detection  [D]", tag="chk_detection",
                                  callback=lambda: toggle_detection())
                 dpg.add_checkbox(label="Clock Sync", tag="chk_sync",
@@ -781,8 +783,9 @@ def setup_ui(holder: dict):
                 dpg.add_text("● RECORDING", tag="rec_status_text",
                              color=(220, 60, 60), show=False)
 
-                dpg.add_spacer(height=6)
-                dpg.add_text("Effects")
+                dpg.add_spacer(height=4)
+                dpg.add_text("EFFECTS", color=(160, 160, 160))
+                dpg.add_separator()
                 for _ename, _elabel in effects.EFFECT_LABELS.items():
                     with dpg.group(horizontal=True):
                         dpg.add_button(
@@ -798,8 +801,9 @@ def setup_ui(holder: dict):
                             width=34,
                         )
 
-                dpg.add_spacer(height=6)
-                dpg.add_text("Camera Hub")
+                dpg.add_spacer(height=4)
+                dpg.add_text("CAMERA HUB", color=(160, 160, 160))
+                dpg.add_separator()
                 dpg.add_text("○ Not available", tag="elgato_status",
                              color=(120, 120, 120))
                 dpg.add_checkbox(label="Auto Exposure", tag="chk_ae",
