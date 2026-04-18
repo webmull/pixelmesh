@@ -152,27 +152,28 @@ def _build_modal(name: str):
         height=h,
     ):
         _P = 8
+        _W = _MODAL_W - _P * 2 - 16   # content width: modal - left pad - right pad - borders
         for param, label, widget, kwargs in params:
             t = _tag(name, param)
             dpg.add_text(label, color=(160, 160, 160), indent=_P)
             if widget == "color":
                 dpg.add_color_edit(
                     label=f"##{t}", tag=t,
-                    no_alpha=True, indent=_P, width=-(_P + 1),
+                    no_alpha=True, indent=_P, width=_W,
                     callback=_on_settings_changed, user_data=name,
                     **kwargs,
                 )
             elif widget == "slider_float":
                 dpg.add_slider_float(
                     label=f"##{t}", tag=t,
-                    indent=_P, width=-(_P + 1),
+                    indent=_P, width=_W,
                     callback=_on_settings_changed, user_data=name,
                     **kwargs,
                 )
         dpg.add_spacer(height=6)
         dpg.add_button(
             label="Close",
-            indent=_P, width=-(_P + 1),
+            indent=_P, width=_W,
             callback=lambda: dpg.configure_item(modal_tag, show=False),
         )
 
