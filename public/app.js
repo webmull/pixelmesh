@@ -62,11 +62,18 @@ let _msgIndex     = 0;
 let _msgTimer     = null;
 
 const _msgTemplates = [
-  n => n === 1 ? `You're amongst 1 other beautiful person`          : `You're amongst ${n} other beautiful people`,
-  n => n === 1 ? `1 other phone in the room`                        : `${n} phones in the room and counting`,
-  n => n === 1 ? `1 stranger about to become one screen with you`   : `${n} strangers about to become one screen`,
-  n => n === 1 ? `Joined by 1 other — the more the merrier`         : `Joined by ${n} others — the more the merrier`,
-  n => n === 1 ? `1 other person hasn't closed this screen either`  : `${n} people haven't closed this screen either`,
+  n => n === 1 ? `You're amongst 1 other beautiful person`           : `You're amongst ${n} other beautiful people`,
+  n => n === 1 ? `1 other phone in the room`                         : `${n} phones in the room and counting`,
+  n => n === 1 ? `1 stranger about to become one screen with you`    : `${n} strangers about to become one screen`,
+  n => n === 1 ? `Joined by 1 other — the more the merrier`          : `Joined by ${n} others — the more the merrier`,
+  n => n === 1 ? `1 other person hasn't closed this screen either`   : `${n} people haven't closed this screen either`,
+  n => n === 1 ? `Just you and 1 other so far`                       : `${n} people and the show hasn't even started`,
+  n => n === 1 ? `1 other pixel in the room`                         : `${n} pixels and counting`,
+  n => n === 1 ? `You're not alone — 1 other is here`                : `You're one of ${n + 1} — make it count`,
+  n => n === 1 ? `1 other person keeping their screen on`            : `${n} people all staring at a black screen — trust the process`,
+  n => n === 1 ? `Almost a crowd`                                    : `${n} phones. 1 show. Let's go`,
+  n => n === 1 ? `You and 1 other are part of something`             : `${n} strangers, one room, one moment`,
+  n => n === 1 ? `1 other person turned their brightness up`         : `${n} people who actually read the instructions`,
 ];
 
 function _rotateCrowdMsg() {
