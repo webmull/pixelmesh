@@ -737,12 +737,13 @@ def on_key_press(key, holder):
 _PAD        = 8     # left/right padding for sidebar content
 _CHK_INDENT = 284   # checkbox x within padded content (284 + 8 indent ≈ right edge)
 
-def _chk(label: str, tag: str, callback):
+def _chk(label: str, tag: str, callback, enabled: bool = True):
     """Checkbox row: label on left, checkbox on right."""
     with dpg.group(horizontal=True):
         dpg.add_text(label, indent=_PAD)
         dpg.add_checkbox(label=f"##{tag}", tag=tag,
-                         callback=callback, indent=_CHK_INDENT)
+                         callback=callback, indent=_CHK_INDENT,
+                         enabled=enabled)
 
 
 def setup_ui(holder: dict):
@@ -824,11 +825,7 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
                 dpg.add_text("○ Not available", tag="elgato_status",
                              color=(120, 120, 120), indent=_PAD)
-                with dpg.group(horizontal=True, indent=_PAD):
-                    dpg.add_text("Auto Exposure")
-                    dpg.add_checkbox(label="##chk_ae", tag="chk_ae",
-                                     callback=_toggle_ae, indent=_CHK_INDENT,
-                                     enabled=False)
+                _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
                 dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
                 dpg.add_slider_int(label="##iso", tag="sld_iso",
                                    default_value=elgato._DEFAULT_GAIN,
