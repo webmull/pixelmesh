@@ -54,17 +54,12 @@ const _msgTemplates = [
 function _rotateCrowdMsg() {
   if (_crowdCount < 1) { crowdMsg.textContent = ""; return; }
   _msgIndex = (_msgIndex + 1) % _msgTemplates.length;
-  crowdMsg.style.opacity = "0";
-  setTimeout(() => {
-    crowdMsg.textContent  = _msgTemplates[_msgIndex](_crowdCount);
-    crowdMsg.style.opacity = "1";
-  }, 600);
+  crowdMsg.textContent = _msgTemplates[_msgIndex](_crowdCount);
 }
 
 function _setCrowdCount(n) {
   _crowdCount = n;
-  crowdMsg.textContent  = n > 0 ? _msgTemplates[_msgIndex](n) : "";
-  crowdMsg.style.opacity = "1";
+  crowdMsg.textContent = n > 0 ? _msgTemplates[_msgIndex](n) : "";
   if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
 const projCanvas  = document.getElementById("projectionCanvas");
@@ -401,7 +396,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "flex";
-    waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID ${myBlinkId}` : "Connecting…";
+    waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID: ${myBlinkId}` : "Connecting…";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
@@ -439,7 +434,7 @@ function updateBlink() {
     case PS.WAITING:
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
-      waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID ${myBlinkId}` : "Connecting…";
+      waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID: ${myBlinkId}` : "Connecting…";
       break;
 
     case PS.BLINKING: {
