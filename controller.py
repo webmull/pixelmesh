@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PixelMesh V2 — Controller
+pixelmesh — controller
 
 Dear PyGui controller with:
   - Live camera preview
@@ -44,7 +44,7 @@ import elgato
 # Config
 # ------------------------------------------------------------------ #
 
-WINDOW_TITLE       = "PixelMesh V2"
+WINDOW_TITLE       = "pixelmesh"
 CAM_WIDTH          = 1920
 CAM_HEIGHT         = 1080
 TARGET_FPS         = 60
@@ -481,6 +481,7 @@ def update_ui_from_state():
     safe_set("clients_text",   f"Clients: {clients}")
     safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
     safe_set("effect_text",    f"Effect: {effect}")
+    ui_queue.put(("_effect_show", bool(effect and effect != "None")))
 
     safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
@@ -757,7 +758,7 @@ def setup_ui(holder: dict):
             with dpg.child_window(width=320, height=-1, border=True,
                                   tag="sidebar_panel"):
 
-                dpg.add_text("PixelMesh V2", color=(255, 200, 50))
+                dpg.add_text("pixelmesh", color=(255, 200, 50))
                 dpg.add_separator()
 
                 dpg.add_spacer(height=4)
@@ -766,8 +767,7 @@ def setup_ui(holder: dict):
                 dpg.add_text("", tag="status_text")
                 dpg.add_text("", tag="clients_text")
                 dpg.add_text("", tag="detect_text")
-                dpg.add_text("", tag="det_count_text")
-                dpg.add_text("", tag="effect_text")
+                dpg.add_text("", tag="effect_text", show=False)
                 dpg.add_separator()
 
                 dpg.add_spacer(height=4)
@@ -1046,6 +1046,9 @@ def main():
             try:
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
+                    if tag == "_effect_show":
+                        dpg.configure_item("effect_text", show=value)
+                        continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
                         continue
