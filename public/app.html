@@ -121,15 +121,16 @@ body {
   cursor: pointer;
   padding: 8px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s ease;
+  transition: transform 0.1s ease, filter 0.1s ease;
   pointer-events: auto;
+  filter: drop-shadow(0 0 12px rgba(255, 80, 120, 0.7));
 }
-#heartBtn:active { transform: scale(0.88); }
+#heartBtn:active { transform: scale(0.88); filter: drop-shadow(0 0 20px rgba(255, 80, 120, 1)); }
 #heartBtn svg { display: block; }
 
 @keyframes heart-pop {
   0%   { transform: scale(1); }
-  40%  { transform: scale(1.35); }
+  40%  { transform: scale(1.35); filter: drop-shadow(0 0 24px rgba(255, 80, 120, 1)); }
   100% { transform: scale(1); }
 }
 #heartBtn.popped { animation: heart-pop 0.3s ease; }
@@ -150,7 +151,8 @@ body {
   position: fixed;
   pointer-events: none;
   font-size: 36px;
-  color: rgba(255, 120, 140, 0.9);
+  color: rgba(255, 80, 120, 1);
+  text-shadow: 0 0 12px rgba(255, 80, 120, 0.9), 0 0 28px rgba(255, 80, 120, 0.5);
   animation: fly-up 2.8s ease-out forwards;
   z-index: 999;
 }
@@ -192,7 +194,7 @@ body {
     <button id="heartBtn" aria-label="Send love">
       <svg width="88" height="80" viewBox="0 0 52 48" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M26 44S4 30 4 15.5A11.5 11.5 0 0 1 26 9.2 11.5 11.5 0 0 1 48 15.5C48 30 26 44 26 44Z"
-              fill="rgba(255,255,255,0.18)" stroke="rgba(255,255,255,0.6)" stroke-width="1.5"/>
+              fill="rgba(255, 80, 120, 0.9)" stroke="rgba(255, 140, 160, 0.6)" stroke-width="1"/>
       </svg>
     </button>
     <div id="heartCount"></div>
