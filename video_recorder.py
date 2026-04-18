@@ -7,7 +7,7 @@ import numpy as np
 
 from log import log
 
-_REC_DIR = os.path.join(os.path.dirname(__file__), "recordings")
+_REC_DIR = os.path.join(os.path.dirname(__file__), "debug", "recordings")
 
 _FFMPEG = (
     shutil.which("ffmpeg")
