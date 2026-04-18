@@ -164,6 +164,7 @@ class BlinkDetector:
         self._diff_prev_gray:   np.ndarray | None = None
         self._diff_accum:       np.ndarray | None = None
         self._diff_accum_count: int = 0
+        self._diff_discovered:  set[int] = set()   # grid indices found by diff → centroid sampling
 
     # ---------------------------------------------------------------- #
 
@@ -194,6 +195,7 @@ class BlinkDetector:
         self._diff_prev_gray   = None  # force diff reset on grid change
         self._diff_accum       = None
         self._diff_accum_count = 0
+        self._diff_discovered.clear()
 
     # ---------------------------------------------------------------- #
 
@@ -246,6 +248,17 @@ class BlinkDetector:
         brightnesses = np.partition(
             gray_pad.ravel()[self._patch_idx], k, axis=1
         )[:, k] / 255.0  # (N,)
+
+        # Centroid override for diff-discovered points.
+        # Patch-percentile sampling misses 1-pixel distant phones (they occupy <3%
+        # of the 8×8 patch, below the k=1 threshold).  For points found by the diff
+        # finder, replace the patch value with the single pixel at the grid centre —
+        # the exact phone pixel — giving full blink amplitude regardless of phone size.
+        if self._diff_discovered:
+            for i in self._diff_discovered:
+                pt = self._points[i]
+                if 0 <= pt.py < h and 0 <= pt.px < w:
+                    brightnesses[i] = float(gray[pt.py, pt.px]) / 255.0
 
         # Update std circular buffer and compute recent_std for all points in one call.
         # Do this before add_sample so computed_stds can gate history tracking below.
@@ -310,6 +323,7 @@ class BlinkDetector:
                         idx = iy * n_xs + ix
                         if idx < len(self._points) and idx not in self._ever_active:
                             self._ever_active.add(idx)
+                            self._diff_discovered.add(idx)
                             self._points[idx].last_active_ts = ts
                 self._diff_accum.fill(0)     # reset in-place — no reallocation
                 self._diff_accum_count = 0
@@ -665,4 +679,5 @@ class BlinkDetector:
         self._diff_prev_gray   = None
         self._diff_accum       = None
         self._diff_accum_count = 0
+        self._diff_discovered.clear()
 
