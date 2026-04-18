@@ -186,6 +186,7 @@ async def shutdown_event():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    global heart_count
     await ws.accept()
     device_id = None
 
@@ -257,7 +258,6 @@ async def websocket_endpoint(ws: WebSocket):
                     }
 
             elif data.get("type") == "heart_tap":
-                global heart_count
                 if heart_enabled:
                     heart_count += 1
                     await broadcast({"type": "heart_count", "count": heart_count})
