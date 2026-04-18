@@ -56,6 +56,11 @@ dbg_cap  = DebugCapture()
 
 # Throttle debug saves: one frame every N camera frames
 DEBUG_SAVE_EVERY = 6
+
+# MJPEG stream: latest canvas frame written atomically for server.py to serve
+_STREAM_PATH      = "/tmp/pixelmesh_stream.jpg"
+_STREAM_INTERVAL  = 1.0 / 30          # 30fps
+_last_stream_ts   = 0.0
 ui_queue: Queue = Queue()
 # Set to True while draining the UI queue so checkbox set_value calls
 # don't re-fire toggle callbacks (some DearPyGui versions fire callbacks
@@ -939,6 +944,16 @@ def main():
 
                     if vid_rec.active:
                         vid_rec.record(canvas)
+
+                    # MJPEG stream — write JPEG atomically so server.py
+                    # never reads a partial file.  Capped at 12fps.
+                    global _last_stream_ts
+                    _now = time.time()
+                    if _now - _last_stream_ts >= _STREAM_INTERVAL:
+                        _last_stream_ts = _now
+                        _tmp = _STREAM_PATH + ".tmp"
+                        cv2.imwrite(_tmp, canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        _os.replace(_tmp, _STREAM_PATH)
 
                     texture_data = frame_to_texture(canvas)
 
