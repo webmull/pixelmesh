@@ -483,6 +483,7 @@ def update_ui_from_state():
     safe_set("effect_text",    f"Effect: {effect}")
 
     safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
+    ui_queue.put(("_rec_status_show", vid_rec.active))
 
     safe_set("chk_detection", detecting)
     safe_set("chk_sync",     state.syncing)
@@ -777,7 +778,8 @@ def setup_ui(holder: dict):
                                  callback=lambda: toggle_debug())
                 dpg.add_checkbox(label="Record Video  [V]", tag="chk_recording",
                                  callback=lambda: toggle_recording())
-                dpg.add_text("", tag="rec_status_text", color=(220, 60, 60))
+                dpg.add_text("● RECORDING", tag="rec_status_text",
+                             color=(220, 60, 60), show=False)
 
                 dpg.add_spacer(height=6)
                 dpg.add_text("Effects")
@@ -1037,6 +1039,9 @@ def main():
             try:
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
+                    if tag == "_rec_status_show":
+                        dpg.configure_item("rec_status_text", show=value)
+                        continue
                     if tag == "_elgato_enabled":
                         for item in ("chk_ae", "sld_iso"):
                             if value:
