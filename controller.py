@@ -57,6 +57,10 @@ dbg_cap  = DebugCapture()
 # Throttle debug saves: one frame every N camera frames
 DEBUG_SAVE_EVERY = 6
 ui_queue: Queue = Queue()
+# Set to True while draining the UI queue so checkbox set_value calls
+# don't re-fire toggle callbacks (some DearPyGui versions fire callbacks
+# on set_value, which causes detection/debug to toggle unexpectedly).
+_ui_syncing = False
 
 # Detection runs on a dedicated background thread so the camera loop is never
 # blocked.  maxsize=1 means old frames are dropped if the detector is busy —
@@ -489,6 +493,8 @@ def toggle_sync():
 
 
 def toggle_detection():
+    if _ui_syncing:
+        return
     with state.lock:
         state.detecting = not state.detecting
         val = state.detecting
@@ -513,6 +519,8 @@ def toggle_detection():
 
 def toggle_debug():
     """Start or stop a debug capture run (hotkey G)."""
+    if _ui_syncing:
+        return
     if dbg_cap.active:
         dbg_cap.stop_run()
         set_status("Debug capture stopped")
@@ -954,34 +962,41 @@ def main():
 
             update_ui_from_state()
 
-            # Drain UI queue
-            while not ui_queue.empty():
-                tag, value = ui_queue.get()
-                if tag == "_sync_stats_rows":
-                    rows = value
-                    ts = time.strftime("%H:%M:%S")
-                    dpg.set_value("sync_status_line",
-                                  f"Last updated: {ts}  |  {len(rows)} device(s)")
-                    dpg.configure_item("sync_no_data", show=(len(rows) == 0))
-                    for i in range(32):
-                        if i < len(rows):
-                            r = rows[i]
-                            rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "—"
-                            off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "—"
-                            line = (f"{str(r['blink_id']):>8}  "
-                                    f"{r['device_id']:<12}  "
-                                    f"{rtt:>7}  {off:>10}  "
-                                    f"{r['samples']:>7}  {r['age_s']:>6}")
-                            dpg.set_value(f"sync_row_{i}", line)
-                            dpg.configure_item(f"sync_row_{i}", show=True)
-                        else:
-                            dpg.set_value(f"sync_row_{i}", "")
-                            dpg.configure_item(f"sync_row_{i}", show=False)
-                    continue
-                try:
-                    dpg.set_value(tag, value)
-                except Exception as e:
-                    log.info(f"[ui] queue error tag={tag} err={e}")
+            # Drain UI queue — set _ui_syncing so checkbox set_value calls
+            # don't re-fire toggle callbacks in DearPyGui versions that
+            # invoke callbacks on set_value.
+            global _ui_syncing
+            _ui_syncing = True
+            try:
+                while not ui_queue.empty():
+                    tag, value = ui_queue.get()
+                    if tag == "_sync_stats_rows":
+                        rows = value
+                        ts = time.strftime("%H:%M:%S")
+                        dpg.set_value("sync_status_line",
+                                      f"Last updated: {ts}  |  {len(rows)} device(s)")
+                        dpg.configure_item("sync_no_data", show=(len(rows) == 0))
+                        for i in range(32):
+                            if i < len(rows):
+                                r = rows[i]
+                                rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "—"
+                                off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "—"
+                                line = (f"{str(r['blink_id']):>8}  "
+                                        f"{r['device_id']:<12}  "
+                                        f"{rtt:>7}  {off:>10}  "
+                                        f"{r['samples']:>7}  {r['age_s']:>6}")
+                                dpg.set_value(f"sync_row_{i}", line)
+                                dpg.configure_item(f"sync_row_{i}", show=True)
+                            else:
+                                dpg.set_value(f"sync_row_{i}", "")
+                                dpg.configure_item(f"sync_row_{i}", show=False)
+                        continue
+                    try:
+                        dpg.set_value(tag, value)
+                    except Exception as e:
+                        log.info(f"[ui] queue error tag={tag} err={e}")
+            finally:
+                _ui_syncing = False
 
             dpg.render_dearpygui_frame()
 
