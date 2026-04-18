@@ -23,14 +23,14 @@ The camera **must** be set to manual exposure before starting the controller.
 
 **Why auto-exposure breaks detection:** The blink signal is a screen switching between full-white and full-black at 300ms per phase. Auto-exposure sees a bright frame, reduces gain; sees a dark frame, increases gain — it tracks and cancels the blink. The resulting signal has a brightness range of ~0.28 instead of ~0.99. The decoder sees a near-flat signal and produces `empty_win` failures on every decode attempt. Detection stops working entirely.
 
-The code attempts to lock exposure via AVFoundation at startup, but the Elgato's firmware ignores the lock (`duration=0/0` in the log). The only reliable fix is the Elgato app.
-
 1. Open **Elgato Camera Hub**
 2. Disable **Auto Exposure**
 3. Set **ISO to 624**
 4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
 
-If signal range drops below 0.5 during a session the log will warn: `WARNING: low signal range=X.XX`. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s.
+The controller also connects to Camera Hub automatically via its local API and monitors auto-exposure throughout the session. If Camera Hub re-enables AE (which it occasionally does), the controller forces it off within 5 seconds. The **Camera Hub** section in the sidebar shows connection status, the current AE state, and an ISO slider for live adjustment without switching apps.
+
+If signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s.
 
 ---
 
@@ -211,6 +211,7 @@ The display thread and detection thread run independently. Frames are passed via
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
 | `network.py` | HTTP helpers for controller → server calls |
+| `elgato.py` | Camera Hub watchdog — AE monitor, ISO control via local WebSocket API |
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
