@@ -37,13 +37,31 @@ const heartBtn    = document.getElementById("heartBtn");
 const heartCount  = document.getElementById("heartCount");
 const showtime    = document.getElementById("showtime");
 
+function _spawnFlyHearts() {
+  const rect = heartBtn.getBoundingClientRect();
+  const cx   = rect.left + rect.width / 2;
+  const cy   = rect.top  + rect.height / 2;
+  const count = 4 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < count; i++) {
+    const el = document.createElement("span");
+    el.className   = "fly-heart";
+    el.textContent = "♥";
+    el.style.left  = (cx + (Math.random() - 0.5) * 40) + "px";
+    el.style.top   = cy + "px";
+    el.style.animationDelay = (Math.random() * 0.2) + "s";
+    document.body.appendChild(el);
+    el.addEventListener("animationend", () => el.remove());
+  }
+}
+
 heartBtn.addEventListener("click", () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "heart_tap" }));
   }
   heartBtn.classList.remove("popped");
-  void heartBtn.offsetWidth; // force reflow to restart animation
+  void heartBtn.offsetWidth;
   heartBtn.classList.add("popped");
+  _spawnFlyHearts();
 });
 
 // ------------------------------------------------------------------ //
@@ -441,8 +459,7 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "heart_count") {
-    heartCount.textContent = msg.count === 0 ? "" :
-      msg.count === 1 ? "1 heart sent" : `${msg.count} hearts sent`;
+    heartCount.textContent = msg.count === 1 ? "1 heart sent" : `${msg.count} hearts sent`;
     return;
   }
 

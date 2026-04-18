@@ -640,6 +640,16 @@ def reset_server():
     set_status("Reset")
 
 
+def heart_reset():
+    post_json_async("/admin/heart/reset", {})
+    set_status("Hearts reset")
+
+
+def heart_toggle():
+    post_json_async("/admin/heart/toggle", {})
+    set_status("Hearts toggled")
+
+
 trigger_effect = effects.trigger_effect
 def camera_scan_worker(holder=None):
     names  = _avfoundation_device_names()
@@ -807,6 +817,15 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server,
+                               indent=_PAD, width=-(_PAD + 1))
+                dpg.add_spacer(height=4)
+                dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
+                dpg.add_separator()
+                dpg.add_button(label="Reset Heart Counter",
+                               callback=heart_reset,
+                               indent=_PAD, width=-(_PAD + 1))
+                dpg.add_button(label="Enable / Disable Hearts",
+                               callback=heart_toggle,
                                indent=_PAD, width=-(_PAD + 1))
                 dpg.add_button(label="Sync Stats Panel",
                                callback=lambda: dpg.configure_item(

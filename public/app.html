@@ -121,6 +121,7 @@ body {
   padding: 8px;
   -webkit-tap-highlight-color: transparent;
   transition: transform 0.1s ease;
+  pointer-events: auto;
 }
 #heartBtn:active { transform: scale(0.88); }
 #heartBtn svg { display: block; }
@@ -137,6 +138,24 @@ body {
   color: rgba(255,255,255,0.4);
   font: 13px -apple-system, system-ui, sans-serif;
   min-height: 18px;
+}
+#heartHint {
+  margin-top: 6px;
+  color: rgba(255,255,255,0.2);
+  font: 12px -apple-system, system-ui, sans-serif;
+}
+
+.fly-heart {
+  position: fixed;
+  pointer-events: none;
+  font-size: 22px;
+  animation: fly-up 1.2s ease-out forwards;
+  z-index: 999;
+}
+
+@keyframes fly-up {
+  0%   { opacity: 1;   transform: translateY(0)   scale(1); }
+  100% { opacity: 0;   transform: translateY(-160px) scale(0.6); }
 }
 
 /* ---- Showtime screen (effects) ---- */
@@ -174,6 +193,7 @@ body {
       </svg>
     </button>
     <div id="heartCount"></div>
+    <div id="heartHint">tap to send love</div>
   </div>
   <div id="statusPill">connecting…</div>
 </div>

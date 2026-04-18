@@ -86,7 +86,8 @@ BUILD_ID = _build_id()
 
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
-heart_count: int = 0
+heart_count: int   = 0
+heart_enabled: bool = True
 
 # Whether the controller has actively started detection (distinct from mode).
 detection_active = False
@@ -257,8 +258,9 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif data.get("type") == "heart_tap":
                 global heart_count
-                heart_count += 1
-                await broadcast({"type": "heart_count", "count": heart_count})
+                if heart_enabled:
+                    heart_count += 1
+                    await broadcast({"type": "heart_count", "count": heart_count})
 
             elif data.get("type") == "ping":
                 if device_id:
@@ -389,6 +391,23 @@ async def reset():
     await broadcast({"type": "reset"})
     return {"ok": True}
 
+
+# ------------------------------------------------------------------ #
+# Hearts                                                               #
+# ------------------------------------------------------------------ #
+
+@app.post("/admin/heart/reset")
+async def heart_reset():
+    global heart_count
+    heart_count = 0
+    await broadcast({"type": "heart_count", "count": 0})
+    return {"ok": True}
+
+@app.post("/admin/heart/toggle")
+async def heart_toggle():
+    global heart_enabled
+    heart_enabled = not heart_enabled
+    return {"ok": True, "enabled": heart_enabled}
 
 # ------------------------------------------------------------------ #
 # Effects                                                              #
