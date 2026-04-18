@@ -44,11 +44,11 @@ let _msgIndex     = 0;
 let _msgTimer     = null;
 
 const _msgTemplates = [
-  n => `You're amongst ${n} other beautiful people`,
-  n => `${n} phones in the room and counting`,
-  n => `${n} strangers about to become one screen`,
-  n => `Joined by ${n} others — the more the merrier`,
-  n => `${n} people haven't closed this screen either`,
+  n => n === 1 ? `You're amongst 1 other beautiful person`          : `You're amongst ${n} other beautiful people`,
+  n => n === 1 ? `1 other phone in the room`                        : `${n} phones in the room and counting`,
+  n => n === 1 ? `1 stranger about to become one screen with you`   : `${n} strangers about to become one screen`,
+  n => n === 1 ? `Joined by 1 other — the more the merrier`         : `Joined by ${n} others — the more the merrier`,
+  n => n === 1 ? `1 other person hasn't closed this screen either`  : `${n} people haven't closed this screen either`,
 ];
 
 function _rotateCrowdMsg() {
