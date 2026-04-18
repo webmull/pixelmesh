@@ -151,13 +151,14 @@ body {
   pointer-events: none;
   font-size: 24px;
   color: rgba(255, 120, 140, 0.9);
-  animation: fly-up 1.4s ease-out forwards;
+  animation: fly-up 2.8s ease-out forwards;
   z-index: 999;
 }
 
 @keyframes fly-up {
   0%   { opacity: 1; transform: translateY(0)      translateX(0)        scale(1); }
-  100% { opacity: 0; transform: translateY(-220px) translateX(var(--dx)) scale(0.5); }
+  70%  { opacity: 0.7; }
+  100% { opacity: 0; transform: translateY(-380px) translateX(var(--dx)) scale(0.4); }
 }
 
 /* ---- Showtime screen (effects) ---- */
