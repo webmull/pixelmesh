@@ -62,10 +62,11 @@ app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
 # ------------------------------------------------------------------ #
 # Mode constants                                                       #
 # ------------------------------------------------------------------ #
+MODE_WAITING   = "WAITING"        # clients show idle screen
 MODE_DETECTION = "DETECTION"     # clients blink their ID
 MODE_SHOWTIME  = "SHOWTIME"      # clients render effects
 
-mode = MODE_DETECTION
+mode = MODE_WAITING
 
 # Hash of client-facing static files — changes when code is deployed.
 # Clients reload automatically when this differs from what they loaded with.
@@ -218,10 +219,11 @@ async def websocket_endpoint(ws: WebSocket):
                 # Sync current mode / effect so reconnecting clients aren't lost
                 if mode == MODE_SHOWTIME and current_effect_state:
                     await ws.send_json(current_effect_state)
-                else:
+                elif mode == MODE_DETECTION:
                     await ws.send_json({"type": "mode", "mode": mode})
                     if detection_active:
                         await ws.send_json({"type": "detection_started"})
+                # MODE_WAITING: no message needed — client stays on idle screen
 
                 if sync_active:
                     await ws.send_json({"type": "sync_start"})
@@ -369,7 +371,7 @@ async def reset():
     detection_active = False
     sync_active = False
     sync_stats.clear()
-    await set_mode(MODE_DETECTION)
+    await set_mode(MODE_WAITING)
     await broadcast({"type": "reset"})
     return {"ok": True}
 
