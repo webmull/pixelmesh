@@ -36,6 +36,24 @@ const crowdMsg    = document.getElementById("crowdMsg");
 const showtime    = document.getElementById("showtime");
 
 // ------------------------------------------------------------------ //
+// Wake lock — keep screen on
+// ------------------------------------------------------------------ //
+
+let _wakeLock = null;
+
+async function _requestWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    _wakeLock = await navigator.wakeLock.request('screen');
+  } catch {}
+}
+
+// Re-acquire after the page becomes visible (lock is released on hide)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') _requestWakeLock();
+});
+
+// ------------------------------------------------------------------ //
 // Crowd count + rotating messages
 // ------------------------------------------------------------------ //
 
@@ -435,6 +453,7 @@ function updateBlink() {
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
       waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID: ${myBlinkId}` : "Connecting…";
+      _requestWakeLock();
       break;
 
     case PS.BLINKING: {
