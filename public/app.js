@@ -392,7 +392,7 @@ function updateBlink() {
       break;
 
     case PS.WAITING:
-      blinkScreen.style.background = "#ffcc00";
+      blinkScreen.style.background = "#1a2a6e";
       break;
 
     case PS.BLINKING: {
