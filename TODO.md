@@ -31,6 +31,7 @@
 
 ## Debug / Developer Experience
 - [ ] Give debug capture folders a friendly random name (e.g. `autumn-fox-42`) instead of a timestamp so runs can be referred to specifically in conversation
+- [ ] Keep only the last 15 debug run folders — auto-delete oldest on startup
 
 ## Brighton Dome Deployment
 - [ ] Plan two-camera setup — one from stage (front half), one from FOH (back half)
