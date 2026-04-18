@@ -1,5 +1,5 @@
 """
-PixelMesh V2 — Server
+pixelmesh — server
 
 Differences from V1:
 - Devices are assigned a small integer blink_id (0-511) instead of a tag image ID.
@@ -96,6 +96,7 @@ sync_active = False
 # ------------------------------------------------------------------ #
 connections:       dict[str, WebSocket] = {}   # device_uuid → ws
 blink_assignments: dict[str, int]       = {}   # device_uuid → blink_id
+blink_reverse:     dict[int, str]       = {}   # blink_id    → device_uuid
 positions:         dict[str, dict]      = {}   # device_uuid → {"u", "v"}
 last_seen:         dict[str, float]     = {}   # device_uuid → timestamp
 sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset_ms, samples, ts}
@@ -110,11 +111,7 @@ HEARTBEAT_TIMEOUT = 90   # seconds
 # ------------------------------------------------------------------ #
 
 def blink_to_device(blink_id: int) -> str | None:
-    """Reverse lookup: blink_id → device_uuid."""
-    for dev, bid in blink_assignments.items():
-        if bid == blink_id:
-            return dev
-    return None
+    return blink_reverse.get(blink_id)
 
 
 async def broadcast(message: dict):
@@ -139,6 +136,7 @@ async def cleanup_device(device_id: str):
     last_seen.pop(device_id, None)
     bid = blink_assignments.pop(device_id, None)
     if bid is not None:
+        blink_reverse.pop(bid, None)
         bisect.insort(available_blinks, bid)
     positions.pop(device_id, None)
     sync_stats.pop(device_id, None)
@@ -198,6 +196,7 @@ async def websocket_endpoint(ws: WebSocket):
                         return
                     blink_id = available_blinks.pop(0)
                     blink_assignments[device_id] = blink_id
+                    blink_reverse[blink_id] = device_id
                 else:
                     blink_id = blink_assignments[device_id]
 
