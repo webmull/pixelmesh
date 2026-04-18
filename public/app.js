@@ -55,14 +55,14 @@ function _drawPulse(ts) {
   const maxR = Math.hypot(cx, cy) * 0.85;
   _pCtx.clearRect(0, 0, w, h);
   for (const ring of _rings) {
-    // Each ring cycles 0→1 every 3s, staggered by phase
-    const t = ((ts / 3000) + ring.phase) % 1;
+    // Each ring cycles 0→1 every 5s, staggered by phase
+    const t = ((ts / 5000) + ring.phase) % 1;
     const r = t * maxR;
-    const alpha = (1 - t) * 0.18;
+    const alpha = (1 - t) * 0.06;
     _pCtx.beginPath();
     _pCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    _pCtx.strokeStyle = `rgba(120, 150, 255, ${alpha})`;
-    _pCtx.lineWidth = 2;
+    _pCtx.strokeStyle = `rgba(160, 180, 255, ${alpha})`;
+    _pCtx.lineWidth = 1;
     _pCtx.stroke();
   }
   _pulseRaf = requestAnimationFrame(_drawPulse);
