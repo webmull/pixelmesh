@@ -31,7 +31,57 @@ function encodeId(blinkId) {
 const blinkScreen = document.getElementById("blinkScreen");
 const statusPill  = document.getElementById("statusPill");
 const waitingMsg  = document.getElementById("waitingMsg");
+const waveCanvas  = document.getElementById("waveCanvas");
 const showtime    = document.getElementById("showtime");
+
+// ------------------------------------------------------------------ //
+// Wave animation (waiting screen only)
+// ------------------------------------------------------------------ //
+
+let _waveRaf = null;
+const _wCtx  = waveCanvas.getContext("2d");
+
+const _waves = [
+  { amp: 18, freq: 0.012, speed: 0.4,  offset: 0,    alpha: 0.35, width: 2.5 },
+  { amp: 12, freq: 0.018, speed: 0.6,  offset: 2.1,  alpha: 0.2,  width: 1.5 },
+  { amp: 22, freq: 0.008, speed: 0.25, offset: 4.4,  alpha: 0.15, width: 2.0 },
+];
+
+function _resizeWave() {
+  waveCanvas.width  = window.innerWidth;
+  waveCanvas.height = window.innerHeight;
+}
+window.addEventListener("resize", _resizeWave);
+_resizeWave();
+
+function _drawWave(ts) {
+  const w  = waveCanvas.width;
+  const h  = waveCanvas.height;
+  const cy = h * 0.68;   // waves sit below centre, under the text
+  _wCtx.clearRect(0, 0, w, h);
+  for (const wave of _waves) {
+    const t = ts / 1000;
+    _wCtx.beginPath();
+    for (let x = 0; x <= w; x += 2) {
+      const y = cy + wave.amp * Math.sin(x * wave.freq + t * wave.speed + wave.offset);
+      x === 0 ? _wCtx.moveTo(x, y) : _wCtx.lineTo(x, y);
+    }
+    _wCtx.strokeStyle = `rgba(140, 170, 255, ${wave.alpha})`;
+    _wCtx.lineWidth   = wave.width;
+    _wCtx.stroke();
+  }
+  _waveRaf = requestAnimationFrame(_drawWave);
+}
+
+function startWave() {
+  if (_waveRaf) return;
+  _waveRaf = requestAnimationFrame(_drawWave);
+}
+
+function stopWave() {
+  if (_waveRaf) { cancelAnimationFrame(_waveRaf); _waveRaf = null; }
+  _wCtx.clearRect(0, 0, waveCanvas.width, waveCanvas.height);
+}
 const projCanvas  = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
 const ctx         = projCanvas.getContext("2d");
@@ -316,7 +366,7 @@ function handleMessage(msg) {
     phoneState  = PS.BLINKING;
     missedStart = 0;
     waitingMsg.style.display = "none";
-    blinkScreen.classList.remove("waiting");
+    stopWave();
     return;
   }
 
@@ -362,7 +412,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "block";
-    blinkScreen.classList.add("waiting");
+    startWave();
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
@@ -398,9 +448,9 @@ function updateBlink() {
       break;
 
     case PS.WAITING:
-      blinkScreen.style.background = "";
-      blinkScreen.classList.add("waiting");
+      blinkScreen.style.background = "#1a2a6e";
       waitingMsg.style.display = "block";
+      startWave();
       break;
 
     case PS.BLINKING: {
