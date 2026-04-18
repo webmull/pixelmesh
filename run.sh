@@ -99,7 +99,7 @@ status_line() {
   fi
   echo "  ${DIM}local  → http://localhost:8000${RESET}"
   echo "  ${DIM}public → https://local.pixelmesh.live${RESET}"
-  echo "  ${DIM}sim    → https://local.pixelmesh.live/sim${RESET}"
+  echo "  ${DIM}sim    → http://localhost:8000/internal/sim${RESET}"
   echo ""
 }
 

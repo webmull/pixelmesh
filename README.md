@@ -79,7 +79,7 @@ Logs are written to:
 | URL | Description |
 |-----|-------------|
 | `https://local.pixelmesh.live` | Client app — share this with audience |
-| `https://local.pixelmesh.live/sim` | Simulator — fake clients for testing |
+| `http://localhost:8000/internal/sim` | Simulator — fake clients for testing (local only) |
 | `http://localhost:8000` | Local access — includes live camera stream preview |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps, direct) |
 
