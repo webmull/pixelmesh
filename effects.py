@@ -152,31 +152,32 @@ def _build_modal(name: str):
         height=h,
     ):
         _P  = 8
-        _BW = _MODAL_W - _P * 2 - 16   # 300 - 16px left/right pad - 16px window borders
-        with dpg.group(indent=_P):
-            for param, label, widget, kwargs in params:
-                t = _tag(name, param)
-                dpg.add_text(label, color=(160, 160, 160))
-                if widget == "color":
-                    dpg.add_color_edit(
-                        label=f"##{t}", tag=t,
-                        no_alpha=True, width=_BW,
-                        callback=_on_settings_changed, user_data=name,
-                        **kwargs,
-                    )
-                elif widget == "slider_float":
-                    dpg.add_slider_float(
-                        label=f"##{t}", tag=t,
-                        width=_BW,
-                        callback=_on_settings_changed, user_data=name,
-                        **kwargs,
-                    )
-            dpg.add_spacer(height=6)
-            dpg.add_button(
-                label="Close",
-                width=_BW,
-                callback=lambda: dpg.configure_item(modal_tag, show=False),
-            )
+        _BW = _MODAL_W - _P * 2 - 16
+        dpg.add_indent(_P)
+        for param, label, widget, kwargs in params:
+            t = _tag(name, param)
+            dpg.add_text(label, color=(160, 160, 160))
+            if widget == "color":
+                dpg.add_color_edit(
+                    label=f"##{t}", tag=t,
+                    no_alpha=True, width=_BW,
+                    callback=_on_settings_changed, user_data=name,
+                    **kwargs,
+                )
+            elif widget == "slider_float":
+                dpg.add_slider_float(
+                    label=f"##{t}", tag=t,
+                    width=_BW,
+                    callback=_on_settings_changed, user_data=name,
+                    **kwargs,
+                )
+        dpg.add_spacer(height=6)
+        dpg.add_button(
+            label="Close",
+            width=_BW,
+            callback=lambda: dpg.configure_item(modal_tag, show=False),
+        )
+        dpg.add_unindent(_P)
 
 
 def _open_modal(name: str):
