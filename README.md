@@ -8,7 +8,7 @@ Built for live events. Designed for Brighton Dome.
 
 ## how it works
 
-1. A device opens `https://local.pixelmesh.live` in their browser
+1. A device opens `https://join.pixelmesh.live` in their browser
 2. The server assigns it a unique **blink ID** (0–511)
 3. The device's screen blinks a Manchester-encoded pattern at 300ms per phase
 4. A camera pointed at the audience captures the screens
@@ -37,7 +37,7 @@ If signal range drops below 0.5, an amber dot appears on the HUD next to the fps
 ## requirements
 
 - Python 3.10+
-- [ngrok](https://ngrok.com) account with a reserved domain (`local.pixelmesh.live`)
+- [ngrok](https://ngrok.com) account with a reserved domain (`join.pixelmesh.live`)
 - A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality). The controller auto-selects an Elgato Facecam 4K if present; use `K` to cycle cameras manually.
 
 ```bash
@@ -78,7 +78,7 @@ Logs:
 
 | URL | Description |
 |-----|-------------|
-| `https://local.pixelmesh.live` | Client app — share this with the audience |
+| `https://join.pixelmesh.live` | Client app — share this with the audience |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard — camera stream preview, links to sim and client |
 | `http://localhost:8000/internal/sim` | Simulator — fake clients for testing (local only) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps, direct) |
