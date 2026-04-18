@@ -1,9 +1,13 @@
+import os
 import threading
 import requests
 
 SERVER_BASE = "http://localhost:8000"
 
 session = requests.Session()
+_token = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
+if _token:
+    session.headers["X-Admin-Token"] = _token
 
 
 def post_json(path: str, payload: dict, timeout=0.5) -> bool:

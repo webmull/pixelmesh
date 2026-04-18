@@ -18,6 +18,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response as StarletteResponse
 
+_ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
+
 
 class NoCacheStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
@@ -42,7 +44,18 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
             return Response(status_code=404)
         return await call_next(request)
 
+
+_PROTECTED_PREFIXES = ("/admin/", "/internal/")
+
+class AdminTokenMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if _ADMIN_TOKEN and any(request.url.path.startswith(p) for p in _PROTECTED_PREFIXES):
+            if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
+                return Response(status_code=403)
+        return await call_next(request)
+
 app = FastAPI()
+app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
 

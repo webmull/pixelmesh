@@ -13,6 +13,14 @@ DIM=$'\e[2m'   BOLD=$'\e[1m'  RESET=$'\e[0m'
 LAST_STARTED=""
 
 # ─────────────────────────────────────────────
+#  Admin token (generated once per session)
+# ─────────────────────────────────────────────
+if [[ -z $PIXELMESH_ADMIN_TOKEN ]]; then
+  PIXELMESH_ADMIN_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(16))")
+  export PIXELMESH_ADMIN_TOKEN
+fi
+
+# ─────────────────────────────────────────────
 #  Cache busting
 # ─────────────────────────────────────────────
 BUST_MARKER="__CACHE_BUST__"
@@ -77,7 +85,7 @@ status_line() {
   local clients=""
   if [[ -n $srv ]]; then
     local count
-    count=$(curl -s --max-time 1 http://localhost:8000/admin/clients 2>/dev/null | grep -o '"clients":[0-9]*' | grep -o '[0-9]*')
+    count=$(curl -s --max-time 1 -H "X-Admin-Token: $PIXELMESH_ADMIN_TOKEN" http://localhost:8000/admin/clients 2>/dev/null | grep -o '"clients":[0-9]*' | grep -o '[0-9]*')
     [[ -n $count ]] && clients="  ${DIM}(${count} connected)${RESET}"
   fi
 
