@@ -86,8 +86,9 @@ BUILD_ID = _build_id()
 
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
-heart_count: int   = 0
+heart_count: int    = 0
 heart_enabled: bool = True
+_heart_dirty: bool  = False   # pending broadcast from tap accumulation
 
 # Whether the controller has actively started detection (distinct from mode).
 detection_active = False
@@ -160,6 +161,16 @@ async def cleanup_device(device_id: str):
 # Heartbeat reaper                                                     #
 # ------------------------------------------------------------------ #
 
+async def heart_broadcast_loop():
+    """Batch heart count broadcasts — max ~3 per second regardless of tap rate."""
+    global _heart_dirty
+    while True:
+        await asyncio.sleep(0.3)
+        if _heart_dirty:
+            _heart_dirty = False
+            await broadcast({"type": "heart_count", "count": heart_count})
+
+
 async def reap_dead_clients():
     while True:
         await asyncio.sleep(5)
@@ -173,6 +184,7 @@ async def reap_dead_clients():
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(reap_dead_clients())
+    asyncio.create_task(heart_broadcast_loop())
 
 
 @app.on_event("shutdown")
@@ -260,7 +272,7 @@ async def websocket_endpoint(ws: WebSocket):
             elif data.get("type") == "heart_tap":
                 if heart_enabled:
                     heart_count += 1
-                    await broadcast({"type": "heart_count", "count": heart_count})
+                    _heart_dirty = True
 
             elif data.get("type") == "ping":
                 if device_id:
