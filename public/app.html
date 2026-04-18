@@ -81,6 +81,14 @@ body {
   font: 15px -apple-system, system-ui, sans-serif;
 }
 
+#pulseCanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
 /* ---- Showtime screen (effects) ---- */
 #showtime {
   position: fixed;
@@ -102,6 +110,7 @@ body {
 
 <!-- Detection mode: full-screen blink panel -->
 <div id="blinkScreen">
+  <canvas id="pulseCanvas"></canvas>
   <div id="waitingMsg">
     <div class="wm-headline">Get ready</div>
     <div class="wm-sub">Hold your phone up when the show begins</div>
