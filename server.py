@@ -86,6 +86,7 @@ BUILD_ID = _build_id()
 
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
+heart_count: int = 0
 
 # Whether the controller has actively started detection (distinct from mode).
 detection_active = False
@@ -222,6 +223,7 @@ async def websocket_endpoint(ws: WebSocket):
                 })
 
                 await broadcast_count()
+                await ws.send_json({"type": "heart_count", "count": heart_count})
 
                 # Sync current mode / effect so reconnecting clients aren't lost
                 if mode == MODE_SHOWTIME and current_effect_state:
@@ -252,6 +254,11 @@ async def websocket_endpoint(ws: WebSocket):
                         "samples":   data.get("samples", 0),
                         "ts":        time.time(),
                     }
+
+            elif data.get("type") == "heart_tap":
+                global heart_count
+                heart_count += 1
+                await broadcast({"type": "heart_count", "count": heart_count})
 
             elif data.get("type") == "ping":
                 if device_id:

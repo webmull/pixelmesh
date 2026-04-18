@@ -33,7 +33,18 @@ const statusPill  = document.getElementById("statusPill");
 const waitingMsg  = document.getElementById("waitingMsg");
 const waitingId   = document.getElementById("waitingId");
 const crowdMsg    = document.getElementById("crowdMsg");
+const heartBtn    = document.getElementById("heartBtn");
+const heartCount  = document.getElementById("heartCount");
 const showtime    = document.getElementById("showtime");
+
+heartBtn.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "heart_tap" }));
+  }
+  heartBtn.classList.remove("popped");
+  void heartBtn.offsetWidth; // force reflow to restart animation
+  heartBtn.classList.add("popped");
+});
 
 // ------------------------------------------------------------------ //
 // Wake lock — keep screen on
@@ -426,6 +437,12 @@ function handleMessage(msg) {
     effectB2       = msg.color2_b ?? 0;
     effectSplit     = msg.split ?? 0.5;
     applyModeVisual();
+    return;
+  }
+
+  if (msg.type === "heart_count") {
+    heartCount.textContent = msg.count === 0 ? "" :
+      msg.count === 1 ? "1 heart sent" : `${msg.count} hearts sent`;
     return;
   }
 
