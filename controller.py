@@ -483,7 +483,7 @@ def update_ui_from_state():
     safe_set("effect_text",    f"Effect: {effect}")
     ui_queue.put(("_effect_show", bool(effect and effect != "None")))
 
-    safe_set("rec_status_text", "● RECORDING" if vid_rec.active else "")
+    safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
 
     safe_set("chk_detection", detecting)
@@ -501,7 +501,7 @@ def update_ui_from_state():
 
 def _push_elgato_state():
     connected = elgato.connected
-    safe_set("elgato_status", "● Connected" if connected else "○ Not available")
+    safe_set("elgato_status", "[ON]" if connected else "[OFF]")
     safe_set("chk_ae",  elgato.ae_on)
     safe_set("sld_iso", elgato.iso_gain)
     ui_queue.put(("_elgato_enabled", connected))
@@ -790,7 +790,7 @@ def setup_ui(holder: dict):
                 _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
-                dpg.add_text("● RECORDING", tag="rec_status_text",
+                dpg.add_text("[REC]", tag="rec_status_text",
                              color=(220, 60, 60), show=False, indent=_PAD)
                 dpg.add_spacer(height=4)
                 dpg.add_button(label="Reset Server  [R]",
@@ -823,7 +823,7 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                dpg.add_text("○ Not available", tag="elgato_status",
+                dpg.add_text("[OFF]", tag="elgato_status",
                              color=(120, 120, 120), indent=_PAD)
                 _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
                 dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
