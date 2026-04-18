@@ -570,17 +570,17 @@ def toggle_debug():
         set_status("Debug capture stopped")
     else:
         run_dir = dbg_cap.start_run()
-        set_status(f"Debug → {run_dir}")
+        set_status(f"Debug: {run_dir}")
 
 
 def toggle_recording():
     """Start or stop a plain video recording (hotkey V). Independent of debug capture."""
     if vid_rec.active:
         path = vid_rec.stop()
-        set_status(f"Recording saved → {_os.path.basename(path)}")
+        set_status(f"Recording saved: {_os.path.basename(path)}")
     else:
         path = vid_rec.start()
-        set_status(f"Recording → {_os.path.basename(path)}")
+        set_status(f"Recording: {_os.path.basename(path)}")
 
 
 def toggle_sidebar():
