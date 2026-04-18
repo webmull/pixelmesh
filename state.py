@@ -20,7 +20,6 @@ class AppState:
         self.detecting        = False        # detection pipeline active
         self.syncing          = False        # clock sync broadcast active
         self.sidebar_visible  = True
-        self.blackout_camera  = False
         self.show_device_overlay = True
 
         self.last_detections  = []           # list of DetectedDevice
