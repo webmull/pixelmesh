@@ -69,8 +69,8 @@ Logs are written to:
 | `/tmp/pixelmesh-ngrok.log` | ngrok tunnel output — connection status, forwarding address, request logs |
 | `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
 | `debug/pixelmesh.log` | Blink detection diagnostics — camera open parameters, exposure lock status, per-frame gate/std stats, top active grid points, decode failures, effect triggers, UI errors. Appended across restarts. |
-| `calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session. Records the time-to-detect and confidence for each blink ID found. Useful for tuning and venue verification. |
-| `recordings/YYYYMMDD_HHMMSS.mp4` | Plain H.264 video of the annotated camera view, started/stopped with `V`. Not committed to git. |
+| `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session. Records the time-to-detect and confidence for each blink ID found. Also written to the active debug run folder if debug capture is on. |
+| `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Plain H.264 video of the annotated camera view, started/stopped with `V`. Not committed to git. |
 
 ---
 
@@ -80,7 +80,8 @@ Logs are written to:
 |-----|-------------|
 | `https://local.pixelmesh.live` | Client app — share this with audience |
 | `https://local.pixelmesh.live/sim` | Simulator — fake clients for testing |
-| `http://localhost:8000` | Local access |
+| `http://localhost:8000` | Local access — includes live camera stream preview |
+| `http://localhost:8000/stream` | MJPEG camera stream (30fps, direct) |
 
 ---
 
@@ -94,8 +95,8 @@ Logs are written to:
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `B` | Blackout camera feed |
-| `G` | Start/stop debug capture |
-| `V` | Start/stop video recording (saved to `recordings/`) |
+| `G` | Start/stop debug capture (run saved as e.g. `debug/autumn-fox-42/`, last 15 kept) |
+| `V` | Start/stop video recording (saved to `debug/recordings/`) |
 | `O` | Toggle device ID overlays |
 | `Q` / `Esc` | Quit |
 
@@ -166,11 +167,12 @@ The server hashes `app.js` at startup into a `BUILD_ID` and sends it to every cl
 
 ## Debug capture
 
-Press **G** in the controller to start/stop a debug run. Each run creates a timestamped folder under `debug/`:
+Press **G** in the controller to start/stop a debug run. Each run creates a friendly-named folder under `debug/` (e.g. `autumn-fox-42`). The name is shown bottom-right on the camera feed while the run is active. Old runs are pruned automatically — only the last 15 are kept.
 
 ```
-debug/20240409_123456/
+debug/autumn-fox-42/
   overlay.mp4       ← full-speed H.264 video of the annotated camera view
+  calibration.log   ← copy of the calibration log for this session (if detection ran)
   summary.json      ← per-frame detection summary
   frames/
     0000_raw.jpg    ← downscaled camera frame
