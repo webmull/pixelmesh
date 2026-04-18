@@ -46,8 +46,8 @@ function _spawnFlyHearts() {
     const el = document.createElement("span");
     el.className   = "fly-heart";
     el.textContent = "♥";
-    el.style.left  = (cx + (Math.random() - 0.5) * 20) + "px";
-    el.style.top   = cy + "px";
+    el.style.left  = (cx - 18) + "px";
+    el.style.top   = (cy - 18) + "px";
     el.style.setProperty("--dx", ((Math.random() - 0.5) * window.innerWidth * 1.2) + "px");
     el.style.animationDelay = (Math.random() * 0.3) + "s";
     blinkScreen.appendChild(el);
