@@ -801,12 +801,13 @@ def setup_ui(holder: dict):
                 dpg.add_text("○ Not available", tag="elgato_status",
                              color=(120, 120, 120))
                 dpg.add_checkbox(label="Auto Exposure", tag="chk_ae",
-                                 callback=_toggle_ae)
+                                 callback=_toggle_ae, enabled=False)
                 dpg.add_text("ISO Gain", color=(180, 180, 180))
                 dpg.add_slider_int(label="##iso", tag="sld_iso",
                                    default_value=elgato._DEFAULT_GAIN,
                                    min_value=0, max_value=160,
-                                   callback=_set_iso, width=-1)
+                                   callback=_set_iso, width=-1,
+                                   enabled=False)
 
                 dpg.add_spacer(height=6)
                 dpg.add_button(label="Reset Server  [R]",
@@ -1037,8 +1038,11 @@ def main():
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
                     if tag == "_elgato_enabled":
-                        dpg.configure_item("chk_ae",  enabled=value)
-                        dpg.configure_item("sld_iso", enabled=value)
+                        for item in ("chk_ae", "sld_iso"):
+                            if value:
+                                dpg.enable_item(item)
+                            else:
+                                dpg.disable_item(item)
                         continue
                     if tag == "_sync_stats_rows":
                         rows = value
