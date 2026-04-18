@@ -78,32 +78,33 @@ _EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attemp
 _detection_start_time: float = 0.0
 _detected_ids: set = set()   # blink_ids seen this detection session
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
-_timing_log_path: str = ""
+_timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 
 import os as _os
 
 _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calibration_logs")
 
 def _open_timing_log():
-    global _timing_log_path
-    # Prefer the active debug run folder so the log lives alongside the
-    # captured frames and video.  Fall back to a standalone calibration_logs
-    # entry when no debug run is in progress.
+    global _timing_log_paths
+    header = (f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+              f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
+    paths = []
+    # Always write to the master calibration_logs folder
+    _os.makedirs(_CALIBRATION_LOG_DIR, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    paths.append(_os.path.join(_CALIBRATION_LOG_DIR, f"{stamp}.log"))
+    # Also duplicate into the active debug run folder if one is in progress
     if dbg_cap.active and dbg_cap.run_dir:
-        log_dir = dbg_cap.run_dir
-    else:
-        log_dir = _CALIBRATION_LOG_DIR
-    _os.makedirs(log_dir, exist_ok=True)
-    _timing_log_path = _os.path.join(log_dir, "calibration.log")
-    with open(_timing_log_path, "w") as f:
-        f.write(f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
+        paths.append(_os.path.join(dbg_cap.run_dir, "calibration.log"))
+    for p in paths:
+        with open(p, "w") as f:
+            f.write(header)
+    _timing_log_paths = paths
 
 def _log_timing(line: str):
-    if not _timing_log_path:
-        return
-    with open(_timing_log_path, "a") as f:
-        f.write(line + "\n")
+    for p in _timing_log_paths:
+        with open(p, "a") as f:
+            f.write(line + "\n")
 
 
 vid_rec = VideoRecorder()
