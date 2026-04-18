@@ -448,7 +448,7 @@ async def _mjpeg_generator():
             b"\r\n"
         )
 
-@app.get("/stream")
+@app.get("/internal/feed/v1")
 async def stream():
     return StreamingResponse(
         _mjpeg_generator(),

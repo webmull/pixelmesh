@@ -81,7 +81,7 @@ Logs are written to:
 | `https://local.pixelmesh.live` | Client app — share this with audience |
 | `https://local.pixelmesh.live/sim` | Simulator — fake clients for testing |
 | `http://localhost:8000` | Local access — includes live camera stream preview |
-| `http://localhost:8000/stream` | MJPEG camera stream (30fps, direct) |
+| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps, direct) |
 
 ---
 
