@@ -289,9 +289,11 @@ class BlinkDetector:
         # inject the nearest grid point into _ever_active so history starts recording
         # immediately — without waiting for the variance gate to be crossed.
         # The existing decode pipeline handles decoding; this only improves discovery.
-        _DIFF_ACCUM_N  = 5     # frames to accumulate before processing (~0.33s @ 15fps)
-        _DIFF_THRESH   = 10    # minimum total pixel change across N frames (0–255×N)
-        _DIFF_MAX_AREA = 1500  # ignore blobs larger than this px² (people, large motion)
+        _DIFF_ACCUM_N      = 5   # frames to accumulate before processing (~0.33s @ 15fps)
+        _DIFF_THRESH       = 10  # minimum total pixel change across N frames (0–255×N)
+        _DIFF_MAX_AREA     = 1500  # ignore blobs larger than this px² (people, large motion)
+        _DIFF_MAX_INJECT   = 50  # max new ever_active injections per cycle — prevents diff
+                                 # flooding the set with scene motion (outdoor, moving people)
 
         # Initialise or reinitialise persistent buffers when frame shape changes.
         # Pre-allocation avoids a ~0.5 MB numpy allocation every frame.
@@ -313,7 +315,14 @@ class BlinkDetector:
                 if n_lbl > 1 and self._grid_shape[3] > 0:
                     roi_top, roi_left, n_ys, n_xs = self._grid_shape
                     step = cfg["grid_step"]
-                    for lbl in range(1, n_lbl):
+                    injected = 0
+                    # Sort smallest-area-first: phone blobs (1–5px²) get
+                    # injected before larger scene-motion blobs hit the cap.
+                    blob_labels = sorted(range(1, n_lbl),
+                                         key=lambda l: stats[l, cv2.CC_STAT_AREA])
+                    for lbl in blob_labels:
+                        if injected >= _DIFF_MAX_INJECT:
+                            break
                         if stats[lbl, cv2.CC_STAT_AREA] > _DIFF_MAX_AREA:
                             continue
                         cx_b = int(round(float(centroids[lbl, 0])))
@@ -323,11 +332,18 @@ class BlinkDetector:
                         iy = max(0, min(n_ys - 1,
                                        round((cy_b - roi_top  - step // 2) / step)))
                         idx = iy * n_xs + ix
-                        if idx < len(self._points) and idx not in self._ever_active:
-                            self._ever_active.add(idx)
+                        if idx < len(self._points):
+                            # Always register as diff_discovered so centroid-sampling
+                            # overrides the 8×8 patch percentile.  Only set the centroid
+                            # on first discovery — later blobs mapped to the same grid
+                            # point may be scene-motion, not the phone.
                             self._diff_discovered.add(idx)
-                            self._diff_centroids[idx] = (cx_b, cy_b)
-                            self._points[idx].last_active_ts = ts
+                            if idx not in self._diff_centroids:
+                                self._diff_centroids[idx] = (cx_b, cy_b)
+                            if idx not in self._ever_active:
+                                self._ever_active.add(idx)
+                                self._points[idx].last_active_ts = ts
+                                injected += 1
                 self._diff_accum.fill(0)     # reset in-place — no reallocation
                 self._diff_accum_count = 0
         # ---- end diff finder ----
