@@ -32,7 +32,41 @@ const blinkScreen = document.getElementById("blinkScreen");
 const statusPill  = document.getElementById("statusPill");
 const waitingMsg  = document.getElementById("waitingMsg");
 const waitingId   = document.getElementById("waitingId");
+const crowdMsg    = document.getElementById("crowdMsg");
 const showtime    = document.getElementById("showtime");
+
+// ------------------------------------------------------------------ //
+// Crowd count + rotating messages
+// ------------------------------------------------------------------ //
+
+let _crowdCount   = 0;
+let _msgIndex     = 0;
+let _msgTimer     = null;
+
+const _msgTemplates = [
+  n => `You're amongst ${n} other beautiful people`,
+  n => `${n} phones in the room and counting`,
+  n => `${n} strangers about to become one screen`,
+  n => `Joined by ${n} others — the more the merrier`,
+  n => `${n} people haven't closed this screen either`,
+];
+
+function _rotateCrowdMsg() {
+  if (_crowdCount < 1) { crowdMsg.textContent = ""; return; }
+  _msgIndex = (_msgIndex + 1) % _msgTemplates.length;
+  crowdMsg.style.opacity = "0";
+  setTimeout(() => {
+    crowdMsg.textContent  = _msgTemplates[_msgIndex](_crowdCount);
+    crowdMsg.style.opacity = "1";
+  }, 600);
+}
+
+function _setCrowdCount(n) {
+  _crowdCount = n;
+  crowdMsg.textContent  = n > 0 ? _msgTemplates[_msgIndex](n) : "";
+  crowdMsg.style.opacity = "1";
+  if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
+}
 const projCanvas  = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
 const ctx         = projCanvas.getContext("2d");
@@ -354,6 +388,11 @@ function handleMessage(msg) {
     effectB2       = msg.color2_b ?? 0;
     effectSplit     = msg.split ?? 0.5;
     applyModeVisual();
+    return;
+  }
+
+  if (msg.type === "crowd_count") {
+    _setCrowdCount(msg.count - 1); // subtract self
     return;
   }
 

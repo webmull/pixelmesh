@@ -133,6 +133,10 @@ async def set_mode(new_mode: str):
     await broadcast({"type": "mode", "mode": mode})
 
 
+async def broadcast_count():
+    await broadcast({"type": "crowd_count", "count": len(connections)})
+
+
 async def cleanup_device(device_id: str):
     ws = connections.pop(device_id, None)
     last_seen.pop(device_id, None)
@@ -140,6 +144,7 @@ async def cleanup_device(device_id: str):
     if bid is not None:
         blink_reverse.pop(bid, None)
         bisect.insort(available_blinks, bid)
+    await broadcast_count()
     positions.pop(device_id, None)
     sync_stats.pop(device_id, None)
     if ws:
@@ -215,6 +220,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "v":          pos["v"],
                     "calibrated": known_pos is not None,
                 })
+
+                await broadcast_count()
 
                 # Sync current mode / effect so reconnecting clients aren't lost
                 if mode == MODE_SHOWTIME and current_effect_state:
