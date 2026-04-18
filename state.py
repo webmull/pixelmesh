@@ -46,5 +46,7 @@ class AppState:
             (PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8
         )
 
+        self.camera_active        = False        # True when a camera is open
+
         # Calibrated positions: blink_id → {"u": float, "v": float}
         self.calibrated_positions = {}

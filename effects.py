@@ -98,6 +98,11 @@ def _get(effect: str, param: str, default):
 # ------------------------------------------------------------------ #
 
 def trigger_effect(name: str):
+    with _state.lock:
+        detected = _state.last_detection_count
+    if detected == 0:
+        _set_status("No devices detected - effect blocked")
+        return
     color  = _get(name, "color",  (255, 255, 255, 255))
     color2 = _get(name, "color2", (255,   0,   0, 255))
     payload = {

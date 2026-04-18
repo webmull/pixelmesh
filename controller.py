@@ -382,7 +382,7 @@ def no_camera_canvas() -> np.ndarray:
         cv2.line(canvas, (x, 0), (x, PREVIEW_HEIGHT), (30, 30, 30), 1)
     for y in range(0, PREVIEW_HEIGHT, 80):
         cv2.line(canvas, (0, y), (PREVIEW_WIDTH, y), (30, 30, 30), 1)
-    msg = "Camera initialising..."
+    msg = "No camera detected"
     (tw, _), _ = cv2.getTextSize(msg, FONT, 0.9, 2)
     cv2.putText(canvas, msg,
                 (PREVIEW_WIDTH // 2 - tw // 2, PREVIEW_HEIGHT // 2),
@@ -502,6 +502,7 @@ def update_ui_from_state():
 def _push_elgato_state():
     connected = elgato.connected
     safe_set("elgato_status", "[ON]" if connected else "[OFF]")
+    ui_queue.put(("elgato_color", connected))
     safe_set("chk_ae",  elgato.ae_on)
     safe_set("sld_iso", elgato.iso_gain)
     ui_queue.put(("_elgato_enabled", connected))
@@ -579,6 +580,11 @@ def toggle_recording():
         path = vid_rec.stop()
         set_status(f"Recording saved: {_os.path.basename(path)}")
     else:
+        with state.lock:
+            cam_ok = state.camera_active
+        if not cam_ok:
+            set_status("No camera - cannot record")
+            return
         path = vid_rec.start()
         set_status(f"Recording: {_os.path.basename(path)}")
 
@@ -689,6 +695,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_D:
         toggle_detection()
 
+    elif key == dpg.mvKey_S:
+        toggle_sync()
+
     elif key == dpg.mvKey_R:
         reset_server()
 
@@ -735,12 +744,19 @@ def on_key_press(key, holder):
 # ------------------------------------------------------------------ #
 
 _PAD        = 8     # left/right padding for sidebar content
-_CHK_INDENT = 284   # checkbox x within padded content (284 + 8 indent ≈ right edge)
+_CHK_INDENT = 284   # checkbox x position
+_KEY_INDENT = 252   # hotkey label x position (flush left of checkbox)
 
 def _chk(label: str, tag: str, callback, enabled: bool = True):
-    """Checkbox row: label on left, checkbox on right."""
+    """Checkbox row: label left, hotkey right-aligned before checkbox."""
+    import re as _re
+    m = _re.search(r'\s*(\[[^\]]+\])\s*$', label)
+    base   = label[:m.start()] if m else label
+    hotkey = m.group(1)        if m else ""
     with dpg.group(horizontal=True):
-        dpg.add_text(label, indent=_PAD)
+        dpg.add_text(base, indent=_PAD)
+        if hotkey:
+            dpg.add_text(hotkey, indent=_KEY_INDENT, color=(120, 120, 120))
         dpg.add_checkbox(label=f"##{tag}", tag=tag,
                          callback=callback, indent=_CHK_INDENT,
                          enabled=enabled)
@@ -786,7 +802,7 @@ def setup_ui(holder: dict):
                 dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
                 _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
-                _chk("Clock Sync",        "chk_sync",       lambda: toggle_sync())
+                _chk("Clock Sync  [S]",   "chk_sync",       lambda: toggle_sync())
                 _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
@@ -801,6 +817,22 @@ def setup_ui(holder: dict):
                                    "sync_debug_window",
                                    show=not dpg.is_item_shown("sync_debug_window")
                                ), indent=_PAD, width=-(_PAD + 1))
+
+                dpg.add_spacer(height=4)
+                dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
+                dpg.add_separator()
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Camera status", indent=_PAD)
+                    dpg.add_text("[OFF]", tag="elgato_status",
+                                 color=(120, 120, 120), indent=_CHK_INDENT - 15)
+                _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
+                dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
+                dpg.add_slider_int(label="##iso", tag="sld_iso",
+                                   default_value=elgato._DEFAULT_GAIN,
+                                   min_value=0, max_value=160,
+                                   callback=_set_iso,
+                                   indent=_PAD, width=-(_PAD + 1),
+                                   enabled=False)
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("EFFECTS", color=(160, 160, 160), indent=_PAD)
@@ -819,22 +851,6 @@ def setup_ui(holder: dict):
                             user_data=_ename,
                             width=30,
                         )
-
-                dpg.add_spacer(height=4)
-                dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
-                dpg.add_separator()
-                dpg.add_text("[OFF]", tag="elgato_status",
-                             color=(120, 120, 120), indent=_PAD)
-                _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
-                dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
-                dpg.add_slider_int(label="##iso", tag="sld_iso",
-                                   default_value=elgato._DEFAULT_GAIN,
-                                   min_value=0, max_value=160,
-                                   callback=_set_iso,
-                                   indent=_PAD, width=-(_PAD + 1),
-                                   enabled=False)
-
-
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
@@ -927,6 +943,8 @@ def main():
             frame_start = time.time()
 
             cap = holder.get("cap")
+            with state.lock:
+                state.camera_active = cap is not None
 
             if cap is None:
                 canvas = no_camera_canvas()
@@ -1059,6 +1077,10 @@ def main():
                         continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
+                        continue
+                    if tag == "elgato_color":
+                        col = (80, 200, 80) if value else (120, 120, 120)
+                        dpg.configure_item("elgato_status", color=col)
                         continue
                     if tag == "_elgato_enabled":
                         for item in ("chk_ae", "sld_iso"):
