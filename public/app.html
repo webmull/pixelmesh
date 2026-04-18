@@ -81,6 +81,14 @@ body {
   font: 15px -apple-system, system-ui, sans-serif;
 }
 
+#crowdMsg {
+  margin-top: 20px;
+  color: rgba(255,255,255,0.55);
+  font: 15px -apple-system, system-ui, sans-serif;
+  min-height: 22px;
+  transition: opacity 0.6s ease;
+}
+
 .wm-id {
   margin-top: 32px;
   color: rgba(255,255,255,0.3);
@@ -130,6 +138,7 @@ body {
     <div class="wm-headline">Get ready</div>
     <div class="wm-sub">Hold your phone up when the show begins</div>
     <div class="wm-sub" style="margin-top:8px; color: rgba(255,255,255,0.25);">Don't close this screen</div>
+    <div id="crowdMsg"></div>
     <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
   </div>
   <div id="statusPill">connecting…</div>
