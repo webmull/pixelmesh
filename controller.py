@@ -82,9 +82,15 @@ _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calib
 
 def _open_timing_log():
     global _timing_log_path
-    _os.makedirs(_CALIBRATION_LOG_DIR, exist_ok=True)
-    stamp = time.strftime("%Y%m%d_%H%M%S")
-    _timing_log_path = _os.path.join(_CALIBRATION_LOG_DIR, f"{stamp}.log")
+    # Prefer the active debug run folder so the log lives alongside the
+    # captured frames and video.  Fall back to a standalone calibration_logs
+    # entry when no debug run is in progress.
+    if dbg_cap.active and dbg_cap.run_dir:
+        log_dir = dbg_cap.run_dir
+    else:
+        log_dir = _CALIBRATION_LOG_DIR
+    _os.makedirs(log_dir, exist_ok=True)
+    _timing_log_path = _os.path.join(log_dir, "calibration.log")
     with open(_timing_log_path, "w") as f:
         f.write(f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
