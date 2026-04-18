@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 """
 Tests for server.py — blink ID pool management and reverse lookup.
 

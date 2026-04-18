@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 """
 pixelmesh — server
 
@@ -454,10 +455,14 @@ async def _mjpeg_generator():
             continue
         last_sent = time.time()
         yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" +
+            b"--frame
+"
+            b"Content-Type: image/jpeg
+
+" +
             frame +
-            b"\r\n"
+            b"
+"
         )
 
 @app.get("/internal/feed/v1")

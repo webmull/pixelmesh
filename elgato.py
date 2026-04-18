@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 """
 pixelmesh — Elgato Camera Hub watchdog
 
@@ -51,12 +52,19 @@ def _ws_connect() -> socket.socket | None:
     try:
         s.connect(("127.0.0.1", _PORT))
         s.send(
-            f"GET / HTTP/1.1\r\n"
-            f"Host: localhost:{_PORT}\r\n"
-            f"Upgrade: websocket\r\n"
-            f"Connection: Upgrade\r\n"
-            f"Sec-WebSocket-Key: {key}\r\n"
-            f"Sec-WebSocket-Version: 13\r\n\r\n"
+            f"GET / HTTP/1.1
+"
+            f"Host: localhost:{_PORT}
+"
+            f"Upgrade: websocket
+"
+            f"Connection: Upgrade
+"
+            f"Sec-WebSocket-Key: {key}
+"
+            f"Sec-WebSocket-Version: 13
+
+"
             .encode()
         )
         s.recv(4096)   # consume HTTP upgrade response

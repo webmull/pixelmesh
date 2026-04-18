@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 """
 PixelMesh V2 — Effects panel
 

@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 """
 PixelMesh V2 — Blink Detector (grid-sampler, variance-gated)
 
@@ -702,4 +703,3 @@ class BlinkDetector:
         self._diff_accum_count = 0
         self._diff_discovered.clear()
         self._diff_centroids.clear()
-
