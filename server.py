@@ -474,6 +474,6 @@ async def index():
     return FileResponse("public/app.html", headers=_NO_CACHE)
 
 
-@app.get("/sim")
+@app.get("/internal/sim")
 async def sim():
     return FileResponse("public/sim.html", headers=_NO_CACHE)
