@@ -38,6 +38,7 @@ from video_recorder import VideoRecorder
 from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
 import effects
+import elgato
 
 # ------------------------------------------------------------------ #
 # Config
@@ -489,6 +490,33 @@ def update_ui_from_state():
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
 
+    safe_set("elgato_status", "● Connected" if elgato.connected else "○ Not available")
+    safe_set("chk_ae",  elgato.ae_on)
+    safe_set("sld_iso", elgato.iso_gain)
+
+
+# ------------------------------------------------------------------ #
+# Elgato callbacks
+# ------------------------------------------------------------------ #
+
+def _elgato_state_changed():
+    """Called by elgato watchdog (background thread) when state changes."""
+    safe_set("elgato_status", "● Connected" if elgato.connected else "○ Not available")
+    safe_set("chk_ae",        elgato.ae_on)
+    safe_set("sld_iso",       elgato.iso_gain)
+
+
+def _toggle_ae():
+    if _ui_syncing:
+        return
+    elgato.set_ae(dpg.get_value("chk_ae"))
+
+
+def _set_iso(sender, value):
+    if _ui_syncing:
+        return
+    elgato.set_iso(int(value))
+
 
 # ------------------------------------------------------------------ #
 # Actions
@@ -765,6 +793,17 @@ def setup_ui(holder: dict):
                         )
 
                 dpg.add_spacer(height=6)
+                dpg.add_text("Camera Hub")
+                dpg.add_text("○ Not available", tag="elgato_status",
+                             color=(120, 120, 120))
+                dpg.add_checkbox(label="Auto Exposure", tag="chk_ae",
+                                 callback=_toggle_ae)
+                dpg.add_slider_int(label="ISO Gain", tag="sld_iso",
+                                   default_value=elgato._DEFAULT_GAIN,
+                                   min_value=0, max_value=160,
+                                   callback=_set_iso, width=-1)
+
+                dpg.add_spacer(height=6)
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server, width=-1)
                 dpg.add_button(label="Sync Stats Panel",
@@ -850,6 +889,8 @@ def main():
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
     threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
+    elgato.on_state_change = _elgato_state_changed
+    elgato.start()
 
     texture_data = frame_to_texture(no_camera_canvas())
     _dbg_counter = 0   # local to main — throttles debug save_frame calls
