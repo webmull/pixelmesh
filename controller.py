@@ -767,6 +767,7 @@ def setup_ui(holder: dict):
                 dpg.add_text("", tag="status_text")
                 dpg.add_text("", tag="clients_text")
                 dpg.add_text("", tag="effect_text", show=False)
+                dpg.add_text("", tag="detect_text")
                 dpg.add_separator()
 
                 dpg.add_spacer(height=4)
@@ -810,8 +811,6 @@ def setup_ui(holder: dict):
                             user_data=_ename,
                             width=34,
                         )
-
-                dpg.add_text("", tag="detect_text")
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("CAMERA HUB", color=(160, 160, 160))
