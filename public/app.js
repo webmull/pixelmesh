@@ -31,52 +31,7 @@ function encodeId(blinkId) {
 const blinkScreen = document.getElementById("blinkScreen");
 const statusPill  = document.getElementById("statusPill");
 const waitingMsg  = document.getElementById("waitingMsg");
-const pulseCanvas = document.getElementById("pulseCanvas");
 const showtime    = document.getElementById("showtime");
-
-// ------------------------------------------------------------------ //
-// Pulse ring animation (waiting screen only)
-// ------------------------------------------------------------------ //
-
-let _pulseRaf  = null;
-const _rings   = [0, 0.33, 0.66].map(offset => ({ phase: offset }));
-const _pCtx    = pulseCanvas.getContext("2d");
-
-function _resizePulse() {
-  pulseCanvas.width  = window.innerWidth;
-  pulseCanvas.height = window.innerHeight;
-}
-window.addEventListener("resize", _resizePulse);
-_resizePulse();
-
-function _drawPulse(ts) {
-  const w = pulseCanvas.width, h = pulseCanvas.height;
-  const cx = w / 2, cy = h / 2;
-  const maxR = Math.hypot(cx, cy) * 0.85;
-  _pCtx.clearRect(0, 0, w, h);
-  for (const ring of _rings) {
-    // Each ring cycles 0→1 every 5s, staggered by phase
-    const t = ((ts / 5000) + ring.phase) % 1;
-    const r = t * maxR;
-    const alpha = (1 - t) * 0.06;
-    _pCtx.beginPath();
-    _pCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    _pCtx.strokeStyle = `rgba(160, 180, 255, ${alpha})`;
-    _pCtx.lineWidth = 1;
-    _pCtx.stroke();
-  }
-  _pulseRaf = requestAnimationFrame(_drawPulse);
-}
-
-function startPulse() {
-  if (_pulseRaf) return;
-  _pulseRaf = requestAnimationFrame(_drawPulse);
-}
-
-function stopPulse() {
-  if (_pulseRaf) { cancelAnimationFrame(_pulseRaf); _pulseRaf = null; }
-  _pCtx.clearRect(0, 0, pulseCanvas.width, pulseCanvas.height);
-}
 const projCanvas  = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
 const ctx         = projCanvas.getContext("2d");
@@ -361,7 +316,7 @@ function handleMessage(msg) {
     phoneState  = PS.BLINKING;
     missedStart = 0;
     waitingMsg.style.display = "none";
-    stopPulse();
+    blinkScreen.classList.remove("waiting");
     return;
   }
 
@@ -407,7 +362,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "block";
-    startPulse();
+    blinkScreen.classList.add("waiting");
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
@@ -443,9 +398,9 @@ function updateBlink() {
       break;
 
     case PS.WAITING:
-      blinkScreen.style.background = "#1a2a6e";
+      blinkScreen.style.background = "";
+      blinkScreen.classList.add("waiting");
       waitingMsg.style.display = "block";
-      startPulse();
       break;
 
     case PS.BLINKING: {
