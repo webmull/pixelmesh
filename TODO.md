@@ -5,9 +5,6 @@
 - [ ] If still nothing, lower the `0.08` range floor in `decode_phases`
 - [ ] Once detections start coming in, lock the values that worked
 
-## Detection / Showtime
-- [ ] When a detection run ends, any connected devices that were never detected should not receive effects — send them back to idle/dark state rather than playing showtime
-
 ## Effects
 - [ ] **Ripple** — circular wave from a click point (origin_u, origin_v); controller clicks preview to place origin; each device phases on `dist = sqrt((u-ou)²+(v-ov)²)`
 - [ ] **Sparkle/Twinkle** — each device twinkles independently at a frequency seeded by blink_id; no coordination needed, scales well to 512
@@ -34,6 +31,5 @@
 - [x] Keep only the last 15 debug run folders — auto-delete oldest on startup
 
 ## Brighton Dome Deployment
-- [ ] Plan two-camera setup — one from stage (front half), one from FOH (back half)
 - [ ] Test detection at distance — assess grid_step tuning for small apparent phone size
 - [ ] Assess stage lighting impact on blink contrast
