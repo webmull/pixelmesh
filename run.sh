@@ -125,7 +125,7 @@ kill_all() {
 
 start_all() {
   echo "${Y}→ Starting server...${RESET}"
-  python3 -m uvicorn server:app --reload --host 0.0.0.0 --port 8000 \
+  python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
   sleep 1
 
