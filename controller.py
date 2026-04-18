@@ -784,6 +784,14 @@ def setup_ui(holder: dict):
                                  callback=lambda: toggle_recording())
                 dpg.add_text("● RECORDING", tag="rec_status_text",
                              color=(220, 60, 60), show=False)
+                dpg.add_spacer(height=4)
+                dpg.add_button(label="Reset Server  [R]",
+                               callback=reset_server, width=-1)
+                dpg.add_button(label="Sync Stats Panel",
+                               callback=lambda: dpg.configure_item(
+                                   "sync_debug_window",
+                                   show=not dpg.is_item_shown("sync_debug_window")
+                               ), width=-1)
 
                 dpg.add_spacer(height=4)
                 dpg.add_text("EFFECTS", color=(160, 160, 160))
@@ -819,14 +827,6 @@ def setup_ui(holder: dict):
                                    callback=_set_iso, width=-1,
                                    enabled=False)
 
-                dpg.add_spacer(height=6)
-                dpg.add_button(label="Reset Server  [R]",
-                               callback=reset_server, width=-1)
-                dpg.add_button(label="Sync Stats Panel",
-                               callback=lambda: dpg.configure_item(
-                                   "sync_debug_window",
-                                   show=not dpg.is_item_shown("sync_debug_window")
-                               ), width=-1)
 
 
             # ---- Preview panel ----
