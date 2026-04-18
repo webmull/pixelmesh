@@ -468,6 +468,11 @@ async def stream():
     )
 
 
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+
 @app.get("/")
 async def index():
     return FileResponse("public/app.html", headers=_NO_CACHE)

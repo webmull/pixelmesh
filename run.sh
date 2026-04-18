@@ -127,7 +127,6 @@ start_all() {
   echo "${Y}→ Starting server...${RESET}"
   python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
-  sleep 1
 
   echo "${Y}→ Starting ngrok (eu → local.pixelmesh.live)...${RESET}"
   ngrok http 8000 \
@@ -135,11 +134,14 @@ start_all() {
     --hostname local.pixelmesh.live \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
-  sleep 2
 
   echo "${Y}→ Starting controller...${RESET}"
+  # Wait for server to be ready (ngrok is independent — no need to wait for it)
+  local i=0
+  while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
+    sleep 0.5; (( i++ ))
+  done
   python3 controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
-  sleep 1
 
   LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"

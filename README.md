@@ -90,6 +90,7 @@ Logs:
 | Key | Action |
 |-----|--------|
 | `D` | Toggle detection on/off |
+| `S` | Toggle clock sync |
 | `K` | Switch camera |
 | `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, aurora) |
 | `R` | Reset server |
