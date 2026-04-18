@@ -437,7 +437,7 @@ function updateBlink() {
       break;
 
     case PS.WAITING:
-      blinkScreen.style.background = "#1a2a6e";
+      blinkScreen.style.background = "#000";
       waitingMsg.style.display = "block";
       waitingId.textContent = myBlinkId !== null ? `Connected  ·  ID ${myBlinkId}` : "Connecting…";
       break;

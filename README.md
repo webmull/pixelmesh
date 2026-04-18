@@ -106,7 +106,7 @@ Logs:
 | State | Screen | Trigger |
 |-------|--------|---------|
 | **App closed / disconnected** | Black | Server shut down or connection lost |
-| **Connected, waiting** | Solid indigo | Connected but detection not yet started |
+| **Connected, waiting** | Black with text | Connected but detection not yet started |
 | **Detection active** | White/black blink | Controller started detection |
 | **Located** | Solid orange | Controller detected this device |
 | **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
