@@ -45,7 +45,7 @@ DEFAULTS = dict(
                              # Coverage is unchanged: the worst-case phone pixel (5.66 px
                              # from its nearest grid centre) falls inside an adjacent
                              # centre's r=4 patch, so nothing is missed.
-    roi_top_frac    = 0.20,  # fraction of frame height to skip from top
+    roi_top_frac    = 0.00,  # fraction of frame height to skip from top (0 = full frame)
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
     log_interval    = 3.0,   # seconds between diagnostic log lines
 )
@@ -285,13 +285,14 @@ class BlinkDetector:
                 pt.last_active_ts = ts
                 pt.add_sample(float(brightnesses[i]), ts, hist_secs)
                 self._ever_active.add(i)
-            # Record guard-phase samples for points that were recently active but
-            # are currently quiet — iterate only the small ever-active set, not all 25K.
+            # Record samples for points that have ever been above gate but are
+            # currently quiet.  No time cutoff: once a phone has crossed the gate
+            # it records for the rest of the session, giving the backward-scan
+            # decoder a full 13.2s window even for borderline-std distant phones.
             for i in self._ever_active:
                 if computed_stds[i] < gate:
                     pt = self._points[i]
-                    if pt.last_active_ts > 0 and (ts - pt.last_active_ts) < hist_secs:
-                        pt.add_sample(float(brightnesses[i]), ts, hist_secs)
+                    pt.add_sample(float(brightnesses[i]), ts, hist_secs)
         else:
             for pt, b in zip(self._points, brightnesses):
                 pt.add_sample(float(b), ts, cfg["history_seconds"])

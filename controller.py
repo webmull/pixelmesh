@@ -73,6 +73,7 @@ _EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attemp
 # Detection timing
 _detection_start_time: float = 0.0
 _detected_ids: set = set()   # blink_ids seen this detection session
+_valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_path: str = ""
 
 import os as _os
@@ -381,6 +382,8 @@ def draw_device_overlay(canvas: np.ndarray):
         positions = state.calibrated_positions.copy()
 
     for blink_id, pos in positions.items():
+        if _valid_blink_ids and blink_id not in _valid_blink_ids:
+            continue
         u, v = pos["u"], pos["v"]
         px = int(u * PREVIEW_WIDTH)
         py = int(v * PREVIEW_HEIGHT)
@@ -1009,6 +1012,12 @@ def _detection_worker():
                 h_raw, w_raw = raw.shape[:2]
                 positions    = {}
                 for det in results:
+                    # Dismiss decodes for IDs with no connected client.
+                    # _valid_blink_ids is empty until the first blink_map poll
+                    # (≤ CLIENT_FETCH_SECS after start) — skip the check until
+                    # then so detections aren't silently dropped on startup.
+                    if _valid_blink_ids and det.blink_id not in _valid_blink_ids:
+                        continue
                     u = det.cx_px / w_raw
                     v = det.cy_px / h_raw
                     positions[str(det.blink_id)] = {
@@ -1025,14 +1034,20 @@ def _detection_worker():
                             f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
                             f"{det.confidence:>12.3f}"
                         )
-                post_json_async("/admin/positions", {"positions": positions})
+                if positions:
+                    post_json_async("/admin/positions", {"positions": positions})
         finally:
             _detect_queue.task_done()
 
 
 def poll_clients():
+    global _valid_blink_ids
     while state.running:
         fetch_client_count(state)
+        data = fetch_json("/admin/blink_map")
+        if data is not None:
+            bmap = data.get("map", {})
+            _valid_blink_ids = {int(bid) for bid in bmap}
         time.sleep(CLIENT_FETCH_SECS)
 
 

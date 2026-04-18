@@ -281,6 +281,11 @@ def _try_decode_at_threshold(
                     if   p1_b == 1 and p2_b == 0: bits_b.append(1)
                     elif p1_b == 0 and p2_b == 1: bits_b.append(0)
                     else:
+                        # Start marker is always 1 by protocol — assume rather than fail.
+                        if bit_i == 0:
+                            bits_b.append(1)
+                            n_assumed += 1
+                            continue
                         fail_b  = f"back:phase_ambig bit={bit_i}"
                         valid_b = False
                         break
