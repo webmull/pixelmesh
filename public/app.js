@@ -46,9 +46,9 @@ function _spawnFlyHearts() {
     const el = document.createElement("span");
     el.className   = "fly-heart";
     el.textContent = "♥";
-    el.style.left  = (cx + (Math.random() - 0.5) * 60) + "px";
-    el.style.top   = cy + "px";
-    el.style.setProperty("--dx", ((Math.random() - 0.5) * 600) + "px");
+    el.style.left  = (window.innerWidth * 0.1 + Math.random() * window.innerWidth * 0.8) + "px";
+    el.style.top   = (cy + (Math.random() - 0.5) * 40) + "px";
+    el.style.setProperty("--dx", ((Math.random() - 0.5) * 200) + "px");
     el.style.animationDelay = (Math.random() * 0.3) + "s";
     document.body.appendChild(el);
     el.addEventListener("animationend", () => el.remove());
