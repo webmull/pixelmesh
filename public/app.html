@@ -60,6 +60,27 @@ body {
   pointer-events: none;
 }
 
+/* Waiting instruction — shown on indigo screen only */
+#waitingMsg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  display: none;
+}
+#waitingMsg .wm-headline {
+  color: rgba(255,255,255,0.9);
+  font: 600 28px -apple-system, system-ui, sans-serif;
+  letter-spacing: -0.3px;
+  margin-bottom: 10px;
+}
+#waitingMsg .wm-sub {
+  color: rgba(255,255,255,0.45);
+  font: 15px -apple-system, system-ui, sans-serif;
+}
+
 /* ---- Showtime screen (effects) ---- */
 #showtime {
   position: fixed;
@@ -81,6 +102,10 @@ body {
 
 <!-- Detection mode: full-screen blink panel -->
 <div id="blinkScreen">
+  <div id="waitingMsg">
+    <div class="wm-headline">Get ready</div>
+    <div class="wm-sub">Hold your phone up when the show begins</div>
+  </div>
   <div id="statusPill">connecting…</div>
 </div>
 
@@ -90,6 +115,6 @@ body {
   <canvas id="effectCanvas"></canvas>
 </div>
 
-<script src="/public/app.js?v=7b8df947c6bb4edea0aaa8fc450b4db2"></script>
+<script src="/public/app.js?v=f06e985c284840408e31a5721990b5ab"></script>
 </body>
 </html>

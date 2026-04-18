@@ -30,6 +30,7 @@ function encodeId(blinkId) {
 
 const blinkScreen = document.getElementById("blinkScreen");
 const statusPill  = document.getElementById("statusPill");
+const waitingMsg  = document.getElementById("waitingMsg");
 const showtime    = document.getElementById("showtime");
 const projCanvas  = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
@@ -314,6 +315,7 @@ function handleMessage(msg) {
     blinkStartMs = Date.now() - stagger;
     phoneState  = PS.BLINKING;
     missedStart = 0;
+    waitingMsg.style.display = "none";
     return;
   }
 
@@ -358,6 +360,7 @@ function handleMessage(msg) {
     phoneState    = PS.WAITING;
     currentEffect = null;
     calibrated    = false;
+    waitingMsg.style.display = "block";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
@@ -394,6 +397,7 @@ function updateBlink() {
 
     case PS.WAITING:
       blinkScreen.style.background = "#1a2a6e";
+      waitingMsg.style.display = "block";
       break;
 
     case PS.BLINKING: {
