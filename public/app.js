@@ -414,7 +414,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "flex";
-    waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID: ${myBlinkId}` : "Connecting…";
+    waitingId.textContent = myBlinkId !== null ? `You're connected — your ID is: ${myBlinkId}` : "Connecting…";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
     return;
@@ -452,7 +452,7 @@ function updateBlink() {
     case PS.WAITING:
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
-      waitingId.textContent = myBlinkId !== null ? `You're connected — we've given you ID: ${myBlinkId}` : "Connecting…";
+      waitingId.textContent = myBlinkId !== null ? `You're connected — your ID is: ${myBlinkId}` : "Connecting…";
       _requestWakeLock();
       break;
 
