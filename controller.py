@@ -798,7 +798,8 @@ def setup_ui(holder: dict):
                              color=(120, 120, 120))
                 dpg.add_checkbox(label="Auto Exposure", tag="chk_ae",
                                  callback=_toggle_ae)
-                dpg.add_slider_int(label="ISO Gain", tag="sld_iso",
+                dpg.add_text("ISO Gain", color=(180, 180, 180))
+                dpg.add_slider_int(label="##iso", tag="sld_iso",
                                    default_value=elgato._DEFAULT_GAIN,
                                    min_value=0, max_value=160,
                                    callback=_set_iso, width=-1)
