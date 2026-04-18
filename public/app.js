@@ -124,15 +124,34 @@ const _msgTemplates = [
   n => n === 1 ? `Hold tight. 1 other is doing the same`             : `Hold tight. ${n} others are doing the same`,
 ];
 
+const _soloTemplates = [
+  `You're the first one here`,
+  `Hold your phone up when the show begins`,
+  `Others will join soon`,
+  `Keep this screen open`,
+  `You're early — that's a good thing`,
+  `The room is filling up`,
+];
+let _soloIndex = 0;
+
 function _rotateCrowdMsg() {
-  if (_crowdCount < 1) { crowdMsg.textContent = ""; return; }
+  if (_crowdCount < 1) {
+    _soloIndex = (_soloIndex + 1) % _soloTemplates.length;
+    crowdMsg.textContent = _soloTemplates[_soloIndex];
+    return;
+  }
   _msgIndex = (_msgIndex + 1) % _msgTemplates.length;
   crowdMsg.textContent = _msgTemplates[_msgIndex](_crowdCount);
 }
 
 function _setCrowdCount(n) {
   _crowdCount = n;
-  crowdMsg.textContent = n > 0 ? _msgTemplates[_msgIndex](n) : "";
+  crowdMsg.textContent = n > 0 ? _msgTemplates[_msgIndex](n) : _soloTemplates[_soloIndex];
+  if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
+}
+
+function _startMsgTimer() {
+  crowdMsg.textContent = _soloTemplates[_soloIndex];
   if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
 const projCanvas  = document.getElementById("projectionCanvas");
@@ -513,6 +532,7 @@ function updateBlink() {
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
       waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId}` : "Connecting…";
+      _startMsgTimer();
       _requestWakeLock();
       break;
 
