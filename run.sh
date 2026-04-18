@@ -98,7 +98,7 @@ status_line() {
     echo ""
   fi
   echo "  ${DIM}local  → http://localhost:8000/internal/dashboard${RESET}"
-  echo "  ${DIM}public → https://local.pixelmesh.live${RESET}"
+  echo "  ${DIM}public → https://join.pixelmesh.live${RESET}"
   echo "  ${DIM}sim    → http://localhost:8000/internal/sim${RESET}"
   echo ""
 }
@@ -128,10 +128,10 @@ start_all() {
   python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
-  echo "${Y}→ Starting ngrok (eu → local.pixelmesh.live)...${RESET}"
+  echo "${Y}→ Starting ngrok (eu → join.pixelmesh.live)...${RESET}"
   ngrok http 8000 \
     --region eu \
-    --hostname local.pixelmesh.live \
+    --hostname join.pixelmesh.live \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
 
