@@ -1,3 +1,4 @@
+# (c) Adam Davis — adamdavis.co.uk
 import os
 import shutil
 import subprocess
