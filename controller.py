@@ -734,6 +734,16 @@ def on_key_press(key, holder):
 # UI setup
 # ------------------------------------------------------------------ #
 
+_CHK_INDENT = 292   # pushes checkbox to right edge of 320px sidebar
+
+def _chk(label: str, tag: str, callback):
+    """Checkbox row: label on left, checkbox on right."""
+    with dpg.group(horizontal=True):
+        dpg.add_text(label)
+        dpg.add_checkbox(label=f"##{tag}", tag=tag,
+                         callback=callback, indent=_CHK_INDENT)
+
+
 def setup_ui(holder: dict):
     effects.init(state, set_status)
     dpg.create_context()
@@ -773,16 +783,11 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_text("DETECTION", color=(160, 160, 160))
                 dpg.add_separator()
-                dpg.add_checkbox(label="Detection  [D]", tag="chk_detection",
-                                 callback=lambda: toggle_detection())
-                dpg.add_checkbox(label="Clock Sync", tag="chk_sync",
-                                 callback=lambda: toggle_sync())
-                dpg.add_checkbox(label="ID Overlays  [O]", tag="chk_overlays",
-                                 callback=lambda: toggle_device_overlay())
-                dpg.add_checkbox(label="Debug Capture  [G]", tag="chk_debug",
-                                 callback=lambda: toggle_debug())
-                dpg.add_checkbox(label="Record Video  [V]", tag="chk_recording",
-                                 callback=lambda: toggle_recording())
+                _chk("Detection  [D]", "chk_detection", lambda: toggle_detection())
+                _chk("Clock Sync",     "chk_sync",       lambda: toggle_sync())
+                _chk("ID Overlays  [O]","chk_overlays",  lambda: toggle_device_overlay())
+                _chk("Debug Capture  [G]","chk_debug",   lambda: toggle_debug())
+                _chk("Record Video  [V]","chk_recording",lambda: toggle_recording())
                 dpg.add_text("● RECORDING", tag="rec_status_text",
                              color=(220, 60, 60), show=False)
                 dpg.add_spacer(height=4)
@@ -817,8 +822,11 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
                 dpg.add_text("○ Not available", tag="elgato_status",
                              color=(120, 120, 120))
-                dpg.add_checkbox(label="Auto Exposure", tag="chk_ae",
-                                 callback=_toggle_ae, enabled=False)
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Auto Exposure")
+                    dpg.add_checkbox(label="##chk_ae", tag="chk_ae",
+                                     callback=_toggle_ae, indent=_CHK_INDENT,
+                                     enabled=False)
                 dpg.add_text("ISO Gain", color=(180, 180, 180))
                 dpg.add_slider_int(label="##iso", tag="sld_iso",
                                    default_value=elgato._DEFAULT_GAIN,
