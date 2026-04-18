@@ -760,6 +760,9 @@ def setup_ui(holder: dict):
                 dpg.add_text("PixelMesh V2", color=(255, 200, 50))
                 dpg.add_separator()
 
+                dpg.add_spacer(height=4)
+                dpg.add_text("STATUS", color=(160, 160, 160))
+                dpg.add_separator()
                 dpg.add_text("", tag="status_text")
                 dpg.add_text("", tag="clients_text")
                 dpg.add_text("", tag="detect_text")
