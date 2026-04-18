@@ -400,7 +400,7 @@ function handleMessage(msg) {
     phoneState    = PS.WAITING;
     currentEffect = null;
     calibrated    = false;
-    waitingMsg.style.display = "block";
+    waitingMsg.style.display = "flex";
     waitingId.textContent = myBlinkId !== null ? `Connected  ·  ID ${myBlinkId}` : "Connecting…";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
@@ -438,7 +438,7 @@ function updateBlink() {
 
     case PS.WAITING:
       blinkScreen.style.background = "#000";
-      waitingMsg.style.display = "block";
+      waitingMsg.style.display = "flex";
       waitingId.textContent = myBlinkId !== null ? `Connected  ·  ID ${myBlinkId}` : "Connecting…";
       break;
 
