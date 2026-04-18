@@ -26,7 +26,7 @@ class NoCacheStaticFiles(StaticFiles):
         response.headers["Pragma"]        = "no-cache"
         response.headers["Expires"]       = "0"
         return response
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 # Block patterns commonly probed by bots
@@ -422,6 +422,39 @@ _NO_CACHE = {
     "Pragma": "no-cache",
     "Expires": "0",
 }
+
+_STREAM_PATH     = "/tmp/pixelmesh_stream.jpg"
+_STREAM_INTERVAL = 1.0 / 30   # 30fps per connection
+
+async def _mjpeg_generator():
+    """Yield MJPEG frames from the shared JPEG file written by controller."""
+    last_sent = 0.0
+    while True:
+        now = time.time()
+        wait = _STREAM_INTERVAL - (now - last_sent)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        try:
+            with open(_STREAM_PATH, "rb") as f:
+                frame = f.read()
+        except FileNotFoundError:
+            await asyncio.sleep(0.5)
+            continue
+        last_sent = time.time()
+        yield (
+            b"--frame\r\n"
+            b"Content-Type: image/jpeg\r\n\r\n" +
+            frame +
+            b"\r\n"
+        )
+
+@app.get("/stream")
+async def stream():
+    return StreamingResponse(
+        _mjpeg_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
 
 @app.get("/")
 async def index():
