@@ -1,4 +1,4 @@
-# (c) Adam Davis — adamdavis.co.uk
+# (c) Adam Davis - adamdavis.co.uk
 #!/usr/bin/env python3
 """
 pixelmesh — controller
@@ -100,10 +100,8 @@ _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calib
 
 def _open_timing_log():
     global _timing_log_paths
-    header = (f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}
-"
-              f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}
-")
+    header = (f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+              f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
     paths = []
     # Always write to the master calibration_logs folder
     _os.makedirs(_CALIBRATION_LOG_DIR, exist_ok=True)
@@ -120,8 +118,7 @@ def _open_timing_log():
 def _log_timing(line: str):
     for p in _timing_log_paths:
         with open(p, "a") as f:
-            f.write(line + "
-")
+            f.write(line + "\n")
 
 
 vid_rec = VideoRecorder()

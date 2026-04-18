@@ -1,4 +1,4 @@
-# (c) Adam Davis — adamdavis.co.uk
+# (c) Adam Davis - adamdavis.co.uk
 """
 Microbenchmark for proposed detection-thread optimisations.
 Run with:  python bench_fps.py
@@ -53,8 +53,7 @@ grid_pts = [(px, py) for py in ys for px in xs][:N_POINTS]
 
 # ── 1. Heatmap ──────────────────────────────────────────────────────────────
 
-print("
-── 1. Heatmap (detection thread, ~50 fps) ──────────────────────────")
+print("\n── 1. Heatmap (detection thread, ~50 fps) ──────────────────────────")
 
 r_circle = max(1, 8 // 2 - 2)  # grid_step=8
 vs = np.clip(stds * 3.0, 0.0, 1.0) * 255
@@ -72,8 +71,7 @@ fmt("heatmap (zeros alloc + circle loop)", timeit(before_heatmap), timeit(after_
 
 # ── 2. History-recording loop ───────────────────────────────────────────────
 
-print("
-── 2. History-recording loop (detection thread, ~50 fps) ───────────")
+print("\n── 2. History-recording loop (detection thread, ~50 fps) ───────────")
 
 ts = time.time()
 hist_secs = 30.0
@@ -114,8 +112,7 @@ fmt("history recording loop", timeit(before_history), timeit(after_history))
 
 # ── 3. Gray pad allocation ──────────────────────────────────────────────────
 
-print("
-── 3. Gray pad buffer (detection thread, ~50 fps) ───────────────────")
+print("\n── 3. Gray pad buffer (detection thread, ~50 fps) ───────────────────")
 
 pad_h, pad_w = H + 2*R, W + 2*R
 _gray_pad_buf = np.empty((pad_h, pad_w), dtype=np.uint8)
@@ -136,8 +133,7 @@ fmt("gray pad (alloc+copy vs in-place fill)", timeit(before_pad), timeit(after_p
 
 # ── 4. Gamma + contrast when blacked out (display thread, ~60 fps) ──────────
 
-print("
-── 4. Gamma + contrast under blackout (display thread, ~60 fps) ─────")
+print("\n── 4. Gamma + contrast under blackout (display thread, ~60 fps) ─────")
 
 GAMMA_TABLE = np.array(
     [((i / 255.0) ** (1.0/1.1)) * 255 for i in range(256)], dtype="uint8"
