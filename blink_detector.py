@@ -146,6 +146,7 @@ class BlinkDetector:
         self._grid_shape   = (0, 0, 0, 0)
         self._last_log_ts  = 0.0
         self._noise_floor  = DEFAULTS["min_recent_std"]  # adaptive EMA estimate
+        self.signal_range: float = 1.0   # best observed range across active points (0–1)
         # Circular buffer for vectorised recent_std — shape (N_points, recent_n).
         # One np.std call on the full matrix is ~100× faster than N Python calls.
         self._std_buf:       np.ndarray | None = None
@@ -534,6 +535,7 @@ class BlinkDetector:
         if top.history and len(top.history) >= 2:
             raw_vals = [b for _, b in top.history]
             top_range = max(raw_vals) - min(raw_vals)
+            self.signal_range = top_range
             if top_range < 0.5 and n_above > 0:
                 log.info(f"[blink] WARNING: low signal range={top_range:.2f} — "
                          f"weak signal (low screen brightness, AE, or ambient dimming). "

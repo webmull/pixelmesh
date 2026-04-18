@@ -439,6 +439,10 @@ def draw_hud(canvas: np.ndarray, fps: float):
     cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
                 FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
+    # Weak signal indicator — amber dot just right of the fps pill
+    if detector.signal_range < 0.5:
+        cv2.circle(canvas, (bx1 + PAD + 5, mid_y), 4, (0, 165, 255), -1)
+
     # Bottom-right: show friendly debug run name when debug capture is active
     if dbg_cap.active and dbg_cap.run_dir:
         run_name = _os.path.basename(dbg_cap.run_dir)
