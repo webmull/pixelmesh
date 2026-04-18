@@ -91,11 +91,9 @@ Logs:
 |-----|--------|
 | `D` | Toggle detection on/off |
 | `S` | Toggle clock sync |
-| `K` | Switch camera |
 | `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, aurora) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
-| `B` | Blackout camera feed |
 | `G` | Start/stop debug capture (run saved as e.g. `debug/autumn-fox-42/`, last 15 kept) |
 | `V` | Start/stop video recording (saved to `debug/recordings/`) |
 | `O` | Toggle device ID overlays |

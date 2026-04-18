@@ -11,20 +11,29 @@ Dear PyGui controller with:
 
 Hotkeys:
   D       Toggle detection
-  K       Switch camera
-  1-5     Trigger effects
+  S       Toggle clock sync
+  1-7     Trigger effects
   R       Reset server
   Tab     Toggle sidebar
-  B       Blackout camera
+  G       Debug capture
+  V       Record video
+  O       ID overlays
   Q/Esc   Quit
 
 Dependencies:
   pip install dearpygui opencv-python numpy requests
 """
 
+import sys
+import os as _os
 import threading
 import time
 from queue import Queue, Full, Empty
+
+# Must be launched via run.sh
+if not _os.environ.get("PIXELMESH_LAUNCHED"):
+    print("pixelmesh controller must be started via run.sh", file=sys.stderr)
+    sys.exit(1)
 
 import cv2
 import dearpygui.dearpygui as dpg
@@ -85,8 +94,6 @@ _detection_start_time: float = 0.0
 _detected_ids: set = set()   # blink_ids seen this detection session
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
-
-import os as _os
 
 _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calibration_logs")
 
@@ -482,6 +489,7 @@ def update_ui_from_state():
     safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
     safe_set("effect_text",    f"Effect: {effect}")
     ui_queue.put(("_effect_show", bool(effect and effect != "None")))
+    ui_queue.put(("_active_effect", effect))
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
@@ -529,7 +537,19 @@ def _set_iso(sender, value):
 # Actions
 # ------------------------------------------------------------------ #
 
+def _no_camera() -> bool:
+    """Return True and set status if no camera is active."""
+    with state.lock:
+        active = state.camera_active
+    if not active:
+        set_status("No camera")
+        return True
+    return False
+
+
 def toggle_sync():
+    if _no_camera():
+        return
     with state.lock:
         state.syncing = not state.syncing
         val = state.syncing
@@ -539,6 +559,8 @@ def toggle_sync():
 
 def toggle_detection():
     if _ui_syncing:
+        return
+    if _no_camera():
         return
     with state.lock:
         state.detecting = not state.detecting
@@ -566,6 +588,8 @@ def toggle_debug():
     """Start or stop a debug capture run (hotkey G)."""
     if _ui_syncing:
         return
+    if _no_camera():
+        return
     if dbg_cap.active:
         dbg_cap.stop_run()
         set_status("Debug capture stopped")
@@ -580,10 +604,7 @@ def toggle_recording():
         path = vid_rec.stop()
         set_status(f"Recording saved: {_os.path.basename(path)}")
     else:
-        with state.lock:
-            cam_ok = state.camera_active
-        if not cam_ok:
-            set_status("No camera - cannot record")
+        if _no_camera():
             return
         path = vid_rec.start()
         set_status(f"Recording: {_os.path.basename(path)}")
@@ -596,59 +617,29 @@ def toggle_sidebar():
     dpg.configure_item("sidebar_panel", show=vis)
 
 
-def toggle_blackout():
-    with state.lock:
-        state.blackout_camera = not state.blackout_camera
-
-
 def toggle_device_overlay():
+    if _no_camera():
+        return
     with state.lock:
         state.show_device_overlay = not state.show_device_overlay
 
 
 def reset_server():
+    global _detected_ids, _detection_start_time
     post_json_async("/admin/reset", {})
     detector.reset()
+    _detected_ids = set()
+    _detection_start_time = 0.0
     with state.lock:
-        state.calibrated_positions.clear()
+        state.detecting = False
         state.syncing = False
-    set_status("Reset sent")
+        state.calibrated_positions.clear()
+        state.last_detections = []
+        state.last_detection_count = 0
+    set_status("Reset")
 
 
 trigger_effect = effects.trigger_effect
-
-
-
-# ------------------------------------------------------------------ #
-# Camera switching
-# ------------------------------------------------------------------ #
-
-def switch_camera_next(holder: dict):
-    with state.lock:
-        cams = state.cameras
-        idx  = state.selected_camera_idx
-
-    if not cams:
-        set_status("No cameras found")
-        return
-
-    idx = (idx + 1) % len(cams)
-    cap = open_camera(cams[idx])
-    if cap is None:
-        set_status(f"Could not open camera {cams[idx]}")
-        return
-
-    old = holder.get("cap")
-    if old:
-        old.release()
-
-    holder["cap"] = cap
-
-    with state.lock:
-        state.selected_camera_idx = idx
-        state.status_text = f"Camera {cams[idx]}"
-
-
 def camera_scan_worker(holder=None):
     names  = _avfoundation_device_names()
     cams   = find_cameras(8)
@@ -703,9 +694,6 @@ def on_key_press(key, holder):
 
     elif key == dpg.mvKey_Tab:
         toggle_sidebar()
-
-    elif key == dpg.mvKey_B:
-        toggle_blackout()
 
     elif key == dpg.mvKey_G:
         toggle_debug()
@@ -765,6 +753,13 @@ def _chk(label: str, tag: str, callback, enabled: bool = True):
 def setup_ui(holder: dict):
     effects.init(state, set_status)
     dpg.create_context()
+
+    # Theme for the currently active effect button
+    with dpg.theme(tag="fx_active_theme"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button,        (180, 120, 20, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (210, 150, 40, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (220, 160, 50, 255))
 
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
@@ -841,6 +836,7 @@ def setup_ui(holder: dict):
                     with dpg.group(horizontal=True, indent=_PAD):
                         dpg.add_button(
                             label=_elabel,
+                            tag=f"fx_btn_{_ename}",
                             callback=lambda s, a, u: effects.trigger_effect(u),
                             user_data=_ename,
                             width=262,
@@ -944,7 +940,23 @@ def main():
 
             cap = holder.get("cap")
             with state.lock:
+                was_active      = state.camera_active
                 state.camera_active = cap is not None
+                was_detecting   = state.detecting
+
+            # Camera just disappeared — stop detection cleanly
+            if was_active and cap is None and was_detecting:
+                global _detected_ids, _detection_start_time
+                _detected_ids = set()
+                _detection_start_time = 0.0
+                detector.reset()
+                with state.lock:
+                    state.detecting = False
+                    state.calibrated_positions.clear()
+                    state.last_detections = []
+                    state.last_detection_count = 0
+                post_json_async("/admin/detect", {"detecting": False})
+                set_status("Camera lost - detection stopped")
 
             if cap is None:
                 canvas = no_camera_canvas()
@@ -958,7 +970,6 @@ def main():
                     raw_copy = raw.copy()
                     with state.lock:
                         state.latest_frame = raw_copy
-                        blackout  = state.blackout_camera
                         detecting = state.detecting
                         show_ov   = state.show_device_overlay
 
@@ -970,16 +981,9 @@ def main():
                         except Full:
                             pass
 
-                    # TODO PERF: skip gamma + contrast when blackout is on — both ops
-                    #   run on the full 1080p raw frame before build_canvas zeros the
-                    #   result anyway.  Replace with np.zeros canvas directly.
-                    #   Measured saving: 2.24 ms/frame on display thread.  Risk: none.
                     frame  = apply_gamma(raw)
                     frame  = apply_contrast(frame)
                     canvas = build_canvas(frame)
-
-                    if blackout:
-                        canvas[:] = 0
 
                     with state.lock:
                         _scale  = state.last_render_scale
@@ -1074,6 +1078,15 @@ def main():
                     tag, value = ui_queue.get()
                     if tag == "_effect_show":
                         dpg.configure_item("effect_text", show=value)
+                        continue
+                    if tag == "_active_effect":
+                        for n in effects.EFFECT_LABELS:
+                            btn = f"fx_btn_{n}"
+                            if dpg.does_item_exist(btn):
+                                if n == value:
+                                    dpg.bind_item_theme(btn, "fx_active_theme")
+                                else:
+                                    dpg.bind_item_theme(btn, 0)
                         continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)

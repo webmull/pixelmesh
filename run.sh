@@ -141,7 +141,7 @@ start_all() {
   while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
     sleep 0.5; (( i++ ))
   done
-  python3 controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
+  PIXELMESH_LAUNCHED=1 python3 controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
 
   LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"
