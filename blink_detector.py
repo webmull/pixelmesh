@@ -274,16 +274,21 @@ class BlinkDetector:
         # inject the nearest grid point into _ever_active so history starts recording
         # immediately — without waiting for the variance gate to be crossed.
         # The existing decode pipeline handles decoding; this only improves discovery.
-        _DIFF_ACCUM_N  = 3     # frames to accumulate before processing (~0.2s @ 15fps)
+        _DIFF_ACCUM_N  = 5     # frames to accumulate before processing (~0.33s @ 15fps)
         _DIFF_THRESH   = 10    # minimum total pixel change across N frames (0–255×N)
         _DIFF_MAX_AREA = 1500  # ignore blobs larger than this px² (people, large motion)
 
-        if self._diff_prev_gray is not None and gray.shape == self._diff_prev_gray.shape:
-            frame_diff = cv2.absdiff(gray, self._diff_prev_gray)
-            if self._diff_accum is None:
-                self._diff_accum = frame_diff.astype(np.uint16)
-            else:
-                self._diff_accum += frame_diff
+        # Initialise or reinitialise persistent buffers when frame shape changes.
+        # Pre-allocation avoids a ~0.5 MB numpy allocation every frame.
+        if self._diff_prev_gray is None or self._diff_prev_gray.shape != gray.shape:
+            self._diff_prev_gray   = np.empty_like(gray)
+            self._diff_accum       = np.zeros(gray.shape, dtype=np.uint16)
+            self._diff_accum_count = 0
+            np.copyto(self._diff_prev_gray, gray)   # seed — skip diff this frame
+        else:
+            frame_diff = cv2.absdiff(gray, self._diff_prev_gray)  # uint8, fast C++
+            np.copyto(self._diff_prev_gray, gray)                  # update — no allocation
+            self._diff_accum += frame_diff                         # uint16 += uint8 (safe)
             self._diff_accum_count += 1
 
             if self._diff_accum_count >= _DIFF_ACCUM_N:
@@ -306,10 +311,8 @@ class BlinkDetector:
                         if idx < len(self._points) and idx not in self._ever_active:
                             self._ever_active.add(idx)
                             self._points[idx].last_active_ts = ts
-                self._diff_accum       = None
+                self._diff_accum.fill(0)     # reset in-place — no reallocation
                 self._diff_accum_count = 0
-
-        self._diff_prev_gray = gray.copy()
         # ---- end diff finder ----
 
         # Only maintain decode history for points at or near an active phone.
