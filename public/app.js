@@ -41,15 +41,15 @@ function _spawnFlyHearts() {
   const rect = heartBtn.getBoundingClientRect();
   const cx   = rect.left + rect.width / 2;
   const cy   = rect.top  + rect.height / 2;
-  const count = 4 + Math.floor(Math.random() * 3);
+  const count = 2 + Math.floor(Math.random() * 2);
   for (let i = 0; i < count; i++) {
     const el = document.createElement("span");
     el.className   = "fly-heart";
     el.textContent = "♥";
-    el.style.left  = (cx + (Math.random() - 0.5) * 80) + "px";
+    el.style.left  = (cx + (Math.random() - 0.5) * 60) + "px";
     el.style.top   = cy + "px";
-    el.style.setProperty("--dx", ((Math.random() - 0.5) * 400) + "px");
-    el.style.animationDelay = (Math.random() * 0.2) + "s";
+    el.style.setProperty("--dx", ((Math.random() - 0.5) * 600) + "px");
+    el.style.animationDelay = (Math.random() * 0.3) + "s";
     document.body.appendChild(el);
     el.addEventListener("animationend", () => el.remove());
   }
