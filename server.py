@@ -10,6 +10,7 @@ Differences from V1:
 - Adds /admin/detect     (controller signals detection on/off; server tells clients)
 """
 
+import bisect
 import os
 import time
 import hashlib
@@ -140,8 +141,9 @@ async def cleanup_device(device_id: str):
     last_seen.pop(device_id, None)
     bid = blink_assignments.pop(device_id, None)
     if bid is not None:
-        available_blinks.append(bid)
+        bisect.insort(available_blinks, bid)
     positions.pop(device_id, None)
+    sync_stats.pop(device_id, None)
     if ws:
         try:
             await ws.close()
@@ -472,6 +474,16 @@ async def stream():
 @app.get("/")
 async def index():
     return FileResponse("public/app.html", headers=_NO_CACHE)
+
+
+@app.get("/app")
+async def app_page():
+    return FileResponse("public/app.html", headers=_NO_CACHE)
+
+
+@app.get("/internal/dashboard")
+async def dashboard():
+    return FileResponse("dashboard.html", headers=_NO_CACHE)
 
 
 @app.get("/internal/sim")

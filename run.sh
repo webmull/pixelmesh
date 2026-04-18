@@ -97,7 +97,7 @@ status_line() {
     echo "  ${DIM}last started  $LAST_STARTED${RESET}"
     echo ""
   fi
-  echo "  ${DIM}local  → http://localhost:8000${RESET}"
+  echo "  ${DIM}local  → http://localhost:8000/internal/dashboard${RESET}"
   echo "  ${DIM}public → https://local.pixelmesh.live${RESET}"
   echo "  ${DIM}sim    → http://localhost:8000/internal/sim${RESET}"
   echo ""
