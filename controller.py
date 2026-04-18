@@ -734,12 +734,13 @@ def on_key_press(key, holder):
 # UI setup
 # ------------------------------------------------------------------ #
 
-_CHK_INDENT = 292   # pushes checkbox to right edge of 320px sidebar
+_PAD        = 8     # left/right padding for sidebar content
+_CHK_INDENT = 284   # checkbox x within padded content (284 + 8 indent ≈ right edge)
 
 def _chk(label: str, tag: str, callback):
     """Checkbox row: label on left, checkbox on right."""
     with dpg.group(horizontal=True):
-        dpg.add_text(label)
+        dpg.add_text(label, indent=_PAD)
         dpg.add_checkbox(label=f"##{tag}", tag=tag,
                          callback=callback, indent=_CHK_INDENT)
 
@@ -768,70 +769,72 @@ def setup_ui(holder: dict):
             with dpg.child_window(width=320, height=-1, border=True,
                                   tag="sidebar_panel"):
 
-                dpg.add_text("pixelmesh", color=(255, 200, 50))
+                dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
                 dpg.add_separator()
 
                 dpg.add_spacer(height=4)
-                dpg.add_text("STATUS", color=(160, 160, 160))
+                dpg.add_text("STATUS", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                dpg.add_text("", tag="status_text")
-                dpg.add_text("", tag="clients_text")
-                dpg.add_text("", tag="effect_text", show=False)
-                dpg.add_text("", tag="detect_text")
+                dpg.add_text("", tag="status_text",  indent=_PAD)
+                dpg.add_text("", tag="clients_text", indent=_PAD)
+                dpg.add_text("", tag="effect_text",  indent=_PAD, show=False)
+                dpg.add_text("", tag="detect_text",  indent=_PAD)
                 dpg.add_separator()
 
                 dpg.add_spacer(height=4)
-                dpg.add_text("DETECTION", color=(160, 160, 160))
+                dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                _chk("Detection  [D]", "chk_detection", lambda: toggle_detection())
-                _chk("Clock Sync",     "chk_sync",       lambda: toggle_sync())
-                _chk("ID Overlays  [O]","chk_overlays",  lambda: toggle_device_overlay())
-                _chk("Debug Capture  [G]","chk_debug",   lambda: toggle_debug())
-                _chk("Record Video  [V]","chk_recording",lambda: toggle_recording())
+                _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
+                _chk("Clock Sync",        "chk_sync",       lambda: toggle_sync())
+                _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
+                _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
+                _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
                 dpg.add_text("● RECORDING", tag="rec_status_text",
-                             color=(220, 60, 60), show=False)
+                             color=(220, 60, 60), show=False, indent=_PAD)
                 dpg.add_spacer(height=4)
                 dpg.add_button(label="Reset Server  [R]",
-                               callback=reset_server, width=-1)
+                               callback=reset_server,
+                               indent=_PAD, width=-(_PAD + 1))
                 dpg.add_button(label="Sync Stats Panel",
                                callback=lambda: dpg.configure_item(
                                    "sync_debug_window",
                                    show=not dpg.is_item_shown("sync_debug_window")
-                               ), width=-1)
+                               ), indent=_PAD, width=-(_PAD + 1))
 
                 dpg.add_spacer(height=4)
-                dpg.add_text("EFFECTS", color=(160, 160, 160))
+                dpg.add_text("EFFECTS", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
                 for _ename, _elabel in effects.EFFECT_LABELS.items():
-                    with dpg.group(horizontal=True):
+                    with dpg.group(horizontal=True, indent=_PAD):
                         dpg.add_button(
                             label=_elabel,
                             callback=lambda s, a, u: effects.trigger_effect(u),
                             user_data=_ename,
-                            width=270,
+                            width=262,
                         )
                         dpg.add_button(
                             label="...",
                             callback=lambda s, a, u: effects._open_modal(u),
                             user_data=_ename,
-                            width=34,
+                            width=30,
                         )
 
                 dpg.add_spacer(height=4)
-                dpg.add_text("CAMERA HUB", color=(160, 160, 160))
+                dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
                 dpg.add_text("○ Not available", tag="elgato_status",
-                             color=(120, 120, 120))
-                with dpg.group(horizontal=True):
+                             color=(120, 120, 120), indent=_PAD)
+                with dpg.group(horizontal=True, indent=_PAD):
                     dpg.add_text("Auto Exposure")
                     dpg.add_checkbox(label="##chk_ae", tag="chk_ae",
                                      callback=_toggle_ae, indent=_CHK_INDENT,
                                      enabled=False)
-                dpg.add_text("ISO Gain", color=(180, 180, 180))
+                dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
                 dpg.add_slider_int(label="##iso", tag="sld_iso",
                                    default_value=elgato._DEFAULT_GAIN,
                                    min_value=0, max_value=160,
-                                   callback=_set_iso, width=-1,
+                                   callback=_set_iso,
+                                   indent=_PAD, width=-(_PAD + 1),
                                    enabled=False)
 
 
