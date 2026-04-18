@@ -90,7 +90,7 @@ sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset
 
 available_blinks = list(range(512))           # pool of unassigned blink IDs
 
-HEARTBEAT_TIMEOUT = 30   # seconds
+HEARTBEAT_TIMEOUT = 90   # seconds
 
 
 # ------------------------------------------------------------------ #
