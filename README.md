@@ -80,7 +80,7 @@ Logs are written to:
 |-----|-------------|
 | `https://local.pixelmesh.live` | Client app — share this with audience |
 | `http://localhost:8000/internal/sim` | Simulator — fake clients for testing (local only) |
-| `http://localhost:8000` | Local access — includes live camera stream preview |
+| `http://localhost:8000/internal/dashboard` | Admin dashboard — camera stream preview, links to sim and client |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps, direct) |
 
 ---
@@ -151,7 +151,7 @@ Clicking an effect button fires it with the current settings for that effect. Ke
 
 ## Simulator
 
-`/sim` spawns N fake clients in the browser. Simulator cells only flash white/black during detection mode — they go black in showtime or when detection ends, so they don't interfere with effect testing.
+`/internal/sim` spawns N fake clients in the browser. Simulator cells only flash white/black during detection mode — they go black in showtime or when detection ends, so they don't interfere with effect testing.
 
 ---
 
