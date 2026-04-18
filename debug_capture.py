@@ -1,7 +1,9 @@
 """
 PixelMesh V2 — Debug Capture
 
-Each call to start_run() creates a new timestamped subfolder under debug/.
+Each call to start_run() creates a new friendly-named subfolder under debug/
+(e.g. "autumn-fox-42").  Only the 15 most recent runs are kept; older ones are
+deleted automatically when a new run starts.
 Per-frame JPEGs and JSONs go into a frames/ subfolder.
 The overlay video is written as overlay.mp4 (H.264) by piping raw frames to
 ffmpeg in real-time — no intermediate file, no codec dependency in OpenCV.
@@ -9,13 +11,28 @@ ffmpeg in real-time — no intermediate file, no codec dependency in OpenCV.
 
 import os
 import json
+import random
 import time
 import shutil
 import subprocess
 import cv2
 import numpy as np
-from datetime import datetime
 from log import log
+
+_ADJECTIVES = [
+    "autumn", "brave", "calm", "dapper", "eager", "fierce", "golden", "happy",
+    "indigo", "jolly", "keen", "lively", "misty", "noble", "ochre", "proud",
+    "quiet", "russet", "silver", "teal", "urban", "velvet", "wandering",
+    "xenial", "yellow", "zesty",
+]
+_NOUNS = [
+    "badger", "crow", "dune", "ember", "fox", "glacier", "hawk", "iris",
+    "jasper", "kite", "lynx", "mesa", "nova", "otter", "pine", "quartz",
+    "raven", "storm", "thorn", "umber", "viper", "wolf", "xenon", "yarrow",
+    "zenith",
+]
+
+_MAX_RUNS = 15
 
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
 
@@ -37,16 +54,42 @@ class DebugCapture:
 
     # ---------------------------------------------------------------- #
 
+    @staticmethod
+    def _friendly_name() -> str:
+        adj  = random.choice(_ADJECTIVES)
+        noun = random.choice(_NOUNS)
+        num  = random.randint(10, 99)
+        return f"{adj}-{noun}-{num}"
+
+    @staticmethod
+    def _prune_old_runs():
+        """Delete oldest debug run folders, keeping at most _MAX_RUNS."""
+        if not os.path.isdir(DEBUG_DIR):
+            return
+        runs = sorted(
+            [d for d in os.listdir(DEBUG_DIR)
+             if os.path.isdir(os.path.join(DEBUG_DIR, d))],
+            key=lambda d: os.path.getmtime(os.path.join(DEBUG_DIR, d)),
+        )
+        for old in runs[:max(0, len(runs) - _MAX_RUNS + 1)]:
+            path = os.path.join(DEBUG_DIR, old)
+            try:
+                shutil.rmtree(path)
+                log.info(f"[debug] pruned old run → {old}")
+            except Exception as e:
+                log.warning(f"[debug] could not prune {old}: {e}")
+
     def start_run(self) -> str:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.run_dir    = os.path.join(DEBUG_DIR, ts)
+        self._prune_old_runs()
+        name            = self._friendly_name()
+        self.run_dir    = os.path.join(DEBUG_DIR, name)
         self.frames_dir = os.path.join(self.run_dir, "frames")
         self.frame_idx  = 0
         self._manifest  = []
         self.active     = True
         self._ffmpeg_proc = None   # opened lazily on first record_frame
         os.makedirs(self.frames_dir, exist_ok=True)
-        log.info(f"[debug] run started → {self.run_dir}")
+        log.info(f"[debug] run started → {name}")
         return self.run_dir
 
     def stop_run(self):

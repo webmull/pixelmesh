@@ -30,8 +30,8 @@
 - [ ] Reintroduce `roi_top_frac` at a lower value (e.g. 0.05–0.10) once room layout is stable — prevents ceiling lights eating decode budget, but 0.20 was too aggressive and cut off the above-door phone at y≈44 (8% from top)
 
 ## Debug / Developer Experience
-- [ ] Give debug capture folders a friendly random name (e.g. `autumn-fox-42`) instead of a timestamp so runs can be referred to specifically in conversation
-- [ ] Keep only the last 15 debug run folders — auto-delete oldest on startup
+- [x] Give debug capture folders a friendly random name (e.g. `autumn-fox-42`) instead of a timestamp so runs can be referred to specifically in conversation
+- [x] Keep only the last 15 debug run folders — auto-delete oldest on startup
 
 ## Brighton Dome Deployment
 - [ ] Plan two-camera setup — one from stage (front half), one from FOH (back half)
