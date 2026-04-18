@@ -490,20 +490,24 @@ def update_ui_from_state():
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
 
-    safe_set("elgato_status", "● Connected" if elgato.connected else "○ Not available")
-    safe_set("chk_ae",  elgato.ae_on)
-    safe_set("sld_iso", elgato.iso_gain)
+    _push_elgato_state()
 
 
 # ------------------------------------------------------------------ #
 # Elgato callbacks
 # ------------------------------------------------------------------ #
 
+def _push_elgato_state():
+    connected = elgato.connected
+    safe_set("elgato_status", "● Connected" if connected else "○ Not available")
+    safe_set("chk_ae",  elgato.ae_on)
+    safe_set("sld_iso", elgato.iso_gain)
+    ui_queue.put(("_elgato_enabled", connected))
+
+
 def _elgato_state_changed():
     """Called by elgato watchdog (background thread) when state changes."""
-    safe_set("elgato_status", "● Connected" if elgato.connected else "○ Not available")
-    safe_set("chk_ae",        elgato.ae_on)
-    safe_set("sld_iso",       elgato.iso_gain)
+    _push_elgato_state()
 
 
 def _toggle_ae():
@@ -1032,6 +1036,10 @@ def main():
             try:
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
+                    if tag == "_elgato_enabled":
+                        dpg.configure_item("chk_ae",  enabled=value)
+                        dpg.configure_item("sld_iso", enabled=value)
+                        continue
                     if tag == "_sync_stats_rows":
                         rows = value
                         ts = time.strftime("%H:%M:%S")
