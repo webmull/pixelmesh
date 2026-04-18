@@ -160,6 +160,10 @@ class BlinkDetector:
         self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
         self._decoded_pts:   list = []                  # points with decoded_id != None (tiny list)
         self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
+        # Frame-diff state for diff-based phone finder
+        self._diff_prev_gray:   np.ndarray | None = None
+        self._diff_accum:       np.ndarray | None = None
+        self._diff_accum_count: int = 0
 
     # ---------------------------------------------------------------- #
 
@@ -187,6 +191,9 @@ class BlinkDetector:
         self._std_buf_pos = 0
         self._std_buf_count = 0
         self._ever_active.clear()  # indices are position-dependent; invalidate on grid change
+        self._diff_prev_gray   = None  # force diff reset on grid change
+        self._diff_accum       = None
+        self._diff_accum_count = 0
 
     # ---------------------------------------------------------------- #
 
@@ -258,6 +265,52 @@ class BlinkDetector:
                 pt.recent_std = float(s)
         else:
             computed_stds = None
+
+        # ---- Diff-based phone finder (inspired by Seb Lee-Delisle's PixelPhones) ----
+        # Frame-to-frame absDiff catches dim/distant phones whose per-point variance
+        # (recent_std) is stuck just below the adaptive gate.  A blink transition
+        # produces a clear instantaneous diff even when the 24-frame rolling std is low.
+        # We accumulate N consecutive frame diffs, find blinking pixel clusters, then
+        # inject the nearest grid point into _ever_active so history starts recording
+        # immediately — without waiting for the variance gate to be crossed.
+        # The existing decode pipeline handles decoding; this only improves discovery.
+        _DIFF_ACCUM_N  = 3     # frames to accumulate before processing (~0.2s @ 15fps)
+        _DIFF_THRESH   = 10    # minimum total pixel change across N frames (0–255×N)
+        _DIFF_MAX_AREA = 1500  # ignore blobs larger than this px² (people, large motion)
+
+        if self._diff_prev_gray is not None and gray.shape == self._diff_prev_gray.shape:
+            frame_diff = cv2.absdiff(gray, self._diff_prev_gray)
+            if self._diff_accum is None:
+                self._diff_accum = frame_diff.astype(np.uint16)
+            else:
+                self._diff_accum += frame_diff
+            self._diff_accum_count += 1
+
+            if self._diff_accum_count >= _DIFF_ACCUM_N:
+                blink_mask = (self._diff_accum >= _DIFF_THRESH).astype(np.uint8) * 255
+                n_lbl, _, stats, centroids = cv2.connectedComponentsWithStats(
+                    blink_mask, connectivity=8)
+                if n_lbl > 1 and self._grid_shape[3] > 0:
+                    roi_top, roi_left, n_ys, n_xs = self._grid_shape
+                    step = cfg["grid_step"]
+                    for lbl in range(1, n_lbl):
+                        if stats[lbl, cv2.CC_STAT_AREA] > _DIFF_MAX_AREA:
+                            continue
+                        cx_b = int(round(float(centroids[lbl, 0])))
+                        cy_b = int(round(float(centroids[lbl, 1])))
+                        ix = max(0, min(n_xs - 1,
+                                       round((cx_b - roi_left - step // 2) / step)))
+                        iy = max(0, min(n_ys - 1,
+                                       round((cy_b - roi_top  - step // 2) / step)))
+                        idx = iy * n_xs + ix
+                        if idx < len(self._points) and idx not in self._ever_active:
+                            self._ever_active.add(idx)
+                            self._points[idx].last_active_ts = ts
+                self._diff_accum       = None
+                self._diff_accum_count = 0
+
+        self._diff_prev_gray = gray.copy()
+        # ---- end diff finder ----
 
         # Only maintain decode history for points at or near an active phone.
         # Camera sensor noise typically produces std=0.003-0.009 across the whole frame,
@@ -606,4 +659,7 @@ class BlinkDetector:
         self._noise_floor = DEFAULTS["min_recent_std"]
         self.cfg["min_recent_std"] = DEFAULTS["min_recent_std"]
         self._ever_active.clear()
+        self._diff_prev_gray   = None
+        self._diff_accum       = None
+        self._diff_accum_count = 0
 
