@@ -46,11 +46,9 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-_PROTECTED_PREFIXES = ("/admin/", "/internal/")
-
 class AdminTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if _ADMIN_TOKEN and any(request.url.path.startswith(p) for p in _PROTECTED_PREFIXES):
+        if _ADMIN_TOKEN and request.url.path.startswith("/admin/"):
             if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
                 return Response(status_code=403)
         return await call_next(request)
