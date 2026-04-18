@@ -1,4 +1,4 @@
-# (c) Adam Davis — adamdavis.co.uk
+# (c) Adam Davis - adamdavis.co.uk
 """
 Tests for blink_encoder.py — encode/decode round-trips and structural invariants.
 
@@ -160,6 +160,4 @@ class TestRoundTrip:
             if result is None or result[0] != device_id:
                 got = result[0] if result else None
                 failures.append(f"ID {device_id} → decoded {got}")
-        assert not failures, f"{len(failures)} IDs failed:
-" + "
-".join(failures[:20])
+        assert not failures, f"{len(failures)} IDs failed:\n" + "\n".join(failures[:20])

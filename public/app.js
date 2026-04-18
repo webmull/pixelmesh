@@ -1,4 +1,4 @@
-// (c) Adam Davis — adamdavis.co.uk
+// (c) Adam Davis - adamdavis.co.uk
 // PixelMesh V2 — Client
 // Replaces AprilTag display with Manchester-encoded blink emission.
 

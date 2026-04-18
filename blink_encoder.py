@@ -1,4 +1,4 @@
-# (c) Adam Davis — adamdavis.co.uk
+# (c) Adam Davis - adamdavis.co.uk
 """
 PixelMesh V2 — Blink Encoding / Decoding
 Closely follows the PixelPhones approach (Seb Lee-Delisle).

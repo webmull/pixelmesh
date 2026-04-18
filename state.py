@@ -1,4 +1,4 @@
-# (c) Adam Davis — adamdavis.co.uk
+# (c) Adam Davis - adamdavis.co.uk
 from dataclasses import dataclass
 import threading
 import numpy as np
