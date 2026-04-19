@@ -487,7 +487,7 @@ def update_ui_from_state():
 
     safe_set("status_text",    status)
     safe_set("clients_text",   f"Clients: {clients}")
-    safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
+    safe_set("detect_text",    f"Clients detected: {len(_detected_ids)}")
     ui_queue.put(("_active_effect", effect))
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
