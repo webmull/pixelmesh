@@ -362,24 +362,11 @@ function handleMessage(msg) {
 
   if (msg.type === "server_hello") {
     const stored = localStorage.getItem("pm_build_id");
-    if (stored && stored !== msg.build_id) {
-      localStorage.setItem("pm_build_id", msg.build_id);
-      if (phoneState === PS.FOUND) {
-        setTimeout(() => location.reload(), 800);
-      } else {
-        const overlay = document.createElement("div");
-        overlay.style.cssText = "position:fixed;inset:0;z-index:9999;background:#00ff44";
-        document.body.appendChild(overlay);
-        let on = true;
-        const iv = setInterval(() => {
-          on = !on;
-          overlay.style.background = on ? "#00ff44" : "#000";
-        }, 300);
-        setTimeout(() => { clearInterval(iv); location.reload(); }, 5000);
-      }
+    localStorage.setItem("pm_build_id", msg.build_id);
+    if (stored !== null && stored !== msg.build_id) {
+      location.reload();
       return;
     }
-    localStorage.setItem("pm_build_id", msg.build_id);
     return;
   }
 
