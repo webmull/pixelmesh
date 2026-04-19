@@ -554,7 +554,6 @@ def toggle_sync():
         state.syncing = not state.syncing
         val = state.syncing
     post_json_async("/admin/sync", {"sync": val})
-    set_status(f"Clock sync {'ON' if val else 'OFF'}")
 
 
 def toggle_detection():
