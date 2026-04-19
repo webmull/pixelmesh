@@ -1101,7 +1101,7 @@ def main():
                                 if n == value:
                                     dpg.bind_item_theme(btn, "fx_active_theme")
                                 else:
-                                    dpg.bind_item_theme(btn, 0)
+                                    dpg.bind_item_theme(btn, None)
                         continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
@@ -1228,7 +1228,14 @@ def poll_clients():
         data = fetch_json("/admin/blink_map")
         if data is not None:
             bmap = data.get("map", {})
-            _valid_blink_ids = {int(bid) for bid in bmap}
+            new_ids = {int(bid) for bid in bmap}
+            if new_ids != _valid_blink_ids:
+                _valid_blink_ids = new_ids
+                # Prune positions for IDs that are no longer connected
+                with state.lock:
+                    stale = [bid for bid in state.calibrated_positions if bid not in new_ids]
+                    for bid in stale:
+                        del state.calibrated_positions[bid]
         time.sleep(CLIENT_FETCH_SECS)
 
 
