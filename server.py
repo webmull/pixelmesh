@@ -18,6 +18,7 @@ import hashlib
 import asyncio
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response as StarletteResponse
 
 _ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
@@ -26,9 +27,16 @@ _ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
 class NoCacheStaticFiles(StaticFiles):
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        response.headers["Pragma"]        = "no-cache"
-        response.headers["Expires"]       = "0"
+        # Versioned assets (app.js?v=hash) are immutable — cache for a year.
+        # Everything else (app.html) must never be cached so clients always get
+        # the latest build_id and auto-reload logic fires correctly.
+        qs = scope.get("query_string", b"").decode()
+        if qs.startswith("v="):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"]        = "no-cache"
+            response.headers["Expires"]       = "0"
         return response
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -55,6 +63,7 @@ class AdminTokenMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app = FastAPI()
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
@@ -86,8 +95,8 @@ BUILD_ID = _build_id()
 
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
-heart_count: int    = 0
-heart_enabled: bool = True
+like_count: int    = 0
+like_enabled: bool = True
 _heart_dirty: bool  = False   # pending broadcast from tap accumulation
 
 # Whether the controller has actively started detection (distinct from mode).
@@ -168,7 +177,7 @@ async def heart_broadcast_loop():
         await asyncio.sleep(0.3)
         if _heart_dirty:
             _heart_dirty = False
-            await broadcast({"type": "heart_count", "count": heart_count})
+            await broadcast({"type": "like_count", "count": like_count})
 
 
 async def reap_dead_clients():
@@ -198,7 +207,7 @@ async def shutdown_event():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global heart_count, _heart_dirty
+    global like_count, _heart_dirty
     await ws.accept()
     device_id = None
 
@@ -237,7 +246,7 @@ async def websocket_endpoint(ws: WebSocket):
                 })
 
                 await broadcast_count()
-                await ws.send_json({"type": "heart_count", "count": heart_count})
+                await ws.send_json({"type": "like_count", "count": like_count})
 
                 # Sync current mode / effect so reconnecting clients aren't lost
                 if mode == MODE_SHOWTIME and current_effect_state:
@@ -269,9 +278,9 @@ async def websocket_endpoint(ws: WebSocket):
                         "ts":        time.time(),
                     }
 
-            elif data.get("type") == "heart_tap":
-                if heart_enabled:
-                    heart_count += 1
+            elif data.get("type") == "like_tap":
+                if like_enabled:
+                    like_count += 1
                     _heart_dirty = True
 
             elif data.get("type") == "ping":
@@ -410,16 +419,16 @@ async def reset():
 
 @app.post("/admin/heart/reset")
 async def heart_reset():
-    global heart_count
-    heart_count = 0
-    await broadcast({"type": "heart_count", "count": 0})
+    global like_count
+    like_count = 0
+    await broadcast({"type": "like_count", "count": 0})
     return {"ok": True}
 
 @app.post("/admin/heart/toggle")
 async def heart_toggle():
-    global heart_enabled
-    heart_enabled = not heart_enabled
-    return {"ok": True, "enabled": heart_enabled}
+    global like_enabled
+    like_enabled = not like_enabled
+    return {"ok": True, "enabled": like_enabled}
 
 # ------------------------------------------------------------------ #
 # Effects                                                              #

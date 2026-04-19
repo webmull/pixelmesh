@@ -642,12 +642,12 @@ def reset_server():
 
 def heart_reset():
     post_json_async("/admin/heart/reset", {})
-    set_status("Hearts reset")
+    set_status("Likes reset")
 
 
 def heart_toggle():
     post_json_async("/admin/heart/toggle", {})
-    set_status("Hearts toggled")
+    set_status("Likes toggled")
 
 
 trigger_effect = effects.trigger_effect
@@ -820,10 +820,10 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                dpg.add_button(label="Reset Heart Counter",
+                dpg.add_button(label="Reset Like Counter",
                                callback=heart_reset,
                                indent=_PAD, width=-(_PAD + 1))
-                dpg.add_button(label="Enable / Disable Hearts",
+                dpg.add_button(label="Enable / Disable Likes",
                                callback=heart_toggle,
                                indent=_PAD, width=-(_PAD + 1))
                 dpg.add_button(label="Sync Stats Panel",

@@ -11,6 +11,7 @@
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>pixelmesh</title>
+<link rel="icon" href="data:,">
 
 <style>
 *, *::before, *::after { box-sizing: border-box; }
@@ -72,13 +73,16 @@ body {
   margin-top: 10px;
   color: rgba(255,255,255,0.35);
   font: 14px -apple-system, system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 #waitingMsg .wm-divider {
   width: 70%;
   max-width: 280px;
   height: 1px;
   background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 24px auto;
+  margin: 18px auto;
 }
 .wm-id {
   color: rgba(255,255,255,0.7);
@@ -112,47 +116,51 @@ body {
   max-width: 280px;
   height: 1px;
   background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 28px auto;
+  margin: 20px auto;
 }
 
-#heartBtn {
+#likeBtn {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 8px;
+  padding: 4px;
   -webkit-tap-highlight-color: transparent;
-  transition: transform 0.1s ease;
   pointer-events: auto;
   position: relative;
   z-index: 2;
 }
-#heartBtn:active { transform: scale(0.85); }
-#heartBtn svg { display: block; }
+#likeBtn:active { transform: scale(0.85); }
+#likeBtn svg { display: block; }
 
-@keyframes heart-pop {
+@keyframes like-pop {
   0%   { transform: scale(1); }
-  40%  { transform: scale(1.3); }
+  20%  { transform: scale(1.35); }
   100% { transform: scale(1); }
 }
-#heartBtn.popped { animation: heart-pop 0.25s ease; }
+@keyframes like-pulse {
+  0%, 100% { opacity: 0.7; transform: scale(1); }
+  50%       { opacity: 1;   transform: scale(1.08); }
+}
+#likeBtn { animation: like-pulse 2s ease-in-out infinite; }
+#likeBtn.popped { animation: like-pop 0.3s ease forwards; }
 
-#heartCount {
+#likeCount {
   margin-top: 10px;
   color: rgba(255,255,255,0.4);
   font: 13px -apple-system, system-ui, sans-serif;
   min-height: 18px;
 }
-#heartHint {
+#likeHint {
   margin-top: 6px;
   color: rgba(255,255,255,0.2);
   font: 12px -apple-system, system-ui, sans-serif;
 }
 
-.fly-heart {
+.fly-like {
   position: fixed;
   pointer-events: none;
-  font-size: 36px;
-  color: #ff2d6b;
+  width: 36px;
+  height: 36px;
   animation: fly-up 2.8s ease-out forwards;
   z-index: 1;
 }
@@ -186,19 +194,21 @@ body {
 <div id="blinkScreen">
   <div id="waitingMsg">
     <div class="wm-headline">Get ready</div>
-    <div class="wm-sub">Hold your phone up when the show begins · Don't close this screen · Turn brightness to full</div>
+    <div class="wm-sub">
+      <span>Hold your phone up when the show begins</span>
+      <span>Turn brightness to full · Turn off auto-lock</span>
+    </div>
     <div class="wm-divider"></div>
     <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
     <div id="crowdMsg"></div>
     <div class="wm-divider2"></div>
-    <button id="heartBtn" aria-label="Send love">
-      <svg width="96" height="88" viewBox="0 0 52 48" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M26 44S4 30 4 15.5A11.5 11.5 0 0 1 26 9.2 11.5 11.5 0 0 1 48 15.5C48 30 26 44 26 44Z"
-              fill="#ff2d6b" stroke="none"/>
+    <button id="likeBtn" aria-label="Send a like">
+      <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path fill="#ffffff" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
       </svg>
     </button>
-    <div id="heartCount"></div>
-    <div id="heartHint">tap to send love</div>
+    <div id="likeCount"></div>
+    <div id="likeHint">tap to like</div>
   </div>
   <div id="statusPill">connecting…</div>
 </div>

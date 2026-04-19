@@ -17,11 +17,11 @@
 - [ ] **Confetti** — random devices flash random colours; seeded by `blink_id + floor(serverNow/interval)` so deterministic and synced without per-device messages
 
 ## Web Camera Preview (MJPEG Stream)
-- [ ] Share latest processed canvas frame from controller (JPEG-encoded, shared variable)
-- [ ] Add `/stream` MJPEG endpoint to server.py (`multipart/x-mixed-replace`)
-- [ ] Solve cross-process frame sharing — options: tmpfs file, multiprocessing, or embed stream server directly in controller
-- [ ] Embed in admin/dashboard page via `<img src="/stream">`
-- [ ] Cap stream to 10–15fps server-side (skip frames if last send < 80ms ago) to prevent multiple browser tabs overwhelming the connection
+- [x] Share latest processed canvas frame from controller (JPEG-encoded, shared variable)
+- [x] Add `/stream` MJPEG endpoint to server.py (`multipart/x-mixed-replace`) — live at `/internal/feed/v1`
+- [x] Solve cross-process frame sharing — tmpfs JPEG file written by controller, polled by server
+- [x] Embed in admin/dashboard page via `<img src="/stream">`
+- [x] Cap stream to 10–15fps server-side (skip frames if last send < 80ms ago)
 
 ## Detection Tuning
 - [ ] Reintroduce `roi_top_frac` at a lower value (e.g. 0.05–0.10) once room layout is stable — prevents ceiling lights eating decode budget, but 0.20 was too aggressive and cut off the above-door phone at y≈44 (8% from top)
