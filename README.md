@@ -2,7 +2,7 @@
 
 Audience device coordination using screen-blink detection. Each connected device is assigned a unique ID and identified by the camera via a Manchester-encoded blinking pattern — no QR codes, no GPS, no app install required.
 
-Built for live events. Designed for Brighton Dome.
+Built for live events. Designed for Brighton Dome. Built and tested with the **Elgato Facecam 4K**.
 
 ---
 
@@ -28,7 +28,7 @@ The camera **must** be set to manual exposure before starting the controller.
 3. Set **ISO to 624**
 4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
 
-The controller also connects to Camera Hub automatically via its local API and monitors auto-exposure throughout the session. If Camera Hub re-enables AE (which it occasionally does), the controller forces it off within 5 seconds. The **Camera Hub** section in the sidebar shows connection status, current AE state, and an ISO slider for live adjustment without switching apps.
+The controller includes an **Elgato Camera Hub watchdog** (`elgato.py`) that connects to Camera Hub automatically via its local WebSocket API. It monitors auto-exposure throughout the session — Camera Hub occasionally re-enables AE on its own, and the watchdog forces it back off within 5 seconds. The **Camera Hub** section in the sidebar shows live connection status (`[ON]`/`[OFF]`), current AE state, and an ISO gain slider for live adjustment without switching apps.
 
 If signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s. The amber dot only appears when phones are actively blinking; it does not trigger on ambient camera noise.
 
