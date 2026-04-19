@@ -198,7 +198,7 @@ async def shutdown_event():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global heart_count
+    global heart_count, _heart_dirty
     await ws.accept()
     device_id = None
 
