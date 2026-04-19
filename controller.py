@@ -1017,7 +1017,6 @@ def main():
                                               crop_x=_crop_x, crop_y=_crop_y)
 
                         if dbg_cap.active:
-                            dbg_cap.record_frame(canvas)
                             _dbg_counter += 1
                             if _dbg_counter % DEBUG_SAVE_EVERY == 0:
                                 di = _last_dbg_imgs
@@ -1052,6 +1051,9 @@ def main():
 
                     if vid_rec.active:
                         vid_rec.record(canvas)
+
+                    if dbg_cap.active:
+                        dbg_cap.record_frame(canvas)
 
                     # MJPEG stream — write JPEG atomically so server.py
                     # never reads a partial file.  Capped at 12fps.
