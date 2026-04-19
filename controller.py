@@ -488,8 +488,6 @@ def update_ui_from_state():
     safe_set("status_text",    status)
     safe_set("clients_text",   f"Clients: {clients}")
     safe_set("detect_text",    f"Blobs decoded: {len(_detected_ids)}")
-    safe_set("effect_text",    f"Effect: {effect}")
-    ui_queue.put(("_effect_show", bool(effect and effect != "None")))
     ui_queue.put(("_active_effect", effect))
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
@@ -800,7 +798,6 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
                 dpg.add_text("", tag="status_text",  indent=_PAD)
                 dpg.add_text("", tag="clients_text", indent=_PAD)
-                dpg.add_text("", tag="effect_text",  indent=_PAD, show=False)
                 dpg.add_text("", tag="detect_text",  indent=_PAD)
                 dpg.add_separator()
 
@@ -1096,9 +1093,6 @@ def main():
             try:
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
-                    if tag == "_effect_show":
-                        dpg.configure_item("effect_text", show=value)
-                        continue
                     if tag == "_active_effect":
                         for n in effects.EFFECT_LABELS:
                             btn = f"fx_btn_{n}"
