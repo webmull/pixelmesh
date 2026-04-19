@@ -1061,7 +1061,7 @@ def main():
                     _now = time.time()
                     if _now - _last_stream_ts >= _STREAM_INTERVAL:
                         _last_stream_ts = _now
-                        _tmp = _STREAM_PATH + ".tmp"
+                        _tmp = _STREAM_PATH + ".new.jpg"
                         cv2.imwrite(_tmp, canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
                         _os.replace(_tmp, _STREAM_PATH)
 
