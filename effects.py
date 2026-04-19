@@ -150,7 +150,7 @@ def _build_modal(name: str):
     h = len(params) * 52 + 80
     with dpg.window(
         tag=modal_tag,
-        label=f"{EFFECT_LABELS[name]} — Settings",
+        label=f"{EFFECT_LABELS[name]} - Settings",
         show=False,
         no_collapse=True,
         no_resize=True,
