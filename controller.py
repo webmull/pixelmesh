@@ -508,7 +508,7 @@ def update_ui_from_state():
 
 def _push_elgato_state():
     connected = elgato.connected
-    safe_set("elgato_status", "[ON]" if connected else "[OFF]")
+    safe_set("elgato_status", "[ ON]" if connected else "[OFF]")
     ui_queue.put(("elgato_color", connected))
     safe_set("chk_ae",  elgato.ae_on)
     safe_set("sld_iso", elgato.iso_gain)
