@@ -33,55 +33,49 @@ const statusPill  = document.getElementById("statusPill");
 const waitingMsg  = document.getElementById("waitingMsg");
 const waitingId   = document.getElementById("waitingId");
 const crowdMsg    = document.getElementById("crowdMsg");
-const heartBtn    = document.getElementById("heartBtn");
-const heartCount  = document.getElementById("heartCount");
+const likeBtn     = document.getElementById("likeBtn");
+const likeCount   = document.getElementById("likeCount");
 const showtime    = document.getElementById("showtime");
 
-function _spawnFlyHearts() {
-  const rect = heartBtn.getBoundingClientRect();
-  const cx   = rect.left + rect.width / 2;
-  const cy   = rect.top  + rect.height / 2;
-  const count = 2 + Math.floor(Math.random() * 2);
+const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
+
+function _spawnFlyLikes() {
+  const rect  = likeBtn.getBoundingClientRect();
+  const cx    = rect.left + rect.width / 2;
+  const cy    = rect.top  + rect.height / 2;
+  const count = 1 + Math.floor(Math.random() * 2);
+  const NS    = "http://www.w3.org/2000/svg";
   for (let i = 0; i < count; i++) {
-    const el = document.createElement("span");
-    el.className   = "fly-heart";
-    el.textContent = "♥";
-    el.style.left  = (cx - 18) + "px";
-    el.style.top   = (cy - 18) + "px";
-    el.style.setProperty("--dx", ((Math.random() - 0.5) * window.innerWidth * 1.2) + "px");
-    el.style.animationDelay = (Math.random() * 0.3) + "s";
-    blinkScreen.appendChild(el);
-    el.addEventListener("animationend", () => el.remove());
+    const wrap = document.createElement("div");
+    wrap.className = "fly-like";
+    wrap.style.left = (cx - 18) + "px";
+    wrap.style.top  = (cy - 18) + "px";
+    wrap.style.setProperty("--dx", ((Math.random() - 0.5) * window.innerWidth * 1.2) + "px");
+    wrap.style.animationDelay = (Math.random() * 0.3) + "s";
+    const svg  = document.createElementNS(NS, "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("width",  "36");
+    svg.setAttribute("height", "36");
+    const path = document.createElementNS(NS, "path");
+    path.setAttribute("fill", "#ffffff");
+    path.setAttribute("d", _THUMBS_PATH);
+    svg.appendChild(path);
+    wrap.appendChild(svg);
+    blinkScreen.appendChild(wrap);
+    wrap.addEventListener("animationend", () => wrap.remove());
   }
 }
 
-heartBtn.addEventListener("click", () => {
+likeBtn.addEventListener("click", () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "heart_tap" }));
+    ws.send(JSON.stringify({ type: "like_tap" }));
   }
-  heartBtn.classList.remove("popped");
-  void heartBtn.offsetWidth;
-  heartBtn.classList.add("popped");
-  _spawnFlyHearts();
+  likeBtn.classList.remove("popped");
+  void likeBtn.offsetWidth;
+  likeBtn.classList.add("popped");
+  _spawnFlyLikes();
 });
 
-// ------------------------------------------------------------------ //
-// Wake lock — keep screen on
-// ------------------------------------------------------------------ //
-
-let _wakeLock = null;
-
-async function _requestWakeLock() {
-  if (!('wakeLock' in navigator)) return;
-  try {
-    _wakeLock = await navigator.wakeLock.request('screen');
-  } catch {}
-}
-
-// Re-acquire after the page becomes visible (lock is released on hide)
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') _requestWakeLock();
-});
 
 // ------------------------------------------------------------------ //
 // Crowd count + rotating messages
@@ -467,8 +461,8 @@ function handleMessage(msg) {
     return;
   }
 
-  if (msg.type === "heart_count") {
-    heartCount.textContent = msg.count === 1 ? "1 heart sent" : `${msg.count} hearts sent`;
+  if (msg.type === "like_count") {
+    likeCount.textContent = msg.count === 1 ? "1 like" : `${msg.count} likes`;
     return;
   }
 
@@ -522,7 +516,7 @@ function updateBlink() {
       waitingMsg.style.display = "flex";
       waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId}` : "Connecting…";
       _startMsgTimer();
-      _requestWakeLock();
+      requestWakeLock();
       break;
 
     case PS.BLINKING: {

@@ -114,7 +114,7 @@ Logs:
 | State | Screen | Trigger |
 |-------|--------|---------|
 | **App closed / disconnected** | Black | Server shut down or connection lost |
-| **Connected, waiting** | Black with text + heart | Connected but detection not yet started |
+| **Connected, waiting** | Black with text + like button | Connected but detection not yet started |
 | **Detection active** | White/black blink | Controller started detection |
 | **Located** | Solid orange | Controller detected this device |
 | **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
@@ -133,8 +133,8 @@ When connected and waiting for the show to begin, devices display:
 - **"Get ready"** headline with setup instructions
 - A pulsing dot + connected ID
 - Rotating crowd messages (solo messages when alone, crowd count messages once others join)
-- A heart button — tap to add to the global love counter; flying hearts animate across the screen
-- Heart taps are batched server-side (max ~3 broadcasts/second) so 300 people tapping simultaneously won't flood WebSocket connections
+- A like button (white thumbs-up, gently pulsing) — tap to add to the global like counter; flying thumbs-up SVGs animate across the screen
+- Like taps are batched server-side (max ~3 broadcasts/second) so 300 people tapping simultaneously won't flood WebSocket connections
 
 The screen requests a **Wake Lock** to prevent the phone sleeping. Brightness should be set to full.
 
@@ -183,17 +183,17 @@ The server hashes `app.js` at startup into a `BUILD_ID` and sends it to every cl
 
 ---
 
-## hearts
+## likes
 
-A global love counter is shown on the waiting screen. Tapping the heart:
-- Sends a `heart_tap` WebSocket message to the server
+A global like counter is shown on the waiting screen. Tapping the like button:
+- Sends a `like_tap` WebSocket message to the server
 - Increments a global counter
 - Broadcasts the new count to all connected clients (batched at ~3/s)
-- Triggers a local flying hearts animation
+- Triggers a local flying thumbs-up SVG animation
 
 Controller sidebar controls:
-- **Reset Heart Counter** — zeros the global count and broadcasts to all clients
-- **Enable/Disable Hearts** — gates whether taps are counted server-side
+- **Reset Like Counter** — zeros the global count and broadcasts to all clients
+- **Enable/Disable Likes** — gates whether taps are counted server-side
 
 ---
 
@@ -239,7 +239,7 @@ The display thread and detection thread run independently. Frames are passed via
 
 | File | Role |
 |------|------|
-| `server.py` | WebSocket server, device assignment, effect broadcast, heart counter |
+| `server.py` | WebSocket server, device assignment, effect broadcast, like counter |
 | `controller.py` | Camera loop, GUI, detection thread management, exposure monitor |
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
@@ -329,4 +329,4 @@ Key optimisations:
 - **Gated history recording**: `add_sample` only called for points with std ≥ 0.003
 - **Pre-allocated texture buffer**: persistent `(H, W, 4)` float32 buffer eliminates a 14MB/frame allocation
 - **Conditional heatmap**: variance heatmap only built when debug capture is active
-- **Batched heart broadcasts**: heart taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms
+- **Batched like broadcasts**: like taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms

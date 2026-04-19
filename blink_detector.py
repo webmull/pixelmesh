@@ -162,6 +162,7 @@ class BlinkDetector:
         self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
         self._decoded_pts:   list = []                  # points with decoded_id != None (tiny list)
         self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
+        self._locked_positions: dict[int, tuple[float, float]] = {}  # blink_id → (cx, cy) frozen at first decode
         # Frame-diff state for diff-based phone finder
         self._diff_prev_gray:   np.ndarray | None = None
         self._diff_accum:       np.ndarray | None = None
@@ -473,8 +474,12 @@ class BlinkDetector:
 
         id_map: dict[int, DetectedDevice] = {}
         for bid, pts in id_pts.items():
-            cx = sum(p.px for p in pts) / len(pts)
-            cy = sum(p.py for p in pts) / len(pts)
+            if bid not in self._locked_positions:
+                cx = sum(p.px for p in pts) / len(pts)
+                cy = sum(p.py for p in pts) / len(pts)
+                self._locked_positions[bid] = (cx, cy)
+            else:
+                cx, cy = self._locked_positions[bid]
             best_conf = max(p.confidence for p in pts)
             id_map[bid] = DetectedDevice(
                 blink_id=bid,
@@ -613,7 +618,14 @@ class BlinkDetector:
             if pt.decoded_id in drawn_ids:
                 continue
             drawn_ids.add(pt.decoded_id)
-            px, py = to_canvas(pt.px, pt.py)
+            # Use locked centroid (frozen at first decode) so the label doesn't
+            # jump when noise points later decode the same ID at different coords.
+            if pt.decoded_id in self._locked_positions:
+                raw_x = int(self._locked_positions[pt.decoded_id][0])
+                raw_y = int(self._locked_positions[pt.decoded_id][1])
+            else:
+                raw_x, raw_y = pt.px, pt.py
+            px, py = to_canvas(raw_x, raw_y)
             _draw_id_box(frame, px, py, str(pt.decoded_id), (0, 220, 80))
 
         # Actively blinking but not yet decoded — show a scrolling binary stream.
@@ -700,6 +712,7 @@ class BlinkDetector:
         self._noise_floor = DEFAULTS["min_recent_std"]
         self.cfg["min_recent_std"] = DEFAULTS["min_recent_std"]
         self._ever_active.clear()
+        self._locked_positions.clear()
         self._diff_prev_gray   = None
         self._diff_accum       = None
         self._diff_accum_count = 0
