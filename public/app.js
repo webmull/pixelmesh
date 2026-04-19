@@ -151,8 +151,9 @@ function _setCrowdCount(n) {
 }
 
 function _startMsgTimer() {
+  if (_msgTimer) return;
   crowdMsg.textContent = _soloTemplates[_soloIndex];
-  if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
+  _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
 const projCanvas  = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
