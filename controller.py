@@ -1202,6 +1202,10 @@ def _detection_worker():
                     # then so detections aren't silently dropped on startup.
                     if _valid_blink_ids and det.blink_id not in _valid_blink_ids:
                         continue
+                    # Freeze position at first detection — centroid drifts as
+                    # noise points accumulate the same decoded ID over time.
+                    if det.blink_id in _detected_ids:
+                        continue
                     u = det.cx_px / w_raw
                     v = det.cy_px / h_raw
                     positions[str(det.blink_id)] = {
@@ -1211,13 +1215,12 @@ def _detection_worker():
                     }
                     with state.lock:
                         state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
-                    if det.blink_id not in _detected_ids:
-                        _detected_ids.add(det.blink_id)
-                        elapsed = time.time() - _detection_start_time
-                        _log_timing(
-                            f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
-                            f"{det.confidence:>12.3f}"
-                        )
+                    _detected_ids.add(det.blink_id)
+                    elapsed = time.time() - _detection_start_time
+                    _log_timing(
+                        f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
+                        f"{det.confidence:>12.3f}"
+                    )
                 if positions:
                     post_json_async("/admin/positions", {"positions": positions})
         finally:
