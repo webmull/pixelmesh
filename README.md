@@ -28,9 +28,9 @@ The camera **must** be set to manual exposure before starting the controller.
 3. Set **ISO to 624**
 4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
 
-The controller also connects to Camera Hub automatically via its local API and monitors auto-exposure throughout the session. If Camera Hub re-enables AE (which it occasionally does), the controller forces it off within 5 seconds. The **Camera Hub** section in the sidebar shows connection status, the current AE state, and an ISO slider for live adjustment without switching apps.
+The controller also connects to Camera Hub automatically via its local API and monitors auto-exposure throughout the session. If Camera Hub re-enables AE (which it occasionally does), the controller forces it off within 5 seconds. The **Camera Hub** section in the sidebar shows connection status, current AE state, and an ISO slider for live adjustment without switching apps.
 
-If signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s.
+If signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s. The amber dot only appears when phones are actively blinking; it does not trigger on ambient camera noise.
 
 ---
 
@@ -38,7 +38,7 @@ If signal range drops below 0.5, an amber dot appears on the HUD next to the fps
 
 - Python 3.10+
 - [ngrok](https://ngrok.com) account with a reserved domain (`join.pixelmesh.live`)
-- A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality). The controller auto-selects an Elgato Facecam 4K if present; use `K` to cycle cameras manually.
+- A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality). The controller auto-selects an Elgato Facecam 4K if present.
 
 ```bash
 pip install -r requirements.txt
@@ -47,6 +47,8 @@ pip install -r requirements.txt
 ---
 
 ## running
+
+The controller **must** be started via `run.sh` — it will not launch directly.
 
 ```bash
 ./run.sh
@@ -60,6 +62,8 @@ Interactive menu:
 | `r` | Reload — kill everything and restart |
 | `d` | Die — kill everything |
 | `q` | Quit |
+
+On first launch, everything starts automatically. Server and ngrok start in parallel; the controller waits up to 10s for the server's `/health` endpoint before launching.
 
 Logs:
 
@@ -106,21 +110,35 @@ Logs:
 | State | Screen | Trigger |
 |-------|--------|---------|
 | **App closed / disconnected** | Black | Server shut down or connection lost |
-| **Connected, waiting** | Black with text | Connected but detection not yet started |
+| **Connected, waiting** | Black with text + heart | Connected but detection not yet started |
 | **Detection active** | White/black blink | Controller started detection |
 | **Located** | Solid orange | Controller detected this device |
 | **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
 | **Showtime — calibrated** | Effect (wave, pulse, etc.) | Effect broadcast from controller |
 | **Showtime — not calibrated** | Black | Effect fired but this device has never been located |
-| **Update pending** | Green flash × 5s → reload | New version of app.js deployed |
+| **Update** | Immediate reload | New version of app.js deployed |
 
-Orange and yellow clear when detection restarts or an effect fires. Not-found (red flash) transitions to black and stays until the next detection cycle. Green flash is skipped if the phone is currently orange — it reloads silently instead. Green flash only triggers when `app.js` has actually changed since the phone last loaded — a server restart with no code changes produces the same hash and no reload.
+Orange clears when detection restarts or an effect fires. Not-found (red flash) transitions to black and stays until the next detection cycle. When `app.js` changes, clients reload immediately on reconnect — a server restart with no code changes produces the same hash and no reload.
+
+---
+
+## waiting screen
+
+When connected and waiting for the show to begin, devices display:
+
+- **"Get ready"** headline with setup instructions
+- A pulsing dot + connected ID
+- Rotating crowd messages (solo messages when alone, crowd count messages once others join)
+- A heart button — tap to add to the global love counter; flying hearts animate across the screen
+- Heart taps are batched server-side (max ~3 broadcasts/second) so 300 people tapping simultaneously won't flood WebSocket connections
+
+The screen requests a **Wake Lock** to prevent the phone sleeping. Brightness should be set to full.
 
 ---
 
 ## effects
 
-Effects are launched from the controller sidebar (keys 1–7). Each effect stores its own parameters — the `…` button opens a settings dialog for that effect only. Changing a parameter immediately re-fires the effect with the new value.
+Effects are launched from the controller sidebar (keys 1–7). Each effect stores its own parameters — the `...` button opens a settings dialog for that effect only. Changing a parameter immediately re-fires the effect with the new value. Effects are blocked if no clients have been detected.
 
 | Key | Effect | Description |
 |-----|--------|-------------|
@@ -142,6 +160,8 @@ Effects are launched from the controller sidebar (keys 1–7). Each effect store
 | Colour Flood | Colour A, Colour B, Split, Speed, Direction |
 | Aurora | Speed |
 
+The active effect is highlighted in orange in the sidebar.
+
 ---
 
 ## simulator
@@ -152,11 +172,24 @@ Effects are launched from the controller sidebar (keys 1–7). Each effect store
 
 ## auto-reload
 
-The server hashes `app.js` at startup into a `BUILD_ID` and sends it to every client on connect. If the ID differs from what the phone loaded with, it flashes green for 5 seconds then reloads.
+The server hashes `app.js` at startup into a `BUILD_ID` and sends it to every client on connect. If the stored ID differs from the server's current one, the client reloads immediately.
 
-- If the phone is currently **orange** (detected), it reloads silently — no green flash
 - A server restart with no code changes produces the same hash — no reload triggered
 - `app.html` is excluded from the hash because `run.sh` modifies it with a cache-bust token on every start
+
+---
+
+## hearts
+
+A global love counter is shown on the waiting screen. Tapping the heart:
+- Sends a `heart_tap` WebSocket message to the server
+- Increments a global counter
+- Broadcasts the new count to all connected clients (batched at ~3/s)
+- Triggers a local flying hearts animation
+
+Controller sidebar controls:
+- **Reset Heart Counter** — zeros the global count and broadcasts to all clients
+- **Enable/Disable Hearts** — gates whether taps are counted server-side
 
 ---
 
@@ -202,7 +235,7 @@ The display thread and detection thread run independently. Frames are passed via
 
 | File | Role |
 |------|------|
-| `server.py` | WebSocket server, device assignment, effect broadcast |
+| `server.py` | WebSocket server, device assignment, effect broadcast, heart counter |
 | `controller.py` | Camera loop, GUI, detection thread management, exposure monitor |
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
@@ -214,7 +247,7 @@ The display thread and detection thread run independently. Frames are passed via
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
-| `public/app.js` | Client-side blink renderer + effect engine |
+| `public/app.js` | Client-side blink renderer + effect engine + waiting screen |
 | `public/sim.js` | Browser simulator (N fake clients) |
 
 ---
@@ -302,3 +335,4 @@ Key optimisations:
 - **Gated history recording**: `add_sample` only called for points with std ≥ 0.003
 - **Pre-allocated texture buffer**: persistent `(H, W, 4)` float32 buffer eliminates a 14MB/frame allocation
 - **Conditional heatmap**: variance heatmap only built when debug capture is active
+- **Batched heart broadcasts**: heart taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms
