@@ -424,6 +424,7 @@ function handleMessage(msg) {
     myV        = msg.v ?? myV;
     calibrated = true;
     phoneState = PS.FOUND;
+    waitingMsg.style.display = "none";
     setStatus(`ID ${myBlinkId} – located ✓`);
     return;
   }
@@ -545,6 +546,7 @@ function updateBlink() {
 
     case PS.FOUND:
       blinkScreen.style.background = "rgb(255, 100, 0)";
+      waitingMsg.style.display = "none";
       break;
 
     case PS.MISSED: {
