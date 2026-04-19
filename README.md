@@ -17,20 +17,24 @@ Built for live events. Designed for Brighton Dome. Built and tested with the **E
 
 ---
 
-## camera setup (Elgato Facecam 4K — do this before every run)
+## camera setup
 
-The camera **must** be set to manual exposure before starting the controller.
+The camera **must** be on manual exposure before starting the controller.
 
 **Why auto-exposure breaks detection:** The blink signal is a screen switching between full-white and full-black at 300ms per phase. Auto-exposure sees a bright frame, reduces gain; sees a dark frame, increases gain — it tracks and cancels the blink. The resulting signal has a brightness range of ~0.28 instead of ~0.99. The decoder sees a near-flat signal and produces `empty_win` failures on every decode attempt. Detection stops working entirely.
+
+The Elgato Facecam 4K ignores both `CAP_PROP_AUTO_EXPOSURE` via OpenCV and `AVCaptureExposureModeLocked` via AVFoundation — the firmware runs its own internal AE loop regardless. **The only reliable fix is the Elgato Camera Hub app:**
 
 1. Open **Elgato Camera Hub**
 2. Disable **Auto Exposure**
 3. Set **ISO to 624**
 4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
 
-The controller includes an **Elgato Camera Hub watchdog** (`elgato.py`) that connects to Camera Hub automatically via its local WebSocket API. It monitors auto-exposure throughout the session — Camera Hub occasionally re-enables AE on its own, and the watchdog forces it back off within 5 seconds. The **Camera Hub** section in the sidebar shows live connection status (`[ON]`/`[OFF]`), current AE state, and an ISO gain slider for live adjustment without switching apps.
+**Watchdog:** `elgato.py` connects to Camera Hub automatically via its local WebSocket API and monitors auto-exposure throughout the session. Camera Hub occasionally re-enables AE on its own; the watchdog forces it back off within 5 seconds. The **Camera Hub** section in the sidebar shows live connection status (`[ON]`/`[OFF]`), current AE state, and an ISO gain slider for live adjustment without switching apps.
 
-If signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s. The amber dot only appears when phones are actively blinking; it does not trigger on ambient camera noise.
+For other cameras that respect AVFoundation: `AVCaptureExposureModeLocked` is applied at startup and re-applied by a background monitor thread if fps drops below 8fps. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also issued as a fallback.
+
+**Signal quality indicator:** if signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s. The amber dot only appears when phones are actively blinking; it does not trigger on ambient camera noise.
 
 ---
 
@@ -78,7 +82,7 @@ Logs:
 
 ---
 
-## URLs
+## urls
 
 | URL | Description |
 |-----|-------------|
@@ -275,16 +279,6 @@ Detection uses actual frame timestamps + known `PHASE_MS` as ground truth — im
 **Adaptive normalisation**: `hi` used for brightness normalisation is taken from the most recent one-cycle window (13.2s) rather than the all-time max. This prevents phone screen auto-dimming (ambient light sensor can reduce brightness by 4–5×) from pushing bright phases below the detection threshold.
 
 **Burst frame guard**: cameras sometimes deliver several frames in rapid succession with nearly identical timestamps. The guard detection accepts a dark run if either its time span is sufficient OR its sample count meets `NUM_GUARD` — so burst deliveries are decoded correctly regardless of timestamp spread.
-
----
-
-## camera exposure
-
-The Elgato Facecam 4K ignores both `CAP_PROP_AUTO_EXPOSURE` via OpenCV and `AVCaptureExposureModeLocked` via AVFoundation — the firmware runs its own internal AE regardless. The code attempts both locks at startup but the Elgato reports `duration=0/0` meaning the lock is acknowledged but not applied.
-
-**The only reliable fix is the Elgato Camera Hub app** — see camera setup above.
-
-For other cameras that respect AVFoundation: `AVCaptureExposureModeLocked` is applied at startup and re-applied by a background monitor thread if fps drops below 8fps. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also issued as a fallback.
 
 ---
 
