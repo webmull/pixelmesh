@@ -121,7 +121,8 @@ def _discover_device(s: socket.socket) -> str | None:
     resp = _rpc(s, "getAvailableDevices")
     if not resp:
         return None
-    devices = (resp.get("result") or {}).get("devices") or []
+    result = resp.get("result") or {}
+    devices = (result.get("devices") if isinstance(result, dict) else result) or []
     if not devices:
         return None
     return devices[0].get("deviceID")
