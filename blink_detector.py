@@ -473,8 +473,10 @@ class BlinkDetector:
 
         id_map: dict[int, DetectedDevice] = {}
         for bid, pts in id_pts.items():
-            cx = sum(p.px for p in pts) / len(pts)
-            cy = sum(p.py for p in pts) / len(pts)
+            weights   = [max(p.recent_std, 1e-6) for p in pts]
+            total_w   = sum(weights)
+            cx = sum(p.px * w for p, w in zip(pts, weights)) / total_w
+            cy = sum(p.py * w for p, w in zip(pts, weights)) / total_w
             best_conf = max(p.confidence for p in pts)
             id_map[bid] = DetectedDevice(
                 blink_id=bid,
