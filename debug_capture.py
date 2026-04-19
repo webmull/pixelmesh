@@ -6,7 +6,7 @@ Each call to start_run() creates a new friendly-named subfolder under debug/
 (e.g. "autumn-fox-42").  Only the 15 most recent runs are kept; older ones are
 deleted automatically when a new run starts.
 Per-frame JPEGs and JSONs go into a frames/ subfolder.
-The overlay video is written as overlay.mp4 (H.264) by piping raw frames to
+The overlay video is written as run.mp4 (H.264) by piping raw frames to
 ffmpeg in real-time — no intermediate file, no codec dependency in OpenCV.
 """
 
@@ -101,7 +101,7 @@ class DebugCapture:
             try:
                 self._ffmpeg_proc.stdin.close()
                 self._ffmpeg_proc.wait(timeout=30)
-                log.info(f"[debug] video → {self.run_dir}/overlay.mp4")
+                log.info(f"[debug] video → {self.run_dir}/run.mp4")
             except Exception as e:
                 log.warning(f"[debug] ffmpeg close error: {e}")
                 self._ffmpeg_proc.kill()
@@ -118,14 +118,14 @@ class DebugCapture:
     # ---------------------------------------------------------------- #
 
     def record_frame(self, overlay: np.ndarray):
-        """Pipe one overlay frame to ffmpeg → overlay.mp4 (every frame, not throttled)."""
+        """Pipe one overlay frame to ffmpeg → run.mp4 (every frame, not throttled)."""
         if not self.active:
             return
         if self._ffmpeg_proc is None:
             if not os.path.isfile(_FFMPEG):
                 return
             h, w = overlay.shape[:2]
-            mp4_path = os.path.join(self.run_dir, "overlay.mp4")
+            mp4_path = os.path.join(self.run_dir, "run.mp4")
             self._ffmpeg_proc = subprocess.Popen(
                 [
                     _FFMPEG, "-y",

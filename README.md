@@ -199,7 +199,7 @@ Press **G** to start/stop a debug run. Each run creates a friendly-named folder 
 
 ```
 debug/autumn-fox-42/
-  overlay.mp4         ← full-speed H.264 video of the annotated camera view
+  run.mp4             ← full-speed H.264 video of the annotated camera view
   calibration.log     ← copy of the calibration log for this session (if detection ran)
   summary.json        ← per-frame detection summary
   frames/
