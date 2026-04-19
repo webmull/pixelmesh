@@ -533,14 +533,16 @@ class BlinkDetector:
         # or phone screen dimmed by ambient light sensor.
         # Expected range with manual exposure and full brightness: ~0.99.
         top = by_std[0]
-        if top.history and len(top.history) >= 2:
+        if n_above > 0 and top.history and len(top.history) >= 2:
             raw_vals = [b for _, b in top.history]
             top_range = max(raw_vals) - min(raw_vals)
             self.signal_range = top_range
-            if top_range < 0.5 and n_above > 0:
+            if top_range < 0.5:
                 log.info(f"[blink] WARNING: low signal range={top_range:.2f} — "
                          f"weak signal (low screen brightness, AE, or ambient dimming). "
                          f"Detection will be slower.")
+        elif n_above == 0:
+            self.signal_range = 1.0   # no active phones — don't show amber
 
         log.info(
             f"[blink] pts={len(active)} above_gate={n_above} "
