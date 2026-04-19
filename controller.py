@@ -508,7 +508,8 @@ def update_ui_from_state():
 
 def _push_elgato_state():
     connected = elgato.connected
-    safe_set("elgato_status", "[ ON]" if connected else "[OFF]")
+    safe_set("elgato_status", "[ON]" if connected else "[OFF]")
+    ui_queue.put(("elgato_indent", (_CHK_INDENT - 8) if connected else (_CHK_INDENT - 15)))
     ui_queue.put(("elgato_color", connected))
     safe_set("chk_ae",  elgato.ae_on)
     safe_set("sld_iso", elgato.iso_gain)
@@ -1108,6 +1109,9 @@ def main():
                     if tag == "elgato_color":
                         col = (80, 200, 80) if value else (120, 120, 120)
                         dpg.configure_item("elgato_status", color=col)
+                        continue
+                    if tag == "elgato_indent":
+                        dpg.configure_item("elgato_status", indent=value)
                         continue
                     if tag == "_elgato_enabled":
                         for item in ("chk_ae", "sld_iso"):
