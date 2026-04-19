@@ -405,13 +405,15 @@ def no_camera_canvas() -> np.ndarray:
 def draw_device_overlay(canvas: np.ndarray):
     with state.lock:
         positions = state.calibrated_positions.copy()
+        crop_x = state.last_crop_x
+        crop_y = getattr(state, "last_crop_y", 0)
 
     for blink_id, pos in positions.items():
         if _valid_blink_ids and blink_id not in _valid_blink_ids:
             continue
         u, v = pos["u"], pos["v"]
-        px = int(u * PREVIEW_WIDTH)
-        py = int(v * PREVIEW_HEIGHT)
+        px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
+        py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
         label = str(blink_id)
         (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
         pad = 5
