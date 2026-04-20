@@ -120,21 +120,41 @@ const _msgTemplates = [
 
 const _soloTemplates = [
   `You're the first one here`,
-  `Hold your phone up when the show begins`,
   `Others will join soon`,
   `Keep this screen open`,
   `You're early — that's a good thing`,
   `The room is filling up`,
+  `A group of flamingos is called a flamboyance`,
+  `Cleopatra lived closer in time to the Moon landing than to the pyramids being built`,
+  `Otters hold hands while sleeping so they don't drift apart`,
+  `A day on Venus is longer than a year on Venus`,
+  `Oxford University is older than the Aztec Empire`,
+  `Wombats produce cube-shaped poo`,
+  `The blob of toothpaste on your brush is called a nurdle`,
+  `Bananas are slightly radioactive`,
+  `A group of owls is called a parliament`,
+  `Honey never goes off — they found 3000-year-old honey in Egyptian tombs and it was fine`,
+  `Crows can recognise human faces and hold grudges`,
+  `There are more possible games of chess than atoms in the observable universe`,
+  `Penguins propose to their mates with a pebble`,
+  `The inventor of the Pringles can is buried in one`,
 ];
 let _soloIndex = 0;
 
+function _randOther(arr, current) {
+  if (arr.length <= 1) return 0;
+  let i;
+  do { i = Math.floor(Math.random() * arr.length); } while (i === current);
+  return i;
+}
+
 function _rotateCrowdMsg() {
   if (_crowdCount < 1) {
-    _soloIndex = (_soloIndex + 1) % _soloTemplates.length;
+    _soloIndex = _randOther(_soloTemplates, _soloIndex);
     crowdMsg.textContent = _soloTemplates[_soloIndex];
     return;
   }
-  _msgIndex = (_msgIndex + 1) % _msgTemplates.length;
+  _msgIndex = _randOther(_msgTemplates, _msgIndex);
   crowdMsg.textContent = _msgTemplates[_msgIndex](_crowdCount);
 }
 
@@ -146,6 +166,7 @@ function _setCrowdCount(n) {
 
 function _startMsgTimer() {
   if (_msgTimer) return;
+  _soloIndex = Math.floor(Math.random() * _soloTemplates.length);
   crowdMsg.textContent = _soloTemplates[_soloIndex];
   _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
