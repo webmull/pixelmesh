@@ -49,6 +49,7 @@ from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
 import effects
 import elgato
+import midi
 
 # ------------------------------------------------------------------ #
 # Config
@@ -559,9 +560,12 @@ def toggle_sync():
 
 
 def toggle_detection():
+    log.info(f"[toggle_detection] called  ui_syncing={_ui_syncing}")
     if _ui_syncing:
+        log.info("[toggle_detection] blocked by _ui_syncing")
         return
     if _no_camera():
+        log.info("[toggle_detection] blocked by _no_camera")
         return
     with state.lock:
         state.detecting = not state.detecting
@@ -571,15 +575,13 @@ def toggle_detection():
         global _detection_start_time, _detected_ids
         _detection_start_time = time.time()
         _detected_ids = set()
-        detector.reset()
-        with state.lock:
-            state.calibrated_positions.clear()
+        # Don't reset detector or clear positions — preserve already-found devices.
+        # Server will only ask unfound clients to blink.
         post_json_async("/admin/detect", {"detecting": True})
         _open_timing_log()
         set_status("Detection ON")
     else:
         with state.lock:
-            state.calibrated_positions.clear()
             state.show_device_overlay = False
         post_json_async("/admin/detect", {"detecting": False})
         set_status("Detection OFF")
@@ -945,6 +947,33 @@ def main():
     threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
     elgato.on_state_change = _elgato_state_changed
     elgato.start()
+    def _midi_set_recording(on: bool):
+        if on and not vid_rec.active:
+            if not _no_camera():
+                path = vid_rec.start()
+                set_status(f"Recording: {_os.path.basename(path)}")
+        elif not on and vid_rec.active:
+            path = vid_rec.stop()
+            set_status(f"Recording saved: {_os.path.basename(path)}")
+
+    def _midi_set_overlays(on: bool):
+        with state.lock:
+            state.show_device_overlay = on
+
+    def _midi_set_sync(on: bool):
+        with state.lock:
+            state.syncing = on
+        post_json_async("/admin/sync", {"sync": on})
+
+    midi.midi.start(
+        trigger_effect = None,                       # wired up later
+        toggle_detect  = toggle_detection,
+        set_iso        = lambda v: elgato.set_iso(v),
+        set_recording  = _midi_set_recording,
+        set_overlays   = _midi_set_overlays,
+        set_sync       = _midi_set_sync,
+        reset          = reset_server,
+    )
 
     texture_data = frame_to_texture(no_camera_canvas())
     _dbg_counter = 0   # local to main — throttles debug save_frame calls
@@ -1015,7 +1044,8 @@ def main():
                         # reference swaps are atomic under CPython's GIL so no
                         # explicit lock is needed — at worst we see one frame stale.
                         detector.draw_overlay(canvas, scale=_scale,
-                                              crop_x=_crop_x, crop_y=_crop_y)
+                                              crop_x=_crop_x, crop_y=_crop_y,
+                                              show_ids=show_ov)
 
                         if dbg_cap.active:
                             _dbg_counter += 1
@@ -1043,7 +1073,7 @@ def main():
                                         detections=results_snap,
                                     )
 
-                    if show_ov and not detecting:
+                    if show_ov:
                         draw_device_overlay(canvas)
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)

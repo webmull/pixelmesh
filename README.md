@@ -107,6 +107,22 @@ Logs:
 | `O` | Toggle device ID overlays |
 | `Q` / `Esc` | Quit |
 
+## MIDI (Akai LPD8 mk2)
+
+Connected automatically on startup if present.
+
+**Pad 8 (top-right)** — Toggle detection on/off
+
+**Knobs**
+
+| Knob | CC | Action |
+|------|----|--------|
+| K1 | 70 | ISO gain (0–160) |
+| K2 | 71 | Video recording — turn up to start, back to zero to stop |
+| K3 | 72 | Device ID overlays — turn up to show, back to zero to hide |
+| K4 | 73 | Clock sync — turn up to enable, back to zero to disable |
+| K8 | 77 | Server reset — any value above zero triggers reset |
+
 ---
 
 ## device states
