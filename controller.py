@@ -1229,6 +1229,7 @@ def _detection_worker():
                     # Dismiss decodes for IDs with no connected client.
                     # Block until _valid_blink_ids is populated (first poll ≤ 2s).
                     if det.blink_id not in _valid_blink_ids:
+                        log.warning(f"[detect] rejected blink_id={det.blink_id} conf={det.confidence:.2f} valid={sorted(_valid_blink_ids)}")
                         continue
                     # Freeze position at first detection — centroid drifts as
                     # noise points accumulate the same decoded ID over time.
@@ -1263,6 +1264,8 @@ def poll_clients():
         if data is not None:
             bmap = data.get("map", {})
             new_ids = {int(bid) for bid in bmap}
+            if 511 in new_ids:
+                log.warning(f"[poll] blink_id 511 is assigned to a connected client: {bmap}")
             if new_ids != _valid_blink_ids:
                 _valid_blink_ids = new_ids
                 # Prune positions for IDs that are no longer connected
