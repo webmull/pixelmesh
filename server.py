@@ -420,6 +420,7 @@ async def reset():
     detection_active = False
     sync_active = False
     sync_stats.clear()
+    positions.clear()
     await set_mode(MODE_WAITING)
     await broadcast({"type": "reset"})
     return {"ok": True}
