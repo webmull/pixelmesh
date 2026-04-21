@@ -1227,10 +1227,8 @@ def _detection_worker():
                 positions    = {}
                 for det in results:
                     # Dismiss decodes for IDs with no connected client.
-                    # _valid_blink_ids is empty until the first blink_map poll
-                    # (≤ CLIENT_FETCH_SECS after start) — skip the check until
-                    # then so detections aren't silently dropped on startup.
-                    if _valid_blink_ids and det.blink_id not in _valid_blink_ids:
+                    # Block until _valid_blink_ids is populated (first poll ≤ 2s).
+                    if det.blink_id not in _valid_blink_ids:
                         continue
                     # Freeze position at first detection — centroid drifts as
                     # noise points accumulate the same decoded ID over time.
