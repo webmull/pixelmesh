@@ -590,6 +590,7 @@ class BlinkDetector:
         scale: float = 1.0,
         crop_x: int = 0,
         crop_y: int = 0,
+        show_ids: bool = True,
     ) -> np.ndarray:
         font      = cv2.FONT_HERSHEY_SIMPLEX
         min_std   = self.cfg["min_recent_std"]
@@ -612,7 +613,7 @@ class BlinkDetector:
                         font, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
 
         drawn_ids: set[int] = set()
-        for pt in self._decoded_pts:
+        for pt in (self._decoded_pts if show_ids else []):
             if pt.decoded_id is None:   # may have been cleared since last frame
                 continue
             if pt.decoded_id in drawn_ids:

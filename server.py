@@ -253,7 +253,7 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json(current_effect_state)
                 elif mode == MODE_DETECTION:
                     await ws.send_json({"type": "mode", "mode": mode})
-                    if detection_active:
+                    if detection_active and device_id not in positions:
                         await ws.send_json({"type": "detection_started"})
                 # MODE_WAITING: no message needed — client stays on idle screen
 
@@ -303,8 +303,12 @@ async def get_client_count():
 
 @app.get("/admin/blink_map")
 async def blink_map():
-    """Return mapping blink_id → device_uuid (for controller reference)."""
-    return {"map": {str(bid): dev for dev, bid in blink_assignments.items()}}
+    """Return blink_id → device_uuid for currently connected clients only."""
+    return {"map": {
+        str(blink_assignments[dev]): dev
+        for dev in connections
+        if dev in blink_assignments
+    }}
 
 
 # ------------------------------------------------------------------ #
@@ -329,7 +333,15 @@ async def detect(payload: dict):
     detection_active = detecting
     if detecting:
         await set_mode(MODE_DETECTION)
-        await broadcast({"type": "detection_started"})
+        # Only tell clients who don't yet have a known position to blink.
+        # Already-found clients keep their current state undisturbed.
+        msg = {"type": "detection_started"}
+        for device_id, ws in list(connections.items()):
+            if device_id not in positions:
+                try:
+                    await ws.send_json(msg)
+                except Exception:
+                    pass
     else:
         await broadcast({"type": "detection_ended"})
     return {"ok": True}
