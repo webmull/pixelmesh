@@ -1271,6 +1271,10 @@ def _detection_worker():
                     with state.lock:
                         state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
                     _detected_ids.add(det.blink_id)
+                    # Auto-stop when every connected client has been found
+                    if _valid_blink_ids and _detected_ids >= _valid_blink_ids:
+                        log.info("[detect] all clients found — auto-stopping detection")
+                        toggle_detection()
                     elapsed = time.time() - _detection_start_time
                     _log_timing(
                         f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
