@@ -585,8 +585,7 @@ def toggle_detection():
         _detected_ids = set()
         _detection_order = {}
         with state.lock:
-            state.show_device_overlay = True
-            state.overlay_show_found  = False
+            state.overlay_show_found = False
         # Don't reset detector or clear positions — preserve already-found devices.
         # Server will only ask unfound clients to blink.
         post_json_async("/admin/detect", {"detecting": True})
