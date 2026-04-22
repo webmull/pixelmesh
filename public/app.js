@@ -628,6 +628,17 @@ function shade(u, v, t) {
     return [r, g, b];
   }
 
+  if (currentEffect === "ripple") {
+    // Origin sits on the edge of the u,v space at the given angle
+    const a = effectAngle * Math.PI / 180;
+    const ou = 0.5 + 0.5 * Math.cos(a);
+    const ov = 0.5 + 0.5 * Math.sin(a);
+    const dist = Math.sqrt((u - ou) ** 2 + (v - ov) ** 2);
+    const phase = 2 * Math.PI * (dist * effectSpatialFreq - t * effectSpeed);
+    const i = 0.5 + 0.5 * Math.sin(phase);
+    return [i * effectR, i * effectG, i * effectB];
+  }
+
   if (currentEffect === "aurora") {
     const sp = effectSpeed;
     // Horizontal curtain bands drifting across the room, rippled by v

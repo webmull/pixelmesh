@@ -14,7 +14,7 @@
 - [ ] Once detections start coming in, lock the values that worked
 
 ## Effects
-- [ ] **Ripple** — circular wave from a click point (origin_u, origin_v); controller clicks preview to place origin; each device phases on `dist = sqrt((u-ou)²+(v-ov)²)`
+- [x] **Ripple** — circular wave radiating from a point on the crowd edge, defined by angle parameter
 - [ ] **Sparkle/Twinkle** — each device twinkles independently at a frequency seeded by blink_id; no coordination needed, scales well to 512
 - [ ] **Color cycle (rainbow)** — HSV hue distributed across u-position, slowly rotating; striking with many devices spread across a room
 - [ ] **Strobe** — hard sync flash at exact BPM across all devices; clock sync makes this tight
