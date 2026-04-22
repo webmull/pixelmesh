@@ -65,6 +65,12 @@ EFFECT_PARAMS = {
     "aurora": [
         ("speed", "Speed", "slider_float", {"default_value": 0.4, "min_value": 0.05, "max_value": 4.0}),
     ],
+    "ripple": [
+        ("color",        "Colour",    "color",        {"default_value": (255, 255, 255, 255)}),
+        ("angle",        "Origin",    "slider_float", {"default_value": 0.0,  "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
+        ("speed",        "Speed",     "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
+        ("spatial_freq", "Frequency", "slider_float", {"default_value": 3.0,  "min_value": 0.5,  "max_value": 10.0}),
+    ],
 }
 
 EFFECT_LABELS = {
@@ -75,6 +81,7 @@ EFFECT_LABELS = {
     "rainbow":      "5  Rainbow",
     "colour_flood": "6  Colour Flood",
     "aurora":       "7  Aurora",
+    "ripple":       "8  Ripple",
 }
 
 
