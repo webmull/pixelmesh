@@ -756,6 +756,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_8:
         trigger_effect("ripple")
 
+    elif key == dpg.mvKey_9:
+        trigger_effect("snake")
+
 
 
 # ------------------------------------------------------------------ #
