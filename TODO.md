@@ -6,7 +6,8 @@
 - [ ] **Disconnect/reconnect stress** — rapid reconnect loop to test session handling and ID reassignment
 
 ## Controller UI
-- [ ] **Effect preview pane** — animated 180×90px thumbnail at the bottom of the sidebar showing the selected effect rendered on a fake 6×12 crowd grid; effect math ported from app.js to numpy, updates at ~10fps, switches automatically when effect or parameters change
+- [x] **Effect preview pane** — animated 180×90px thumbnail at the bottom of the sidebar showing the selected effect rendered on a fake 6×12 crowd grid; effect math ported from app.js to numpy, updates at ~10fps, switches automatically when effect or parameters change
+- [ ] **Status panel / log messages** — scrolling log in the sidebar showing recent events (detection started/stopped, phones found, effects fired, errors) so the operator can see what's happening without watching the terminal
 
 ## Adaptive Detection
 - [ ] If `above_gate > 0` but `decoded = 0` for more than 2 full cycles, auto-nudge `min_recent_std` down in steps
