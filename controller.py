@@ -592,8 +592,6 @@ def toggle_detection():
         _open_timing_log()
         set_status("Detection ON")
     else:
-        with state.lock:
-            state.show_device_overlay = False
         post_json_async("/admin/detect", {"detecting": False})
         set_status("Detection OFF")
 
