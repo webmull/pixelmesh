@@ -411,7 +411,8 @@ def draw_device_overlay(canvas: np.ndarray):
         crop_y       = getattr(state, "last_crop_y", 0)
         show_found   = state.overlay_show_found
 
-    for blink_id, pos in positions.items():
+    for blink_id_str, pos in positions.items():
+        blink_id = int(blink_id_str)
         if _valid_blink_ids and blink_id not in _valid_blink_ids:
             continue
         u, v = pos["u"], pos["v"]
