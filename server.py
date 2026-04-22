@@ -543,10 +543,12 @@ async def health():
     return {"ok": True}
 
 
+_APP_HTML_VERSION_RE = __import__("re").compile(r'(?:__CACHE_BUST__|[a-f0-9]{32})')
+
 def _serve_app_html():
     with open("public/app.html", "r") as f:
         html = f.read()
-    html = html.replace("__CACHE_BUST__", BUILD_ID)
+    html = _APP_HTML_VERSION_RE.sub(BUILD_ID, html)
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html, headers=_NO_CACHE)
 
