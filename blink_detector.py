@@ -591,6 +591,7 @@ class BlinkDetector:
         crop_x: int = 0,
         crop_y: int = 0,
         show_ids: bool = True,
+        valid_ids: set | None = None,
     ) -> np.ndarray:
         font      = cv2.FONT_HERSHEY_SIMPLEX
         min_std   = self.cfg["min_recent_std"]
@@ -614,6 +615,8 @@ class BlinkDetector:
 
         drawn_ids: set[int] = set()
         for pt in (self._decoded_pts if show_ids else []):
+            if valid_ids is not None and pt.decoded_id not in valid_ids:
+                continue
             if pt.decoded_id is None:   # may have been cleared since last frame
                 continue
             if pt.decoded_id in drawn_ids:
@@ -692,6 +695,16 @@ class BlinkDetector:
 
     def get_blobs(self):
         return self._points
+
+    def clear_id(self, blink_id: int):
+        """Clear a decoded ID from all grid points — called when a decode is rejected
+        as not matching any connected client, so the point can re-attempt decode."""
+        self._locked_positions.pop(blink_id, None)
+        for pt in self._points:
+            if pt.decoded_id == blink_id:
+                pt.decoded_id = None
+                pt.confidence = 0.0
+                pt.decode_failures = 0
 
     def reset(self):
         for pt in self._points:

@@ -1045,7 +1045,8 @@ def main():
                         # explicit lock is needed — at worst we see one frame stale.
                         detector.draw_overlay(canvas, scale=_scale,
                                               crop_x=_crop_x, crop_y=_crop_y,
-                                              show_ids=show_ov)
+                                              show_ids=show_ov,
+                                              valid_ids=_valid_blink_ids or None)
 
                         if dbg_cap.active:
                             _dbg_counter += 1
@@ -1230,6 +1231,7 @@ def _detection_worker():
                     # Block until _valid_blink_ids is populated (first poll ≤ 2s).
                     if det.blink_id not in _valid_blink_ids:
                         log.warning(f"[detect] rejected blink_id={det.blink_id} conf={det.confidence:.2f} valid={sorted(_valid_blink_ids)}")
+                        detector.clear_id(det.blink_id)
                         continue
                     # Freeze position at first detection — centroid drifts as
                     # noise points accumulate the same decoded ID over time.
