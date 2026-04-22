@@ -346,3 +346,9 @@ Key optimisations:
 - **Pre-allocated texture buffer**: persistent `(H, W, 4)` float32 buffer eliminates a 14MB/frame allocation
 - **Conditional heatmap**: variance heatmap only built when debug capture is active
 - **Batched like broadcasts**: like taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms
+
+---
+
+## todo
+
+- **Blackout command** — instant all-phones-off for dramatic moments; pad or hotkey to send a blackout effect that overrides whatever is playing
