@@ -1,5 +1,8 @@
 # PixelMesh TODO
 
+## Controller UI
+- [ ] **Effect preview pane** — animated 180×90px thumbnail at the bottom of the sidebar showing the selected effect rendered on a fake 6×12 crowd grid; effect math ported from app.js to numpy, updates at ~10fps, switches automatically when effect or parameters change
+
 ## Adaptive Detection
 - [ ] If `above_gate > 0` but `decoded = 0` for more than 2 full cycles, auto-nudge `min_recent_std` down in steps
 - [ ] If still nothing, lower the `0.08` range floor in `decode_phases`
