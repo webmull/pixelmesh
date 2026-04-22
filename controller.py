@@ -415,7 +415,7 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-        label = str(blink_id)
+        label = str(blink_id + 1)
         (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
         pad = 5
         x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
