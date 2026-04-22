@@ -126,6 +126,17 @@ Connected automatically on startup if present.
 
 ---
 
+## detection behaviour
+
+Detection is started and stopped manually with `D` (or MIDI pad 8). The following rules apply:
+
+- **Blocked if no clients are connected** — pressing `D` with nobody connected shows "No clients connected" and does nothing
+- **Partial re-detection** — phones already located keep their positions; only phones not yet found are asked to blink again. This means running detection a second time after a new device joins is safe — found phones are unaffected
+- **Auto-stops when all clients are found** — as soon as the last connected phone is detected, detection stops automatically. There is no need to stop it manually
+- **Positions persist across detection runs** — `calibrated_positions` is only cleared by an explicit **Reset** (`R` / K8), not by stopping and re-starting detection
+
+---
+
 ## device states
 
 | State | Screen | Trigger |
@@ -197,10 +208,10 @@ The active effect is highlighted in orange in the sidebar.
 
 ## auto-reload
 
-The server hashes `app.js` at startup into a `BUILD_ID` and sends it to every client on connect. If the stored ID differs from the server's current one, the client reloads immediately.
+The server hashes `app.js` at startup into a `BUILD_ID`. On every request for the client page, the server injects this hash into the `<script>` tag so the browser always fetches the correct version. On connect, `BUILD_ID` is sent to the client via `server_hello`. If the stored ID differs, the client flashes white and reloads immediately.
 
 - A server restart with no code changes produces the same hash — no reload triggered
-- `app.html` is excluded from the hash because `run.sh` modifies it with a cache-bust token on every start
+- Deploying new `app.js` and restarting the server produces a new hash — all connected clients reload automatically within seconds
 
 ---
 
@@ -331,7 +342,7 @@ Key parameters in `blink_detector.py`:
 
 ## performance
 
-The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both: `45 fps  det 48 fps  DET`.
+The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both when detection is active: `45 fps  det 48`. A green dot indicates detection is running; grey means idle.
 
 **Tested hardware: Apple M1 Pro, 16GB RAM**
 
