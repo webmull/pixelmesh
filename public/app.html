@@ -159,16 +159,15 @@ body {
 .fly-like {
   position: fixed;
   pointer-events: none;
-  width: 36px;
-  height: 36px;
-  animation: fly-up 2.8s ease-out forwards;
-  z-index: 1;
+  width: 20px;
+  height: 20px;
+  animation: fly-up 1.8s ease-out forwards;
+  z-index: 9999;
 }
 
 @keyframes fly-up {
-  0%   { opacity: 1; transform: translateY(0)      translateX(0)        scale(1); }
-  70%  { opacity: 0.7; }
-  100% { opacity: 0; transform: translateY(-380px) translateX(var(--dx)) scale(0.4); }
+  0%   { opacity: 0.9; transform: translateY(0)      translateX(0)        scale(1); }
+  100% { opacity: 0;   transform: translateY(-120px) translateX(var(--dx)) scale(0.5); }
 }
 
 /* ---- Showtime screen (effects) ---- */
