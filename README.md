@@ -105,7 +105,7 @@ Logs:
 | `G` | Start/stop debug capture (run saved as e.g. `debug/autumn-fox-42/`, last 15 kept) |
 | `V` | Start/stop video recording (saved to `debug/recordings/`) |
 | `O` | Toggle device ID overlays |
-| `P` | Toggle overlay mode — IDs or u,v positions |
+| `P` | Toggle overlay mode — blink IDs or found order (1st, 2nd detected...) |
 | `Q` / `Esc` | Quit |
 
 ## MIDI (Akai LPD8 mk2)
