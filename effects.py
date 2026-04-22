@@ -71,6 +71,11 @@ EFFECT_PARAMS = {
         ("speed",        "Speed",     "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
         ("spatial_freq", "Frequency", "slider_float", {"default_value": 3.0,  "min_value": 0.5,  "max_value": 10.0}),
     ],
+    "snake": [
+        ("color",       "Colour",      "color",        {"default_value": (0, 255, 80, 255)}),
+        ("speed",       "Speed",       "slider_float", {"default_value": 1.0,  "min_value": 0.1, "max_value": 8.0}),
+        ("spatial_freq","Tail Length", "slider_float", {"default_value": 4.0,  "min_value": 1.0, "max_value": 20.0, "format": "%.0f"}),
+    ],
 }
 
 EFFECT_LABELS = {
@@ -82,6 +87,7 @@ EFFECT_LABELS = {
     "colour_flood": "6  Colour Flood",
     "aurora":       "7  Aurora",
     "ripple":       "8  Ripple",
+    "snake":        "9  Snake",
 }
 
 
@@ -105,9 +111,29 @@ def _get(effect: str, param: str, default):
 # Trigger                                                              #
 # ------------------------------------------------------------------ #
 
+def _nearest_neighbour_path(positions: dict) -> list[int]:
+    """Compute a nearest-neighbour traversal path through detected phones.
+    positions: {blink_id: {"u": float, "v": float}}
+    Returns ordered list of blink_ids starting from top-left phone."""
+    if not positions:
+        return []
+    pts = {bid: (pos["u"], pos["v"]) for bid, pos in positions.items()}
+    # Start from the phone closest to the top-left corner
+    start = min(pts, key=lambda b: pts[b][0] ** 2 + pts[b][1] ** 2)
+    path = [start]
+    remaining = set(pts) - {start}
+    while remaining:
+        lu, lv = pts[path[-1]]
+        nearest = min(remaining, key=lambda b: (pts[b][0] - lu) ** 2 + (pts[b][1] - lv) ** 2)
+        path.append(nearest)
+        remaining.remove(nearest)
+    return path
+
+
 def trigger_effect(name: str):
     with _state.lock:
-        detected = _state.last_detection_count
+        detected   = _state.last_detection_count
+        positions  = _state.calibrated_positions.copy()
     if detected == 0:
         _set_status("No devices detected - effect blocked")
         return
@@ -127,6 +153,8 @@ def trigger_effect(name: str):
         "color2_b":     int(color2[2]),
         "split":        _get(name, "split", 0.5),
     }
+    if name == "snake":
+        payload["path"] = _nearest_neighbour_path(positions)
     log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
     with _state.lock:

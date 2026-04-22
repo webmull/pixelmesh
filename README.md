@@ -171,6 +171,7 @@ Effects are launched from the controller sidebar (keys 1–7). Each effect store
 | `6` | Colour Flood | Two colours flooding in from opposite sides |
 | `7` | Aurora | Teal-purple curtain bands drifting across the room |
 | `8` | Ripple | Concentric rings radiating outward from a point on the crowd edge |
+| `9` | Snake | Glowing head travels through phones via nearest-neighbour spatial path |
 
 | Effect | Parameters |
 |--------|-----------|
@@ -182,6 +183,7 @@ Effects are launched from the controller sidebar (keys 1–7). Each effect store
 | Colour Flood | Colour A, Colour B, Split, Speed, Direction |
 | Aurora | Speed |
 | Ripple | Colour, Origin angle, Speed, Frequency |
+| Snake | Colour, Speed, Tail length |
 
 The active effect is highlighted in orange in the sidebar.
 
