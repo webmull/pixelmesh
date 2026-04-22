@@ -22,17 +22,10 @@ html, body {
   background: #000;
   width: 100%;
   height: 100%;
+  overflow: hidden;
   touch-action: manipulation;
   overscroll-behavior: none;
   user-select: none;
-}
-
-body {
-  padding:
-    env(safe-area-inset-top)
-    env(safe-area-inset-right)
-    env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
 }
 
 /* ---- Blink screen (detection mode) ---- */
@@ -55,14 +48,17 @@ body {
 #waitingMsg {
   position: absolute;
   inset: 0;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   display: none;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 32px 32px;
+  padding: 24px 32px;
   pointer-events: none;
   gap: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 #waitingMsg .wm-headline {
   color: rgba(255,255,255,0.92);
@@ -81,8 +77,9 @@ body {
   width: 70%;
   max-width: 280px;
   height: 1px;
+  flex-shrink: 0;
   background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 18px auto;
+  margin: 14px auto;
 }
 .wm-id {
   color: rgba(255,255,255,0.7);
@@ -115,8 +112,9 @@ body {
   width: 70%;
   max-width: 280px;
   height: 1px;
+  flex-shrink: 0;
   background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 20px auto;
+  margin: 14px auto;
 }
 
 #likeBtn {
