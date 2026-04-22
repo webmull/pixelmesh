@@ -39,28 +39,28 @@ const showtime    = document.getElementById("showtime");
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
 
-function _spawnFlyLikes(cx, cy) {
-  const count = 1 + Math.floor(Math.random() * 2);
-  const NS    = "http://www.w3.org/2000/svg";
-  for (let i = 0; i < count; i++) {
-    const wrap = document.createElement("div");
-    wrap.className = "fly-like";
-    wrap.style.left = (cx - 18) + "px";
-    wrap.style.top  = (cy - 18) + "px";
-    wrap.style.setProperty("--dx", ((Math.random() - 0.5) * window.innerWidth * 1.2) + "px");
-    wrap.style.animationDelay = (Math.random() * 0.3) + "s";
-    const svg  = document.createElementNS(NS, "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("width",  "36");
-    svg.setAttribute("height", "36");
-    const path = document.createElementNS(NS, "path");
-    path.setAttribute("fill", "#ffffff");
-    path.setAttribute("d", _THUMBS_PATH);
-    svg.appendChild(path);
-    wrap.appendChild(svg);
-    blinkScreen.appendChild(wrap);
-    wrap.addEventListener("animationend", () => wrap.remove());
-  }
+function _spawnFlyLikes() {
+  const rect = likeBtn.getBoundingClientRect();
+  const cx   = rect.left + rect.width  / 2;
+  const cy   = rect.top  + rect.height / 2;
+  const SIZE = 20;
+  const NS   = "http://www.w3.org/2000/svg";
+  const wrap = document.createElement("div");
+  wrap.className = "fly-like";
+  wrap.style.left = (cx - SIZE / 2) + "px";
+  wrap.style.top  = (cy - SIZE / 2) + "px";
+  wrap.style.setProperty("--dx", ((Math.random() - 0.5) * 60) + "px");
+  const svg  = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("width",  SIZE);
+  svg.setAttribute("height", SIZE);
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("fill", "#ffffff");
+  path.setAttribute("d", _THUMBS_PATH);
+  svg.appendChild(path);
+  wrap.appendChild(svg);
+  document.body.appendChild(wrap);
+  wrap.addEventListener("animationend", () => wrap.remove());
 }
 
 likeBtn.addEventListener("pointerdown", (e) => {
@@ -496,7 +496,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "flex";
-    waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId + 1}` : "Connecting…";
+    waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId + 1}` : "waiting…");
     return;
@@ -534,7 +534,7 @@ function updateBlink() {
     case PS.WAITING:
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
-      waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId + 1}` : "Connecting…";
+      waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
       _startMsgTimer();
       requestWakeLock();
       break;
