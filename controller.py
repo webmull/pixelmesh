@@ -573,6 +573,12 @@ def toggle_detection():
         state.detecting = not state.detecting
         val = state.detecting
 
+    if val and not _valid_blink_ids:
+        with state.lock:
+            state.detecting = False
+        set_status("No clients connected")
+        return
+
     if val:
         global _detection_start_time, _detected_ids, _detection_order
         _detection_start_time = time.time()
