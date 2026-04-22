@@ -21,7 +21,8 @@ class AppState:
         self.detecting        = False        # detection pipeline active
         self.syncing          = False        # clock sync broadcast active
         self.sidebar_visible  = True
-        self.show_device_overlay = True
+        self.show_device_overlay  = True
+        self.overlay_show_pos     = False   # False = show IDs, True = show u,v positions
 
         self.last_detections  = []           # list of DetectedDevice
         self.last_detection_count = 0

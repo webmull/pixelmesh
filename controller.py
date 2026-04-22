@@ -405,9 +405,10 @@ def no_camera_canvas() -> np.ndarray:
 
 def draw_device_overlay(canvas: np.ndarray):
     with state.lock:
-        positions = state.calibrated_positions.copy()
-        crop_x = state.last_crop_x
-        crop_y = getattr(state, "last_crop_y", 0)
+        positions    = state.calibrated_positions.copy()
+        crop_x       = state.last_crop_x
+        crop_y       = getattr(state, "last_crop_y", 0)
+        show_pos     = state.overlay_show_pos
 
     for blink_id, pos in positions.items():
         if _valid_blink_ids and blink_id not in _valid_blink_ids:
@@ -415,15 +416,16 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-        label = str(blink_id + 1)
-        (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
+        label = f"{u:.2f},{v:.2f}" if show_pos else str(blink_id + 1)
+        font_scale = 0.38 if show_pos else 0.55
+        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
         pad = 5
         x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
         x2, y2 = px + tw // 2 + pad, py + th // 2 + pad + 1
         cv2.rectangle(canvas, (x1, y1), (x2, y2), (20, 20, 20), -1)
         cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 220, 80), 2)
         cv2.putText(canvas, label, (px - tw // 2, py + th // 2),
-                    FONT, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+                    FONT, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
 
 def draw_hud(canvas: np.ndarray, fps: float):
@@ -498,7 +500,8 @@ def update_ui_from_state():
 
     safe_set("chk_detection", detecting)
     safe_set("chk_sync",     state.syncing)
-    safe_set("chk_overlays", state.show_device_overlay)
+    safe_set("chk_overlays",     state.show_device_overlay)
+    safe_set("chk_overlay_pos",  state.overlay_show_pos)
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
 
@@ -626,6 +629,12 @@ def toggle_device_overlay():
     with state.lock:
         state.show_device_overlay = not state.show_device_overlay
 
+def toggle_overlay_mode():
+    with state.lock:
+        state.overlay_show_pos = not state.overlay_show_pos
+    mode = "positions" if state.overlay_show_pos else "IDs"
+    set_status(f"Overlay: {mode}")
+
 
 def reset_server():
     global _detected_ids, _detection_start_time
@@ -716,6 +725,9 @@ def on_key_press(key, holder):
 
     elif key == dpg.mvKey_O:
         toggle_device_overlay()
+
+    elif key == dpg.mvKey_P:
+        toggle_overlay_mode()
 
     elif key == dpg.mvKey_1:
         trigger_effect("wave")
@@ -811,6 +823,7 @@ def setup_ui(holder: dict):
                 _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
                 _chk("Clock Sync  [S]",   "chk_sync",       lambda: toggle_sync())
                 _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
+                _chk("Show Positions  [P]","chk_overlay_pos", lambda: toggle_overlay_mode())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
                 dpg.add_text("[REC]", tag="rec_status_text",
