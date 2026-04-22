@@ -630,7 +630,7 @@ class BlinkDetector:
             else:
                 raw_x, raw_y = pt.px, pt.py
             px, py = to_canvas(raw_x, raw_y)
-            _draw_id_box(frame, px, py, str(pt.decoded_id), (0, 220, 80))
+            _draw_id_box(frame, px, py, str(pt.decoded_id + 1), (0, 220, 80))
 
         # Actively blinking but not yet decoded — show a scrolling binary stream.
         # Filter: must swing from near-zero (dark phase) to bright (white phase).

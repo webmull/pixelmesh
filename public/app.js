@@ -393,7 +393,7 @@ function handleMessage(msg) {
     myBlinkPhases = encodeId(myBlinkId);
     blinkStartMs  = Date.now();
     phoneState    = PS.WAITING;
-    setStatus(`ID ${myBlinkId}`);
+    setStatus(`ID ${myBlinkId + 1}`);
     return;
   }
 
@@ -428,7 +428,7 @@ function handleMessage(msg) {
     calibrated = true;
     phoneState = PS.FOUND;
     waitingMsg.style.display = "none";
-    setStatus(`ID ${myBlinkId} – located ✓`);
+    setStatus(`ID ${myBlinkId + 1} – located ✓`);
     return;
   }
 
@@ -497,9 +497,9 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     waitingMsg.style.display = "flex";
-    waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId}` : "Connecting…";
+    waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId + 1}` : "Connecting…";
     applyModeVisual();
-    setStatus(myBlinkId !== null ? `ID ${myBlinkId}` : "waiting…");
+    setStatus(myBlinkId !== null ? `ID ${myBlinkId + 1}` : "waiting…");
     return;
   }
 }
@@ -535,7 +535,7 @@ function updateBlink() {
     case PS.WAITING:
       blinkScreen.style.background = "#000";
       waitingMsg.style.display = "flex";
-      waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId}` : "Connecting…";
+      waitingId.textContent = myBlinkId !== null ? `You're connected, your ID is: ${myBlinkId + 1}` : "Connecting…";
       _startMsgTimer();
       requestWakeLock();
       break;
