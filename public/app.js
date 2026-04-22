@@ -377,7 +377,9 @@ function handleMessage(msg) {
     const stored = localStorage.getItem("pm_build_id");
     localStorage.setItem("pm_build_id", msg.build_id);
     if (stored !== null && stored !== msg.build_id) {
-      location.reload();
+      document.body.style.transition = "background 0.15s";
+      document.body.style.background = "#fff";
+      setTimeout(() => location.reload(), 200);
       return;
     }
     return;
