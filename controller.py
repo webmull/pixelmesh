@@ -93,7 +93,8 @@ _EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attemp
 
 # Detection timing
 _detection_start_time: float = 0.0
-_detected_ids: set = set()   # blink_ids seen this detection session
+_detected_ids: set = set()          # blink_ids seen this detection session
+_detection_order: dict[int, int] = {}  # blink_id → found sequence number (1, 2, 3...)
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 
@@ -408,7 +409,7 @@ def draw_device_overlay(canvas: np.ndarray):
         positions    = state.calibrated_positions.copy()
         crop_x       = state.last_crop_x
         crop_y       = getattr(state, "last_crop_y", 0)
-        show_pos     = state.overlay_show_pos
+        show_found   = state.overlay_show_found
 
     for blink_id, pos in positions.items():
         if _valid_blink_ids and blink_id not in _valid_blink_ids:
@@ -416,8 +417,8 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-        label = f"{u:.2f},{v:.2f}" if show_pos else str(blink_id + 1)
-        font_scale = 0.38 if show_pos else 0.55
+        label = str(_detection_order.get(blink_id, "?")) if show_found else str(blink_id + 1)
+        font_scale = 0.55
         (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
         pad = 5
         x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
@@ -501,7 +502,7 @@ def update_ui_from_state():
     safe_set("chk_detection", detecting)
     safe_set("chk_sync",     state.syncing)
     safe_set("chk_overlays",     state.show_device_overlay)
-    safe_set("chk_overlay_pos",  state.overlay_show_pos)
+    safe_set("chk_overlay_pos",  state.overlay_show_found)
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
 
@@ -575,9 +576,10 @@ def toggle_detection():
         val = state.detecting
 
     if val:
-        global _detection_start_time, _detected_ids
+        global _detection_start_time, _detected_ids, _detection_order
         _detection_start_time = time.time()
         _detected_ids = set()
+        _detection_order = {}
         # Don't reset detector or clear positions — preserve already-found devices.
         # Server will only ask unfound clients to blink.
         post_json_async("/admin/detect", {"detecting": True})
@@ -631,16 +633,17 @@ def toggle_device_overlay():
 
 def toggle_overlay_mode():
     with state.lock:
-        state.overlay_show_pos = not state.overlay_show_pos
-    mode = "positions" if state.overlay_show_pos else "IDs"
+        state.overlay_show_found = not state.overlay_show_found
+    mode = "found order" if state.overlay_show_found else "IDs"
     set_status(f"Overlay: {mode}")
 
 
 def reset_server():
-    global _detected_ids, _detection_start_time
+    global _detected_ids, _detection_start_time, _detection_order
     post_json_async("/admin/reset", {})
     detector.reset()
     _detected_ids = set()
+    _detection_order = {}
     _detection_start_time = 0.0
     with state.lock:
         state.detecting = False
@@ -823,7 +826,7 @@ def setup_ui(holder: dict):
                 _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
                 _chk("Clock Sync  [S]",   "chk_sync",       lambda: toggle_sync())
                 _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
-                _chk("Show Positions  [P]","chk_overlay_pos", lambda: toggle_overlay_mode())
+                _chk("Found Order  [P]",  "chk_overlay_pos", lambda: toggle_overlay_mode())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
                 dpg.add_text("[REC]", tag="rec_status_text",
@@ -1250,6 +1253,7 @@ def _detection_worker():
                     # noise points accumulate the same decoded ID over time.
                     if det.blink_id in _detected_ids:
                         continue
+                    _detection_order[det.blink_id] = len(_detection_order) + 1
                     u = det.cx_px / w_raw
                     v = det.cy_px / h_raw
                     positions[str(det.blink_id)] = {
