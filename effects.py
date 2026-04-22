@@ -3,13 +3,22 @@
 PixelMesh V2 — Effects panel
 
 Owns the Effects floating window, per-effect parameter storage,
-and the trigger_effect() function.
+the trigger_effect() function, and the live effect preview pane.
 
 Call effects.init(state, set_status) once before building the UI,
 then effects.build_window() inside setup_ui().
+Call effects.register_preview_texture() inside the dpg texture_registry block.
+Call effects.start_preview_thread() after setup_ui().
 """
 
+import math
+import threading
+import time
+
+import cv2
 import dearpygui.dearpygui as dpg
+import numpy as np
+
 from network import post_json_async
 from log import log
 
@@ -242,6 +251,183 @@ def build_window():
     # Pre-build all modal dialogs (hidden)
     for name in EFFECT_LABELS:
         _build_modal(name)
+
+
+# ------------------------------------------------------------------ #
+# Effect preview pane                                                  #
+# ------------------------------------------------------------------ #
+
+PREV_W, PREV_H = 280, 140   # pixels — fits sidebar width
+
+# Fake crowd: 10 cols × 5 rows = 50 evenly-spaced phones
+_N_COLS, _N_ROWS = 10, 5
+_PREV_US = [c / (_N_COLS - 1) for r in range(_N_ROWS) for c in range(_N_COLS)]
+_PREV_VS = [r / (_N_ROWS - 1) for r in range(_N_ROWS) for c in range(_N_COLS)]
+
+
+def _preview_nn_path():
+    start = min(range(len(_PREV_US)), key=lambda i: _PREV_US[i]**2 + _PREV_VS[i]**2)
+    path, remaining = [start], set(range(len(_PREV_US))) - {start}
+    while remaining:
+        lu, lv = _PREV_US[path[-1]], _PREV_VS[path[-1]]
+        nearest = min(remaining, key=lambda i: (_PREV_US[i]-lu)**2 + (_PREV_VS[i]-lv)**2)
+        path.append(nearest)
+        remaining.remove(nearest)
+    return path
+
+
+_PREV_SNAKE_PATH = _preview_nn_path()
+
+
+def _hsl_to_rgb(h, s, l):
+    c = (1 - abs(2*l - 1)) * s
+    x = c * (1 - abs((h * 6) % 2 - 1))
+    m = l - c / 2
+    i = int(h * 6) % 6
+    r, g, b = [(c,x,0),(x,c,0),(0,c,x),(0,x,c),(x,0,c),(c,0,x)][i]
+    return ((r+m)*255, (g+m)*255, (b+m)*255)
+
+
+def _shade_preview(effect, u, v, idx, t, params):
+    sp    = params.get("speed", 0.4)
+    sf    = params.get("spatial_freq", 1.5)
+    angle = params.get("angle", 0.0)
+    r     = params.get("color_r", 255)
+    g     = params.get("color_g", 255)
+    b     = params.get("color_b", 255)
+    r2    = params.get("color2_r", 255)
+    g2    = params.get("color2_g", 0)
+    b2    = params.get("color2_b", 0)
+    split = params.get("split", 0.5)
+
+    a_rad = math.radians(angle)
+    d = (u * math.cos(a_rad) + v * math.sin(a_rad) + 1) / 2
+
+    if effect == "wave":
+        i = 0.5 + 0.5 * math.sin(2*math.pi*(d*sf - t*sp))
+        return (i*r, i*g, i*b)
+
+    if effect == "gradient":
+        i = (d - t*sp) % 1
+        return (i*r, i*g, i*b)
+
+    if effect == "binary_wave":
+        i = 1 if math.sin(2*math.pi*(d*sf - t*sp)) > 0 else 0
+        return (i*r, i*g, i*b)
+
+    if effect == "pulse":
+        bpm = params.get("bpm", 100)
+        i = max(0, math.sin(2*math.pi*(bpm/60)*t))
+        return (i*r, i*g, i*b)
+
+    if effect == "rainbow":
+        hue = ((d*sf - t*sp) % 1 + 1) % 1
+        return _hsl_to_rgb(hue, 1.0, 0.5)
+
+    if effect == "colour_flood":
+        ca, sa = math.cos(a_rad), math.sin(a_rad)
+        raw = u*ca + v*sa
+        corners = [0, ca, sa, ca+sa]
+        dmin, dmax = min(corners), max(corners)
+        dn = (raw - dmin) / (dmax - dmin) if dmax > dmin else 0.5
+        blend = max(0, min(1, (dn - split) / 0.08 + 0.5))
+        return (r + (r2-r)*blend, g + (g2-g)*blend, b + (b2-b)*blend)
+
+    if effect == "aurora":
+        phase = u*3.0 + math.sin(v*2.5 + t*sp*0.5)*0.5 - t*sp*0.4
+        curtain = (0.5 + 0.5*math.sin(phase*math.pi)) ** 2.5
+        hue = (150 + math.sin(phase*0.8 - t*sp*0.15)*60 + 360) % 360
+        lum = 0.06 + curtain*0.50
+        return _hsl_to_rgb(hue/360, 1.0, lum)
+
+    if effect == "ripple":
+        ou = 0.5 + 0.5*math.cos(a_rad)
+        ov = 0.5 + 0.5*math.sin(a_rad)
+        dist = math.sqrt((u-ou)**2 + (v-ov)**2)
+        i = 0.5 + 0.5*math.sin(2*math.pi*(dist*sf - t*sp))
+        return (i*r, i*g, i*b)
+
+    if effect == "snake":
+        path = _PREV_SNAKE_PATH
+        total = len(path)
+        my_idx = path.index(idx) if idx in path else -1
+        if my_idx == -1:
+            return (0, 0, 0)
+        head = (t * sp * total) % total
+        dist = abs(my_idx - head)
+        if dist > total / 2:
+            dist = total - dist
+        tail = sf
+        i = max(0, 1 - dist / tail)
+        return (i*r, i*g, i*b)
+
+    return (0, 0, 0)
+
+
+def _render_preview(t: float) -> np.ndarray:
+    with _state.lock:
+        effect = _state.current_effect
+
+    params = {}
+    if effect and effect != "none":
+        try:
+            for param, *_ in EFFECT_PARAMS.get(effect, []):
+                params[param] = _get(effect, param, None)
+            color  = params.get("color",  (255, 255, 255, 255)) or (255, 255, 255, 255)
+            color2 = params.get("color2", (255,   0,   0, 255)) or (255, 0, 0, 255)
+            params["color_r"],  params["color_g"],  params["color_b"]  = int(color[0]),  int(color[1]),  int(color[2])
+            params["color2_r"], params["color2_g"], params["color2_b"] = int(color2[0]), int(color2[1]), int(color2[2])
+        except Exception:
+            pass
+
+    img = np.zeros((PREV_H, PREV_W, 4), dtype=np.float32)
+    img[:, :, 3] = 1.0
+
+    dot_r    = 5
+    margin_x = dot_r + 4
+    margin_y = dot_r + 4
+
+    for i, (u, v) in enumerate(zip(_PREV_US, _PREV_VS)):
+        if effect and effect != "none":
+            cr, cg, cb = _shade_preview(effect, u, v, i, t, params)
+        else:
+            cr, cg, cb = 40, 40, 40
+        cx = int(margin_x + u * (PREV_W - 2*margin_x))
+        cy = int(margin_y + v * (PREV_H - 2*margin_y))
+        cv2.circle(img, (cx, cy), dot_r, (cr/255, cg/255, cb/255, 1.0), -1, cv2.LINE_AA)
+
+    return img.flatten()
+
+
+def _preview_worker():
+    start = time.time()
+    while _state.running:
+        try:
+            flat = _render_preview(time.time() - start)
+            dpg.set_value("effect_preview_texture", flat)
+        except Exception as e:
+            log.debug(f"[preview] {e}")
+        time.sleep(0.1)   # 10 fps
+
+
+def register_preview_texture():
+    """Call inside the dpg texture_registry block."""
+    blank = np.zeros(PREV_H * PREV_W * 4, dtype=np.float32)
+    dpg.add_dynamic_texture(PREV_W, PREV_H, blank, tag="effect_preview_texture")
+
+
+def build_preview_widget(indent: int = 8):
+    """Call inside the sidebar after the effects buttons."""
+    dpg.add_spacer(height=6)
+    dpg.add_text("PREVIEW", color=(160, 160, 160), indent=indent)
+    dpg.add_separator()
+    dpg.add_spacer(height=4)
+    dpg.add_image("effect_preview_texture", width=PREV_W, height=PREV_H,
+                  indent=indent)
+
+
+def start_preview_thread():
+    threading.Thread(target=_preview_worker, daemon=True, name="fx-preview").start()
 
 
 # ------------------------------------------------------------------ #

@@ -468,7 +468,6 @@ def draw_hud(canvas: np.ndarray, fps: float):
         cv2.putText(canvas, run_name, (nx, ny),
                     FONT, font_scale, (60, 180, 255), thickness, cv2.LINE_AA)
 
-
 # ------------------------------------------------------------------ #
 # UI helpers
 # ------------------------------------------------------------------ #
@@ -799,6 +798,7 @@ def setup_ui(holder: dict):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
         dpg.add_dynamic_texture(PREVIEW_WIDTH, PREVIEW_HEIGHT, blank,
                                 tag="camera_texture")
+        effects.register_preview_texture()
 
     with dpg.handler_registry():
         dpg.add_key_press_handler(
@@ -890,6 +890,7 @@ def setup_ui(holder: dict):
                             user_data=_ename,
                             width=30,
                         )
+                effects.build_preview_widget(indent=_PAD)
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
@@ -967,6 +968,7 @@ def main():
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
     threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
+    effects.start_preview_thread()
     elgato.on_state_change = _elgato_state_changed
     elgato.start()
     def _midi_set_recording(on: bool):
