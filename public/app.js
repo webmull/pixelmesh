@@ -39,10 +39,7 @@ const showtime    = document.getElementById("showtime");
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
 
-function _spawnFlyLikes() {
-  const rect  = likeBtn.getBoundingClientRect();
-  const cx    = rect.left + rect.width / 2;
-  const cy    = rect.top  + rect.height / 2;
+function _spawnFlyLikes(cx, cy) {
   const count = 1 + Math.floor(Math.random() * 2);
   const NS    = "http://www.w3.org/2000/svg";
   for (let i = 0; i < count; i++) {
@@ -66,14 +63,14 @@ function _spawnFlyLikes() {
   }
 }
 
-likeBtn.addEventListener("click", () => {
+likeBtn.addEventListener("pointerdown", (e) => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "like_tap" }));
   }
   likeBtn.classList.remove("popped");
   void likeBtn.offsetWidth;
   likeBtn.classList.add("popped");
-  _spawnFlyLikes();
+  _spawnFlyLikes(e.clientX, e.clientY);
 });
 
 

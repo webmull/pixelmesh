@@ -435,10 +435,8 @@ def draw_hud(canvas: np.ndarray, fps: float):
         detecting = state.detecting
 
     dot_color  = (40, 210, 80) if detecting else (70, 70, 70)
-    state_str  = "DET" if detecting else "OFF"
-    disp_str   = f"{int(fps + 0.5)} fps"
-    det_str    = f"det {int(_detect_fps + 0.5)} fps" if detecting else ""
-    label      = f"{disp_str}  {det_str}  {state_str}".strip() if det_str else f"{disp_str}  {state_str}"
+    det_str    = f"  det {int(_detect_fps + 0.5)}" if detecting else ""
+    label      = f"{int(fps + 0.5)} fps{det_str}"
 
     PAD = 6
     font_scale, thickness = 0.5, 1
