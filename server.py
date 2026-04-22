@@ -543,14 +543,22 @@ async def health():
     return {"ok": True}
 
 
+def _serve_app_html():
+    with open("public/app.html", "r") as f:
+        html = f.read()
+    html = html.replace("__CACHE_BUST__", BUILD_ID)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html, headers=_NO_CACHE)
+
+
 @app.get("/")
 async def index():
-    return FileResponse("public/app.html", headers=_NO_CACHE)
+    return _serve_app_html()
 
 
 @app.get("/app")
 async def app_page():
-    return FileResponse("public/app.html", headers=_NO_CACHE)
+    return _serve_app_html()
 
 
 @app.get("/internal/dashboard")
