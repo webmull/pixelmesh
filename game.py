@@ -217,6 +217,7 @@ def start_bug_game():
 
     # Use all detected phones in detection order (positions not required for this game)
     ordered = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
+    random.shuffle(ordered)
 
     ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": 8000})
     if ok:
