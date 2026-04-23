@@ -224,10 +224,11 @@ let effectSplit    = 0.5;
 let effectPath     = [];   // snake: ordered blink_ids (nearest-neighbour path)
 
 // ---- Bug game ----
-let gameShowAt  = 0;    // server-time ms when bug should appear for this phone
-let gameSlotMs  = 5000;
-let gameTapped  = false;
-let gameTimer   = null;
+let gameShowAt    = 0;    // server-time ms when bug should appear for this phone
+let gameSlotMs    = 5000;
+let gameTapped    = false;
+let gameTimer     = null;
+let myReactionMs  = null; // this phone's tap time, shown in winner overlay
 const gameOverlay    = document.getElementById("gameOverlay");
 const gameProgress   = document.getElementById("gameProgress");
 const bugHappy       = document.getElementById("bugHappy");
@@ -237,6 +238,7 @@ const gameResult     = document.getElementById("gameResult");
 const gameWinner     = document.getElementById("gameWinner");
 const gameWinnerPhone = document.getElementById("gameWinnerPhone");
 const gameWinnerTime  = document.getElementById("gameWinnerTime");
+const gameMyResult    = document.getElementById("gameMyResult");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -524,9 +526,10 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "game_show") {
-    gameShowAt = msg.show_at;
-    gameSlotMs = msg.slot_ms;
-    gameTapped = false;
+    gameShowAt   = msg.show_at;
+    gameSlotMs   = msg.slot_ms;
+    gameTapped   = false;
+    myReactionMs = null;
     _hideGame();
     // show_at is server-time ms — delay accounts for any network lag
     const delay = gameShowAt - serverNow();
@@ -569,7 +572,7 @@ function _showHappyBug() {
   gameTapped = false;
   bugHappy.style.display    = "block";
   bugScared.style.display   = "none";
-  gamePrompt.textContent    = "TAP!";
+  gamePrompt.textContent    = "";
   gameResult.textContent    = "";
   gameOverlay.style.display = "flex";
   gameOverlay.addEventListener("pointerdown", _onGameTap);
@@ -582,17 +585,17 @@ function _onGameTap(e) {
   e.preventDefault();
   gameOverlay.removeEventListener("pointerdown", _onGameTap);
   clearTimeout(gameTimer);
+  gameTimer = null;
 
-  const reaction_ms = Math.round(serverNow() - gameShowAt);
+  myReactionMs = Math.round(serverNow() - gameShowAt);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "game_tap", reaction_ms }));
+    ws.send(JSON.stringify({ type: "game_tap", reaction_ms: myReactionMs }));
   }
 
   bugHappy.style.display  = "none";
   bugScared.style.display = "block";
-  gamePrompt.textContent  = "";
-  gameResult.textContent  = `${reaction_ms} ms`;
-  gameTimer = setTimeout(_hideGame, 2000);
+  gameResult.textContent  = `${myReactionMs} ms`;
+  // Stay visible until winner is announced
 }
 
 function _showWinner(msg) {
@@ -605,13 +608,24 @@ function _showWinner(msg) {
     gameWinnerPhone.textContent = "No taps recorded";
     gameWinnerTime.textContent  = "";
   }
+  if (myReactionMs !== null) {
+    const diff = myReactionMs - (msg.reaction_ms ?? myReactionMs);
+    if (diff === 0) {
+      gameMyResult.textContent = "You won!";
+    } else {
+      const sign = diff > 0 ? "+" : "";
+      gameMyResult.textContent = `Your time: ${myReactionMs} ms  (${sign}${diff} ms)`;
+    }
+  } else {
+    gameMyResult.textContent = "";
+  }
   bugHappy.style.display  = "none";
   bugScared.style.display = "none";
   gamePrompt.textContent  = "";
   gameResult.textContent  = "";
   gameWinner.style.display = "flex";
   gameWinner.classList.remove("show");
-  void gameWinner.offsetWidth;   // force reflow so animation replays
+  void gameWinner.offsetWidth;
   gameWinner.classList.add("show");
   gameOverlay.style.display = "flex";
   gameTimer = setTimeout(_hideGame, 6000);
