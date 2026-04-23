@@ -584,7 +584,7 @@ def toggle_detection():
         global _detection_start_time, _detected_ids, _detection_order
         _detection_start_time = time.time()
         _detected_ids = set()
-        _detection_order = {}
+        _detection_order.clear()
         with state.lock:
             state.overlay_show_found = False
         # Don't reset detector or clear positions — preserve already-found devices.
@@ -648,7 +648,7 @@ def reset_server():
     post_json_async("/admin/reset", {})
     detector.reset()
     _detected_ids = set()
-    _detection_order = {}
+    _detection_order.clear()
     _detection_start_time = 0.0
     with state.lock:
         state.detecting = False
