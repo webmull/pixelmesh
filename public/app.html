@@ -265,10 +265,32 @@ html, body {
 }
 #gameWinner.show { animation: winner-pop 0.4s ease forwards; }
 #gameMyResult {
-  margin-top: 8px;
-  color: rgba(255,255,255,0.45);
-  font: 400 15px -apple-system, system-ui, sans-serif;
-  min-height: 20px;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  width: 100%;
+}
+#gameMyDivider {
+  width: 40px;
+  height: 1px;
+  background: rgba(255,255,255,0.15);
+  margin: 10px auto;
+}
+#gameMyLabel {
+  color: rgba(255,255,255,0.35);
+  font: 500 11px -apple-system, system-ui, sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+#gameMyTime {
+  color: rgba(255,255,255,0.7);
+  font: 600 26px -apple-system, system-ui, sans-serif;
+}
+#gameMyDelta {
+  font: 400 13px -apple-system, system-ui, sans-serif;
+  color: rgba(255,255,255,0.35);
 }
 </style>
 </head>
@@ -322,7 +344,12 @@ html, body {
     <div id="gameWinnerLabel">Winner</div>
     <div id="gameWinnerPhone"></div>
     <div id="gameWinnerTime"></div>
-    <div id="gameMyResult"></div>
+    <div id="gameMyResult">
+      <div id="gameMyDivider"></div>
+      <div id="gameMyLabel">You</div>
+      <div id="gameMyTime"></div>
+      <div id="gameMyDelta"></div>
+    </div>
   </div>
 </div>
 
