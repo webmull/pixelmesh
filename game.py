@@ -160,8 +160,19 @@ async def game_start_endpoint(payload: dict):
     game_active  = True
     game_results = {}
     _current_idx = -1
-    asyncio.create_task(_advance(0))
+    asyncio.create_task(_countdown_then_advance())
     return {"ok": True}
+
+
+async def _countdown_then_advance():
+    if _broadcast:
+        await _broadcast({
+            "type":     "game_countdown",
+            "start_at": int(time.time() * 1000),
+        })
+    await asyncio.sleep(3)
+    if game_active:
+        await _advance(0)
 
 
 @router.get("/admin/game/results")

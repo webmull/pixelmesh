@@ -199,8 +199,13 @@ html, body {
   z-index: 100;
   touch-action: none;
 }
+#gameBugWrap {
+  cursor: pointer;
+  padding: 30px;
+  -webkit-tap-highlight-color: transparent;
+}
 #gameBugWrap img {
-  width: 180px;
+  width: 130px;
   height: auto;
   pointer-events: none;
   display: block;
@@ -220,6 +225,24 @@ html, body {
 #gameResult {
   color: rgba(255,255,255,0.8);
   font: 700 28px -apple-system, system-ui, sans-serif;
+}
+
+@keyframes cd-pop {
+  0%   { opacity: 0; transform: scale(1.6); }
+  15%  { opacity: 1; transform: scale(1);   }
+  80%  { opacity: 1; transform: scale(1);   }
+  100% { opacity: 0; transform: scale(0.7); }
+}
+#countdownText {
+  display: none;
+  font: 800 110px -apple-system, system-ui, sans-serif;
+  color: #fff;
+  letter-spacing: -4px;
+  pointer-events: none;
+}
+#countdownText.pop {
+  display: block;
+  animation: cd-pop 1s ease forwards;
 }
 
 #gameProgress {
@@ -330,6 +353,7 @@ html, body {
 
 <!-- Bug game overlay -->
 <div id="gameOverlay">
+  <div id="countdownText"></div>
   <div id="gameBugWrap">
     <div id="bugHappy">
       <img src="/public/assets/bug_happy.svg" alt="" draggable="false">

@@ -228,8 +228,11 @@ let gameShowAt    = 0;    // server-time ms when bug should appear for this phon
 let gameSlotMs    = 5000;
 let gameTapped    = false;
 let gameTimer     = null;
-let myReactionMs  = null; // this phone's tap time, shown in winner overlay
+let myReactionMs    = null; // this phone's tap time, shown in winner overlay
+let countdownTimer  = null;
 const gameOverlay    = document.getElementById("gameOverlay");
+const countdownText  = document.getElementById("countdownText");
+const gameBugWrap    = document.getElementById("gameBugWrap");
 const gameProgress   = document.getElementById("gameProgress");
 const bugHappy       = document.getElementById("bugHappy");
 const bugScared      = document.getElementById("bugScared");
@@ -529,6 +532,11 @@ function handleMessage(msg) {
     return;
   }
 
+  if (msg.type === "game_countdown") {
+    _startCountdown(msg.start_at);
+    return;
+  }
+
   if (msg.type === "game_show") {
     gameShowAt   = msg.show_at;
     gameSlotMs   = msg.slot_ms;
@@ -572,14 +580,46 @@ function setStatus(text) {
 // Bug game
 // ------------------------------------------------------------------ //
 
+function _startCountdown(startAt) {
+  _stopCountdown();
+  gameOverlay.style.display = "flex";
+  bugHappy.style.display    = "none";
+  bugScared.style.display   = "none";
+  gameResult.textContent    = "";
+
+  function _tick() {
+    const elapsed    = serverNow() - startAt;
+    const remaining  = Math.ceil((3000 - elapsed) / 1000);
+    const label      = remaining > 0 ? String(remaining) : "GO!";
+    if (countdownText.textContent !== label) {
+      countdownText.classList.remove("pop");
+      void countdownText.offsetWidth;
+      countdownText.textContent = label;
+      countdownText.classList.add("pop");
+    }
+    if (elapsed >= 3800) _stopCountdown();
+  }
+
+  _tick();
+  countdownTimer = setInterval(_tick, 100);
+}
+
+function _stopCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  countdownText.classList.remove("pop");
+  countdownText.textContent = "";
+  countdownText.style.display = "none";
+}
+
 function _showHappyBug() {
+  _stopCountdown();
   gameTapped = false;
   bugHappy.style.display    = "block";
   bugScared.style.display   = "none";
   gamePrompt.textContent    = "";
   gameResult.textContent    = "";
   gameOverlay.style.display = "flex";
-  gameOverlay.addEventListener("pointerdown", _onGameTap);
+  gameBugWrap.addEventListener("pointerdown", _onGameTap);
   gameTimer = setTimeout(_hideGame, gameSlotMs);
 }
 
@@ -587,7 +627,7 @@ function _onGameTap(e) {
   if (gameTapped) return;
   gameTapped = true;
   e.preventDefault();
-  gameOverlay.removeEventListener("pointerdown", _onGameTap);
+  gameBugWrap.removeEventListener("pointerdown", _onGameTap);
   clearTimeout(gameTimer);
   gameTimer = null;
 
@@ -645,7 +685,8 @@ function _showWinner(msg) {
 
 function _hideGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
-  gameOverlay.removeEventListener("pointerdown", _onGameTap);
+  _stopCountdown();
+  gameBugWrap.removeEventListener("pointerdown", _onGameTap);
   gameOverlay.style.display = "none";
   gameWinner.style.display   = "none";
   gameMyResult.style.display = "none";
