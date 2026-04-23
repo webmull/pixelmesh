@@ -48,6 +48,7 @@ from video_recorder import VideoRecorder
 from network import post_json, post_json_async, fetch_client_count, fetch_json
 from log import log
 import effects
+import game
 import elgato
 import midi
 
@@ -790,6 +791,7 @@ def _chk(label: str, tag: str, callback, enabled: bool = True):
 
 def setup_ui(holder: dict):
     effects.init(state, set_status)
+    game.init(state, set_status, post_json, fetch_json, _detection_order)
     dpg.create_context()
 
     # Theme for the currently active effect button
@@ -861,6 +863,8 @@ def setup_ui(holder: dict):
                                    show=not dpg.is_item_shown("sync_debug_window")
                                ), indent=_PAD, width=-(_PAD + 1))
 
+                game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
+
                 dpg.add_spacer(height=4)
                 dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
@@ -926,6 +930,9 @@ def setup_ui(holder: dict):
         # Placeholder rows — up to 32 shown; extra rows hidden
         for i in range(32):
             dpg.add_text("", tag=f"sync_row_{i}", show=False)
+
+    # ---- Bug game leaderboard window ----
+    game.build_window()
 
     # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
     try:

@@ -21,31 +21,6 @@ if [[ -z $PIXELMESH_ADMIN_TOKEN ]]; then
 fi
 
 # ─────────────────────────────────────────────
-#  Cache busting
-# ─────────────────────────────────────────────
-BUST_MARKER="__CACHE_BUST__"
-BUST_FILES=(public/app.html public/sim.html)
-
-inject_cache_bust() {
-  local guid
-  guid=$(python3 -c "import uuid; print(uuid.uuid4().hex)")
-  for f in "${BUST_FILES[@]}"; do
-    sed -i '' "s/${BUST_MARKER}/${guid}/g" "$f"
-  done
-}
-
-restore_cache_bust() {
-  for f in "${BUST_FILES[@]}"; do
-    sed -i '' "s/v=[a-f0-9]\{32\}/v=${BUST_MARKER}/g" "$f"
-  done
-}
-
-# Restore marker if script exits for any reason
-trap 'restore_cache_bust' EXIT
-
-inject_cache_bust
-
-# ─────────────────────────────────────────────
 #  ASCII header
 # ─────────────────────────────────────────────
 header() {
