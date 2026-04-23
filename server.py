@@ -153,12 +153,19 @@ async def broadcast_count():
     await broadcast({"type": "crowd_count", "count": len(connections)})
 
 
+async def _enable_sync():
+    global sync_active
+    if not sync_active:
+        sync_active = True
+        await broadcast({"type": "sync_start"})
+
 game.server_init(
     blink_to_device   = lambda bid: blink_reverse.get(bid),
     connections       = connections,
     positions         = positions,
     blink_assignments = blink_assignments,
     broadcast         = broadcast,
+    enable_sync       = _enable_sync,
 )
 
 
