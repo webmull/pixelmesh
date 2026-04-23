@@ -36,8 +36,10 @@ const crowdMsg     = document.getElementById("crowdMsg");
 const likeBtn      = document.getElementById("likeBtn");
 const likeCount    = document.getElementById("likeCount");
 const showtime     = document.getElementById("showtime");
-const positionMap  = document.getElementById("positionMap");
-const positionDot  = document.getElementById("positionDot");
+const positionMap    = document.getElementById("positionMap");
+const positionCanvas = document.getElementById("positionCanvas");
+const _posCtx        = positionCanvas.getContext("2d");
+const knownPositions = {};   // blink_id → {u, v}
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
 
@@ -454,12 +456,23 @@ function handleMessage(msg) {
     calibrated = true;
     phoneState = PS.FOUND;
     waitingMsg.style.display = "none";
-    positionDot.style.left = (myU * 100) + "%";
-    positionDot.style.top  = (myV * 100) + "%";
-    positionDot.classList.remove("placed");
-    void positionDot.offsetWidth;
-    positionDot.classList.add("placed");
+    if (myBlinkId !== null) knownPositions[myBlinkId] = {u: myU, v: myV};
+    _drawPositionMap();
     setStatus(`ID ${myBlinkId + 1} – located ✓`);
+    return;
+  }
+
+  if (msg.type === "phone_located") {
+    knownPositions[msg.blink_id] = {u: msg.u, v: msg.v};
+    if (phoneState === PS.FOUND) _drawPositionMap();
+    return;
+  }
+
+  if (msg.type === "crowd_map") {
+    for (const [bid, pos] of Object.entries(msg.positions)) {
+      knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
+    }
+    if (phoneState === PS.FOUND) _drawPositionMap();
     return;
   }
 
@@ -591,6 +604,53 @@ function setStatus(text) {
 // ------------------------------------------------------------------ //
 // Bug game
 // ------------------------------------------------------------------ //
+
+function _drawPositionMap() {
+  const size = Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.78);
+  positionCanvas.width  = size;
+  positionCanvas.height = size;
+  const ctx = _posCtx;
+  ctx.clearRect(0, 0, size, size);
+
+  // Grid lines
+  ctx.strokeStyle = "rgba(255,255,255,0.07)";
+  ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) {
+    const p = (i / 4) * size;
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke();
+  }
+
+  // Border
+  ctx.strokeStyle = "rgba(255,255,255,0.18)";
+  ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
+
+  // Other phones
+  for (const [bid, pos] of Object.entries(knownPositions)) {
+    if (parseInt(bid) === myBlinkId) continue;
+    ctx.beginPath();
+    ctx.arc(pos.u * size, pos.v * size, 4, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    ctx.fill();
+  }
+
+  // Own phone — larger, glowing
+  if (myBlinkId !== null && knownPositions[myBlinkId]) {
+    const x = knownPositions[myBlinkId].u * size;
+    const y = knownPositions[myBlinkId].v * size;
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, 22);
+    grd.addColorStop(0, "rgba(255,255,255,0.35)");
+    grd.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.fillStyle = grd;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.fillStyle = "#fff";
+    ctx.fill();
+  }
+}
 
 function _startCountdown(startAt) {
   _stopCountdown();
