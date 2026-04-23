@@ -28,14 +28,16 @@ function encodeId(blinkId) {
 // DOM
 // ------------------------------------------------------------------ //
 
-const blinkScreen = document.getElementById("blinkScreen");
-const statusPill  = document.getElementById("statusPill");
-const waitingMsg  = document.getElementById("waitingMsg");
-const waitingId   = document.getElementById("waitingId");
-const crowdMsg    = document.getElementById("crowdMsg");
-const likeBtn     = document.getElementById("likeBtn");
-const likeCount   = document.getElementById("likeCount");
-const showtime    = document.getElementById("showtime");
+const blinkScreen  = document.getElementById("blinkScreen");
+const statusPill   = document.getElementById("statusPill");
+const waitingMsg   = document.getElementById("waitingMsg");
+const waitingId    = document.getElementById("waitingId");
+const crowdMsg     = document.getElementById("crowdMsg");
+const likeBtn      = document.getElementById("likeBtn");
+const likeCount    = document.getElementById("likeCount");
+const showtime     = document.getElementById("showtime");
+const positionMap  = document.getElementById("positionMap");
+const positionDot  = document.getElementById("positionDot");
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
 
@@ -452,6 +454,11 @@ function handleMessage(msg) {
     calibrated = true;
     phoneState = PS.FOUND;
     waitingMsg.style.display = "none";
+    positionDot.style.left = (myU * 100) + "%";
+    positionDot.style.top  = (myV * 100) + "%";
+    positionDot.classList.remove("placed");
+    void positionDot.offsetWidth;
+    positionDot.classList.add("placed");
     setStatus(`ID ${myBlinkId + 1} – located ✓`);
     return;
   }
@@ -708,10 +715,12 @@ function updateBlink() {
     case PS.IDLE:
     case PS.MISSED_DONE:
       blinkScreen.style.background = "#000";
+      positionMap.style.display    = "none";
       break;
 
     case PS.WAITING:
       blinkScreen.style.background = "#000";
+      positionMap.style.display    = "none";
       waitingMsg.style.display = "flex";
       waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
       _startMsgTimer();
@@ -719,6 +728,7 @@ function updateBlink() {
       break;
 
     case PS.BLINKING: {
+      positionMap.style.display = "none";
       const totalMs  = myBlinkPhases.length * PHASE_MS;
       const phaseIdx = Math.floor((Date.now() - blinkStartMs) % totalMs / PHASE_MS);
       blinkScreen.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
@@ -726,8 +736,9 @@ function updateBlink() {
     }
 
     case PS.FOUND:
-      blinkScreen.style.background = "rgb(255, 100, 0)";
-      waitingMsg.style.display = "none";
+      blinkScreen.style.background = "#000";
+      waitingMsg.style.display    = "none";
+      positionMap.style.display   = "flex";
       break;
 
     case PS.MISSED: {
