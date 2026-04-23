@@ -215,15 +215,8 @@ def start_bug_game():
         _set_status("No detected phones — run detection first")
         return
 
-    # Only include phones that have a confirmed position
-    with _state.lock:
-        has_pos = set(_state.calibrated_positions.keys())
-
-    ordered_all = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
-    ordered = [bid for bid in ordered_all if bid in has_pos]
-    if not ordered:
-        _set_status("No positioned phones — complete detection first")
-        return
+    # Use all detected phones in detection order (positions not required for this game)
+    ordered = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
 
     ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": 5000})
     if ok:
