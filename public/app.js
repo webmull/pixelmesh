@@ -636,24 +636,24 @@ function _drawPositionMap() {
     if (parseInt(bid) === myBlinkId) continue;
     ctx.beginPath();
     ctx.arc(pos.u * size, pos.v * size, 4, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,255,255,0.22)";
+    ctx.fillStyle = "rgba(255,255,255,0.5)";
     ctx.fill();
   }
 
-  // Own phone — larger, glowing
+  // Own phone — larger, glowing green
   if (myBlinkId !== null && knownPositions[myBlinkId]) {
     const x = knownPositions[myBlinkId].u * size;
     const y = knownPositions[myBlinkId].v * size;
-    const grd = ctx.createRadialGradient(x, y, 0, x, y, 22);
-    grd.addColorStop(0, "rgba(255,255,255,0.35)");
-    grd.addColorStop(1, "rgba(255,255,255,0)");
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, 26);
+    grd.addColorStop(0, "rgba(0,230,118,0.4)");
+    grd.addColorStop(1, "rgba(0,230,118,0)");
     ctx.beginPath();
-    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.arc(x, y, 26, 0, Math.PI * 2);
     ctx.fillStyle = grd;
     ctx.fill();
     ctx.beginPath();
     ctx.arc(x, y, 7, 0, Math.PI * 2);
-    ctx.fillStyle = "#fff";
+    ctx.fillStyle = "#00e676";
     ctx.fill();
   }
 }
