@@ -612,6 +612,7 @@ function _showWinner(msg) {
   }
   if (myReactionMs !== null) {
     gameMyTime.textContent  = `${myReactionMs} ms`;
+    gameMyTime.style.color  = "rgba(255,255,255,0.7)";
     const winMs = msg.reaction_ms ?? myReactionMs;
     const diff  = myReactionMs - winMs;
     if (diff === 0) {
@@ -620,13 +621,15 @@ function _showWinner(msg) {
     } else {
       gameMyDelta.textContent = `+${diff} ms behind`;
       gameMyDelta.style.color = diff < 200
-        ? "rgba(120,220,120,0.7)"   // close — green tint
+        ? "rgba(120,220,120,0.7)"
         : "rgba(255,255,255,0.35)";
     }
-    gameMyResult.style.display = "flex";
   } else {
-    gameMyResult.style.display = "none";
+    gameMyTime.textContent  = "Missed";
+    gameMyTime.style.color  = "rgba(255,80,80,0.8)";
+    gameMyDelta.textContent = "";
   }
+  gameMyResult.style.display = "flex";
   bugHappy.style.display  = "none";
   bugScared.style.display = "none";
   gamePrompt.textContent  = "";
@@ -677,7 +680,7 @@ function updateBlink() {
     }
 
     case PS.FOUND:
-      blinkScreen.style.background = "rgb(255, 100, 0)";
+      blinkScreen.style.background = "#000";
       waitingMsg.style.display = "none";
       break;
 
