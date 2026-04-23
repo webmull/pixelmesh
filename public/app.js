@@ -28,15 +28,11 @@ function encodeId(blinkId) {
 // DOM
 // ------------------------------------------------------------------ //
 
-const blinkScreen  = document.getElementById("blinkScreen");
-const statusPill   = document.getElementById("statusPill");
-const waitingMsg   = document.getElementById("waitingMsg");
-const waitingId    = document.getElementById("waitingId");
-const crowdMsg     = document.getElementById("crowdMsg");
-const likeBtn      = document.getElementById("likeBtn");
-const likeCount    = document.getElementById("likeCount");
-const showtime     = document.getElementById("showtime");
-const positionMap    = document.getElementById("positionMap");
+const statusPill     = document.getElementById("statusPill");
+const waitingId      = document.getElementById("waitingId");
+const crowdMsg       = document.getElementById("crowdMsg");
+const likeBtn        = document.getElementById("likeBtn");
+const likeCount      = document.getElementById("likeCount");
 const positionCanvas = document.getElementById("positionCanvas");
 const _posCtx        = positionCanvas.getContext("2d");
 const knownPositions = {};   // blink_id → {u, v}
@@ -171,9 +167,59 @@ function _startMsgTimer() {
   crowdMsg.textContent = _soloTemplates[_soloIndex];
   _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
-const projCanvas  = document.getElementById("projectionCanvas");
+
+const projCanvas   = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
-const ctx         = projCanvas.getContext("2d");
+const ctx          = projCanvas.getContext("2d");
+
+// ------------------------------------------------------------------ //
+// Card system — single source of truth for the display layer
+// ------------------------------------------------------------------ //
+
+// One card is shown at a time. setView() swaps cards by toggling
+// inline style.display. The CSS defines the correct display type
+// for each card's shown state (flex / block).
+
+const CARDS = {
+  blink:   document.getElementById("card-blink"),
+  waiting: document.getElementById("card-waiting"),
+  located: document.getElementById("card-located"),
+  effects: document.getElementById("card-effects"),
+  game:    document.getElementById("card-game"),
+};
+
+// Named view states → which card to show
+const VIEW_CARD = {
+  idle:      "blink",    // disconnected / black
+  waiting:   "waiting",  // "Get ready" screen
+  blinking:  "blink",    // detection active — flashing
+  game_wait: "blink",    // game in progress, not my turn — black
+  located:   "located",  // position confirmed
+  missed:    "blink",    // detection ended, not found — red flash
+  effects:   "effects",  // showtime effect playing
+  game:      "game",     // game card (countdown / bug / winner)
+};
+
+let view = "idle";
+
+// Explicit display type for each card when shown.
+// We set this directly rather than relying on CSS cascade (removing inline
+// style is unreliable on some mobile browsers when the card starts hidden).
+const CARD_DISPLAY = {
+  blink:   "block",
+  waiting: "flex",
+  located: "flex",
+  effects: "block",
+  game:    "flex",
+};
+
+function setView(name) {
+  view = name;
+  const active = VIEW_CARD[name];
+  for (const [k, el] of Object.entries(CARDS)) {
+    el.style.display = k === active ? CARD_DISPLAY[k] : "none";
+  }
+}
 
 // ------------------------------------------------------------------ //
 // Device state
@@ -187,67 +233,54 @@ if (!deviceId) {
   localStorage.setItem("device_id", deviceId);
 }
 
-let myBlinkId    = null;
+let myBlinkId     = null;
 let myBlinkPhases = [];
 let blinkStartMs  = 0;
+let missedStart   = 0;
 
 let myU = 0;
 let myV = 0;
-let calibrated = false;  // true once server has a position for this device (for effect rendering)
-
-// ---- Phone state machine ----
-// IDLE        black          disconnected
-// WAITING     yellow         connected, detection not started
-// BLINKING    white/black    detection active, not yet found
-// FOUND       orange         found during active detection (stays orange when detection ends)
-// MISSED      red flash      detection ended, this device not found
-// MISSED_DONE black          after red flash — stays black until next detection
-// SHOWTIME    effect/red     effect playing
-const PS = { IDLE:"IDLE", WAITING:"WAITING", BLINKING:"BLINKING",
-             FOUND:"FOUND", MISSED:"MISSED", MISSED_DONE:"MISSED_DONE", SHOWTIME:"SHOWTIME" };
-let phoneState  = PS.IDLE;
-let missedStart = 0;
+let calibrated = false;  // true once server has a position for this device
 
 let clockOffset = 0;
 
-let currentEffect  = null;
-let effectStartTime = 0;
-let effectSpeed    = 0.3;
+let currentEffect     = null;
+let effectStartTime   = 0;
+let effectSpeed       = 0.3;
 let effectSpatialFreq = 1.5;
-let effectBpm      = 100;
-let effectOriginU  = 0.5;
-let effectOriginV  = 0.5;
-let effectAngle    = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
-let effectR        = 255;
-let effectG        = 255;
-let effectB        = 255;
-let effectR2       = 255;
-let effectG2       = 0;
-let effectB2       = 0;
-let effectSplit    = 0.5;
-let effectPath     = [];   // snake: ordered blink_ids (nearest-neighbour path)
+let effectBpm         = 100;
+let effectOriginU     = 0.5;
+let effectOriginV     = 0.5;
+let effectAngle       = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
+let effectR           = 255;
+let effectG           = 255;
+let effectB           = 255;
+let effectR2          = 255;
+let effectG2          = 0;
+let effectB2          = 0;
+let effectSplit       = 0.5;
+let effectPath        = [];   // snake: ordered blink_ids (nearest-neighbour path)
 
 // ---- Bug game ----
-let gameShowAt    = 0;    // server-time ms when bug should appear for this phone
-let gameSlotMs    = 5000;
-let gameTapped    = false;
-let gameTimer     = null;
+let gameShowAt      = 0;    // server-time ms when bug should appear for this phone
+let gameSlotMs      = 5000;
+let gameTapped      = false;
+let gameTimer       = null;
 let myReactionMs    = null; // this phone's tap time, shown in winner overlay
 let countdownTimer  = null;
-const gameOverlay    = document.getElementById("gameOverlay");
-const countdownText  = document.getElementById("countdownText");
 const gameBugWrap    = document.getElementById("gameBugWrap");
 const gameProgress   = document.getElementById("gameProgress");
+const countdownText  = document.getElementById("countdownText");
 const bugHappy       = document.getElementById("bugHappy");
 const bugScared      = document.getElementById("bugScared");
 const gamePrompt     = document.getElementById("gamePrompt");
 const gameResult     = document.getElementById("gameResult");
-const gameWinner     = document.getElementById("gameWinner");
-const gameWinnerPhone = document.getElementById("gameWinnerPhone");
-const gameWinnerTime  = document.getElementById("gameWinnerTime");
-const gameMyResult    = document.getElementById("gameMyResult");
-const gameMyTime      = document.getElementById("gameMyTime");
-const gameMyDelta     = document.getElementById("gameMyDelta");
+const gameWinner       = document.getElementById("gameWinner");
+const gameMyBanner     = document.getElementById("gameMyBanner");
+const gameMyBannerLabel = document.getElementById("gameMyBannerLabel");
+const gameMyBannerTime  = document.getElementById("gameMyBannerTime");
+const gameWinnerPhone  = document.getElementById("gameWinnerPhone");
+const gameWinnerTime   = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -287,9 +320,9 @@ function startSync() {
 
 function stopSync() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
-  syncSamples  = [];
-  clockOffset  = 0;
-  synced       = false;
+  syncSamples   = [];
+  clockOffset   = 0;
+  synced        = false;
   preSyncOffset = (_deviceSeed(deviceId) / 0xffffffff) * DESYNC_RANGE_MS;
 }
 
@@ -383,16 +416,13 @@ function connect() {
 }
 
 function goBlack() {
-  phoneState    = PS.IDLE;
   currentEffect = null;
   calibrated    = false;
   myBlinkPhases = [];
-  _hideGame();
-  gameProgress.style.display = "none";
-  blinkScreen.style.background = "#000";
-  showtime.style.background    = "#000";
-  showtime.style.display       = "none";
-  blinkScreen.style.display    = "flex";
+  _cleanupGame();
+  gameProgress.style.display     = "none";
+  CARDS.effects.style.background = "#000";
+  setView("idle");
 }
 
 function handleMessage(msg) {
@@ -405,8 +435,7 @@ function handleMessage(msg) {
     const stored = localStorage.getItem("pm_build_id");
     localStorage.setItem("pm_build_id", msg.build_id);
     if (stored !== null && stored !== msg.build_id) {
-      blinkScreen.style.background = "#00e676";
-      showtime.style.background    = "#00e676";
+      document.body.style.background = "#00e676";
       setTimeout(() => location.reload(), 200);
       return;
     }
@@ -421,11 +450,14 @@ function handleMessage(msg) {
     myBlinkPhases = encodeId(myBlinkId);
     blinkStartMs  = Date.now();
     if (calibrated) {
-      phoneState = PS.FOUND;
       knownPositions[myBlinkId] = {u: myU, v: myV};
       _drawPositionMap();
+      setView("located");
     } else {
-      phoneState = PS.WAITING;
+      waitingId.textContent = `You're phone #${myBlinkId + 1}`;
+      _startMsgTimer();
+      requestWakeLock();
+      setView("waiting");
     }
     setStatus(`ID ${myBlinkId + 1}`);
     return;
@@ -460,17 +492,16 @@ function handleMessage(msg) {
     myU        = msg.u ?? myU;
     myV        = msg.v ?? myV;
     calibrated = true;
-    phoneState = PS.FOUND;
-    waitingMsg.style.display = "none";
     if (myBlinkId !== null) knownPositions[myBlinkId] = {u: myU, v: myV};
     _drawPositionMap();
+    setView("located");
     setStatus(`ID ${myBlinkId + 1} – located ✓`);
     return;
   }
 
   if (msg.type === "phone_located") {
     knownPositions[msg.blink_id] = {u: msg.u, v: msg.v};
-    if (phoneState === PS.FOUND) _drawPositionMap();
+    if (view === "located") _drawPositionMap();
     return;
   }
 
@@ -478,60 +509,55 @@ function handleMessage(msg) {
     for (const [bid, pos] of Object.entries(msg.positions)) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
-    if (phoneState === PS.FOUND) _drawPositionMap();
+    if (view === "located") _drawPositionMap();
     return;
   }
 
   if (msg.type === "detection_started") {
-    // Start from phase 0 (guard) so the decoder sees guard → Manchester immediately.
-    // Previously this skipped past the guard, meaning the guard only appeared after
-    // 40 Manchester phases (~12s), making minimum decode time ~25s instead of ~13s.
-    // Stagger by blink ID so devices don't all flash in sync.
+    // Clear stale positions from previous sessions — the server is starting
+    // fresh detection so any dots on the map are no longer valid.
+    for (const k in knownPositions) delete knownPositions[k];
     const stagger = myBlinkId !== null ? (myBlinkId % myBlinkPhases.length) * PHASE_MS : 0;
     blinkStartMs = Date.now() - stagger;
-    phoneState  = PS.BLINKING;
-    missedStart = 0;
-    waitingMsg.style.display = "none";
+    missedStart  = 0;
+    setView("blinking");
     return;
   }
 
   if (msg.type === "detection_ended") {
-    if (phoneState === PS.BLINKING) {
-      phoneState  = PS.MISSED;
+    if (view === "blinking") {
       missedStart = Date.now();
+      setView("missed");
     }
-    // FOUND stays FOUND
+    // located stays located
     return;
   }
 
   if (msg.type === "mode") {
-    // Only used to switch to SHOWTIME visuals if effect message isn't coming
-    // DETECTION mode: no state change needed — assigned already set WAITING
-    if (msg.mode === "SHOWTIME") applyModeVisual();
+    if (msg.mode === "SHOWTIME") setView("effects");
     return;
   }
 
   if (msg.type === "effect") {
-    _hideGame();
+    _cleanupGame();
     gameProgress.style.display = "none";
-    phoneState     = PS.SHOWTIME;
-    currentEffect  = msg.effect;
-    effectStartTime = msg.start_time;
-    effectSpeed    = msg.speed ?? 0.3;
+    currentEffect     = msg.effect;
+    effectStartTime   = msg.start_time;
+    effectSpeed       = msg.speed ?? 0.3;
     effectSpatialFreq = msg.spatial_freq ?? 1.5;
-    effectBpm      = msg.bpm ?? 100;
-    effectOriginU  = msg.origin_u ?? 0.5;
-    effectOriginV  = msg.origin_v ?? 0.5;
-    effectAngle    = msg.angle ?? 0;
-    effectR        = msg.color_r  ?? 255;
-    effectG        = msg.color_g  ?? 255;
-    effectB        = msg.color_b  ?? 255;
-    effectR2       = msg.color2_r ?? 255;
-    effectG2       = msg.color2_g ?? 0;
-    effectB2       = msg.color2_b ?? 0;
-    effectSplit     = msg.split ?? 0.5;
-    effectPath      = msg.path  ?? [];
-    applyModeVisual();
+    effectBpm         = msg.bpm ?? 100;
+    effectOriginU     = msg.origin_u ?? 0.5;
+    effectOriginV     = msg.origin_v ?? 0.5;
+    effectAngle       = msg.angle ?? 0;
+    effectR           = msg.color_r  ?? 255;
+    effectG           = msg.color_g  ?? 255;
+    effectB           = msg.color_b  ?? 255;
+    effectR2          = msg.color2_r ?? 255;
+    effectG2          = msg.color2_g ?? 0;
+    effectB2          = msg.color2_b ?? 0;
+    effectSplit       = msg.split ?? 0.5;
+    effectPath        = msg.path  ?? [];
+    setView("effects");
     return;
   }
 
@@ -546,14 +572,14 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "reset") {
-    phoneState    = PS.WAITING;
     currentEffect = null;
     calibrated    = false;
-    _hideGame();
+    _cleanupGame();
     gameProgress.style.display = "none";
-    waitingMsg.style.display = "flex";
     waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
-    applyModeVisual();
+    _startMsgTimer();
+    requestWakeLock();
+    setView("waiting");
     setStatus(myBlinkId !== null ? `ID ${myBlinkId + 1}` : "waiting…");
     return;
   }
@@ -561,9 +587,10 @@ function handleMessage(msg) {
   if (msg.type === "game_countdown") {
     myReactionMs  = null;
     gameTapped    = false;
-    phoneState    = PS.WAITING;
     currentEffect = null;
-    applyModeVisual();
+    _cleanupGame();
+    gameProgress.style.display = "none";
+    setView("game");
     _startCountdown(msg.start_at);
     return;
   }
@@ -573,15 +600,20 @@ function handleMessage(msg) {
     gameSlotMs   = msg.slot_ms;
     gameTapped   = false;
     myReactionMs = null;
-    _hideGame();
-    // show_at is server-time ms — delay accounts for any network lag
+    _cleanupGame();
+    // Show the game card immediately (black background) so the waiting
+    // card is hidden during the pre-bug random delay before the bug appears.
+    bugHappy.style.display  = "none";
+    bugScared.style.display = "none";
+    gameResult.textContent  = "";
+    setView("game");
     const delay = gameShowAt - serverNow();
     gameTimer = setTimeout(_showHappyBug, Math.max(0, delay));
     return;
   }
 
   if (msg.type === "game_progress") {
-    gameProgress.textContent  = `${msg.tapped} / ${msg.total} tapped`;
+    gameProgress.textContent   = `${msg.tapped} / ${msg.total} tapped`;
     gameProgress.style.display = "block";
     return;
   }
@@ -592,23 +624,12 @@ function handleMessage(msg) {
   }
 }
 
-function applyModeVisual() {
-  if (phoneState === PS.SHOWTIME) {
-    blinkScreen.style.display = "none";
-    showtime.style.display    = "block";
-    blinkScreen.style.background = "#000";
-  } else {
-    showtime.style.display    = "none";
-    blinkScreen.style.display = "flex";
-  }
-}
-
 function setStatus(text) {
   statusPill.textContent = text;
 }
 
 // ------------------------------------------------------------------ //
-// Bug game
+// Position map
 // ------------------------------------------------------------------ //
 
 function _drawPositionMap() {
@@ -658,12 +679,15 @@ function _drawPositionMap() {
   }
 }
 
+// ------------------------------------------------------------------ //
+// Bug game
+// ------------------------------------------------------------------ //
+
 function _startCountdown(startAt) {
   _stopCountdown();
-  gameOverlay.style.display = "flex";
-  bugHappy.style.display    = "none";
-  bugScared.style.display   = "none";
-  gameResult.textContent    = "";
+  bugHappy.style.display  = "none";
+  bugScared.style.display = "none";
+  gameResult.textContent  = "";
 
   function _tick() {
     const elapsed    = serverNow() - startAt;
@@ -675,7 +699,10 @@ function _startCountdown(startAt) {
       countdownText.textContent = label;
       countdownText.classList.add("pop");
     }
-    if (elapsed >= 3800) _stopCountdown();
+    if (elapsed >= 3800) {
+      _stopCountdown();
+      setView("game_wait");
+    }
   }
 
   _tick();
@@ -691,11 +718,10 @@ function _stopCountdown() {
 function _showHappyBug() {
   _stopCountdown();
   gameTapped = false;
-  bugHappy.style.display    = "block";
-  bugScared.style.display   = "none";
-  gamePrompt.textContent    = "";
-  gameResult.textContent    = "";
-  gameOverlay.style.display = "flex";
+  bugHappy.style.display  = "block";
+  bugScared.style.display = "none";
+  gamePrompt.textContent  = "";
+  gameResult.textContent  = "";
   gameBugWrap.addEventListener("pointerdown", _onGameTap);
   gameTimer = setTimeout(_hideGame, gameSlotMs);
 }
@@ -716,12 +742,35 @@ function _onGameTap(e) {
   bugHappy.style.display  = "none";
   bugScared.style.display = "block";
   gameResult.textContent  = `${myReactionMs} ms`;
-  // Stay visible until winner is announced
+  // Stay on game card until winner is announced
 }
 
 function _showWinner(msg) {
-  _hideGame();
+  _cleanupGame();
   gameProgress.style.display = "none";
+
+  // ---- Personal outcome (top, prominent) ----
+  const iWon = msg.blink_id !== undefined && msg.blink_id === myBlinkId;
+  if (iWon) {
+    gameMyBannerLabel.textContent = "YOU WIN";
+    gameMyBannerLabel.style.color = "#ffd740";
+    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.5)";
+    gameMyBannerTime.textContent  = myReactionMs !== null ? `${myReactionMs} ms` : "";
+    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
+  } else if (myReactionMs !== null) {
+    gameMyBannerLabel.textContent = "NOT THIS TIME";
+    gameMyBannerLabel.style.color = "rgba(255,255,255,0.75)";
+    gameMyBannerLabel.style.textShadow = "none";
+    gameMyBannerTime.textContent  = `Your time: ${myReactionMs} ms`;
+    gameMyBannerTime.style.color  = "rgba(255,255,255,0.35)";
+  } else {
+    gameMyBannerLabel.textContent = "YOU MISSED IT";
+    gameMyBannerLabel.style.color = "rgba(255,80,80,0.85)";
+    gameMyBannerLabel.style.textShadow = "none";
+    gameMyBannerTime.textContent  = "";
+  }
+
+  // ---- Winner details (bottom) ----
   if (msg.blink_id !== undefined) {
     gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
     gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
@@ -729,44 +778,33 @@ function _showWinner(msg) {
     gameWinnerPhone.textContent = "No taps recorded";
     gameWinnerTime.textContent  = "";
   }
-  if (myReactionMs !== null) {
-    gameMyTime.textContent  = `${myReactionMs} ms`;
-    gameMyTime.style.color  = "rgba(255,255,255,0.7)";
-    const winMs = msg.reaction_ms ?? myReactionMs;
-    const diff  = myReactionMs - winMs;
-    if (diff === 0) {
-      gameMyDelta.textContent = "fastest";
-      gameMyDelta.style.color = "rgba(255,255,255,0.6)";
-    } else {
-      gameMyDelta.textContent = `+${diff} ms behind`;
-      gameMyDelta.style.color = diff < 200
-        ? "rgba(120,220,120,0.7)"
-        : "rgba(255,255,255,0.35)";
-    }
-  } else {
-    gameMyTime.textContent  = "Missed";
-    gameMyTime.style.color  = "rgba(255,80,80,0.8)";
-    gameMyDelta.textContent = "";
-  }
-  gameMyResult.style.display = "flex";
-  bugHappy.style.display  = "none";
-  bugScared.style.display = "none";
-  gamePrompt.textContent  = "";
-  gameResult.textContent  = "";
+
+  bugHappy.style.display   = "none";
+  bugScared.style.display  = "none";
+  gamePrompt.textContent   = "";
+  gameResult.textContent   = "";
   gameWinner.style.display = "flex";
   gameWinner.classList.remove("show");
   void gameWinner.offsetWidth;
   gameWinner.classList.add("show");
-  gameOverlay.style.display = "flex";
+  setView("game");
 }
 
+// Called when the bug slot timer expires (phone missed the bug).
+// Swaps to the black blink card to wait for game_winner.
 function _hideGame() {
+  _cleanupGame();
+  setView("game_wait");
+}
+
+// Resets all game internals without touching the active card.
+// Use this when transitioning away from game for other reasons
+// (effect fires, reset, goBlack) so the caller controls the card.
+function _cleanupGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
   _stopCountdown();
   gameBugWrap.removeEventListener("pointerdown", _onGameTap);
-  gameOverlay.style.display = "none";
-  gameWinner.style.display   = "none";
-  gameMyResult.style.display = "none";
+  gameWinner.style.display = "none";
   gameWinner.classList.remove("show");
 }
 
@@ -775,50 +813,30 @@ function _hideGame() {
 // ------------------------------------------------------------------ //
 
 function updateBlink() {
-  if (phoneState === PS.SHOWTIME || myBlinkId === null || myBlinkPhases.length === 0) return;
+  if (VIEW_CARD[view] !== "blink") return;
 
-  switch (phoneState) {
-    case PS.IDLE:
-    case PS.MISSED_DONE:
-      blinkScreen.style.background = "#000";
-      positionMap.style.display    = "none";
-      break;
+  const card = CARDS.blink;
 
-    case PS.WAITING:
-      blinkScreen.style.background = "#000";
-      positionMap.style.display    = "none";
-      waitingMsg.style.display = "flex";
-      waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
-      _startMsgTimer();
-      requestWakeLock();
-      break;
-
-    case PS.BLINKING: {
-      positionMap.style.display = "none";
-      const totalMs  = myBlinkPhases.length * PHASE_MS;
-      const phaseIdx = Math.floor((Date.now() - blinkStartMs) % totalMs / PHASE_MS);
-      blinkScreen.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
-      break;
-    }
-
-    case PS.FOUND:
-      blinkScreen.style.background = "#000";
-      waitingMsg.style.display    = "none";
-      positionMap.style.display   = "flex";
-      break;
-
-    case PS.MISSED: {
-      const age = (Date.now() - missedStart) / 1000;
-      if (age < 1.2) {
-        const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
-        blinkScreen.style.background = on ? "rgb(200, 0, 0)" : "#000";
-      } else {
-        phoneState = PS.MISSED_DONE;
-        blinkScreen.style.background = "#000";
-      }
-      break;
-    }
+  if (view === "blinking" && myBlinkPhases.length > 0) {
+    const totalMs  = myBlinkPhases.length * PHASE_MS;
+    const phaseIdx = Math.floor((Date.now() - blinkStartMs) % totalMs / PHASE_MS);
+    card.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
+    return;
   }
+
+  if (view === "missed") {
+    const age = (Date.now() - missedStart) / 1000;
+    if (age < 1.2) {
+      const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
+      card.style.background = on ? "rgb(200,0,0)" : "#000";
+    } else {
+      setView("idle");
+    }
+    return;
+  }
+
+  // idle / game_wait / any other blink-card view
+  card.style.background = "#000";
 }
 
 // ------------------------------------------------------------------ //
@@ -945,16 +963,16 @@ function hslToRgb(h, s, l) {
 function renderLoop() {
   updateBlink();
 
-  if (phoneState === PS.SHOWTIME && currentEffect) {
+  if (view === "effects" && currentEffect) {
     if (!calibrated) {
-      projCanvas.style.display = "none";
-      showtime.style.background = "#000";
+      projCanvas.style.display       = "none";
+      CARDS.effects.style.background = "#000";
     } else {
       const t = (serverNow() - effectStartTime) / 1000;
 
-      projCanvas.style.display = "none";
+      projCanvas.style.display       = "none";
       const [r, g, b] = shade(myU, myV, t);
-      showtime.style.background = `rgb(${r},${g},${b})`;
+      CARDS.effects.style.background = `rgb(${r},${g},${b})`;
     }
   }
 
@@ -968,8 +986,8 @@ function renderLoop() {
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
-  projCanvas.width  = w;
-  projCanvas.height = h;
+  projCanvas.width    = w;
+  projCanvas.height   = h;
   effectCanvas.width  = w;
   effectCanvas.height = h;
   const vh = h * 0.01;
@@ -984,9 +1002,7 @@ resize();
 // Boot
 // ------------------------------------------------------------------ //
 
-blinkScreen.style.display = "flex";
-showtime.style.display    = "none";
-
+setView("idle");
 connect();
 renderLoop();
 requestWakeLock();

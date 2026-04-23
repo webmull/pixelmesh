@@ -281,6 +281,12 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "mode", "mode": mode})
                     if detection_active and device_id not in positions:
                         await ws.send_json({"type": "detection_started"})
+                    elif device_id in positions:
+                        # Already calibrated — re-confirm position regardless of whether
+                        # detection is still active.  Belt-and-suspenders alongside the
+                        # calibrated:true flag already sent in the assigned message.
+                        pos = positions[device_id]
+                        await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
                     elif not detection_active:
                         # Detection ended while this phone was disconnected —
                         # send detection_ended so it exits PS.BLINKING cleanly.
@@ -385,8 +391,31 @@ async def detect(payload: dict):
                     await ws.send_json(msg)
                 except Exception:
                     pass
+            else:
+                # Re-confirm position to any phone that may have drifted out of
+                # PS.FOUND (e.g. after a game round reset it to PS.WAITING).
+                pos = positions[device_id]
+                try:
+                    await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
+                except Exception:
+                    pass
     else:
-        await broadcast({"type": "detection_ended"})
+        # Phones that were detected: re-confirm their position so any phone
+        # stuck in PS.BLINKING due to a lost update_position gets pushed to
+        # PS.FOUND instead of PS.MISSED.
+        # Phones that were never detected: send detection_ended so they flash red.
+        for device_id, ws in list(connections.items()):
+            if device_id in positions:
+                pos = positions[device_id]
+                try:
+                    await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
+                except Exception:
+                    pass
+            else:
+                try:
+                    await ws.send_json({"type": "detection_ended"})
+                except Exception:
+                    pass
     return {"ok": True}
 
 

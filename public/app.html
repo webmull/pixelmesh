@@ -30,15 +30,63 @@ html, body {
   user-select: none;
 }
 
-/* ---- Blink screen (detection mode) ---- */
-#blinkScreen {
+/* ---- Cards ---- */
+/* All cards are fixed full-screen. setView() shows one at a time via
+   inline style.display. The CSS here defines the "shown" display type
+   so removing the inline style reveals the card correctly. */
+
+#card-blink {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  transition: background 0ms linear;
+  /* display: block (default) */
+}
+
+#card-waiting {
+  position: fixed;
+  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 32px;
+  gap: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  background: #000;
+}
+
+#card-located {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: #000;
+  pointer-events: none;
+}
+
+#card-effects {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  /* display: block (default) */
+}
+
+#card-game {
   position: fixed;
   inset: 0;
   background: #000;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: background 0ms linear;
+  gap: 20px;
+  touch-action: none;
 }
 
 /* Small status pill — hidden */
@@ -46,17 +94,7 @@ html, body {
   display: none;
 }
 
-/* Position confirmed screen */
-#positionMap {
-  position: absolute;
-  inset: 0;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  pointer-events: none;
-}
+/* ---- Located card ---- */
 #positionCanvas { display: block; }
 #positionLabel {
   color: rgba(255,255,255,0.35);
@@ -65,28 +103,13 @@ html, body {
   text-transform: uppercase;
 }
 
-/* Waiting screen */
-#waitingMsg {
-  position: absolute;
-  inset: 0;
-  inset: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 24px 32px;
-  pointer-events: none;
-  gap: 0;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-}
-#waitingMsg .wm-headline {
+/* ---- Waiting card content ---- */
+.wm-headline {
   color: rgba(255,255,255,0.92);
   font: 600 28px -apple-system, system-ui, sans-serif;
   letter-spacing: -0.5px;
 }
-#waitingMsg .wm-sub {
+.wm-sub {
   margin-top: 10px;
   color: rgba(255,255,255,0.35);
   font: 13px -apple-system, system-ui, sans-serif;
@@ -94,7 +117,7 @@ html, body {
   flex-direction: column;
   gap: 4px;
 }
-#waitingMsg .wm-divider {
+.wm-divider {
   width: 70%;
   max-width: 280px;
   height: 1px;
@@ -189,14 +212,7 @@ html, body {
   100% { opacity: 0;   transform: translateY(-120px) translateX(var(--dx)) scale(0.5); }
 }
 
-/* ---- Showtime screen (effects) ---- */
-#showtime {
-  position: fixed;
-  inset: 0;
-  display: none;
-  background: #000;
-}
-
+/* ---- Effects card ---- */
 #projectionCanvas,
 #effectCanvas {
   position: absolute;
@@ -205,19 +221,7 @@ html, body {
   height: 100%;
 }
 
-/* ---- Bug Game overlay ---- */
-#gameOverlay {
-  position: fixed;
-  inset: 0;
-  background: #000;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  z-index: 100;
-  touch-action: none;
-}
+/* ---- Game card ---- */
 #gameBugWrap {
   cursor: pointer;
   padding: 30px;
@@ -285,20 +289,24 @@ html, body {
   flex-direction: column;
   align-items: center;
   gap: 12px;
+  background: radial-gradient(ellipse at center, rgba(255,180,0,0.12) 0%, transparent 70%);
+  border-radius: 24px;
+  padding: 28px 36px 20px;
 }
 #gameWinnerLabel {
-  color: rgba(255,255,255,0.5);
-  font: 500 14px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
+  color: rgba(255,195,0,0.75);
+  font: 700 12px -apple-system, system-ui, sans-serif;
+  letter-spacing: 3px;
   text-transform: uppercase;
 }
 #gameWinnerPhone {
-  color: #fff;
-  font: 700 40px -apple-system, system-ui, sans-serif;
+  color: #ffd740;
+  font: 800 48px -apple-system, system-ui, sans-serif;
+  text-shadow: 0 0 32px rgba(255,200,0,0.45);
 }
 #gameWinnerTime {
-  color: rgba(255,255,255,0.6);
-  font: 400 18px -apple-system, system-ui, sans-serif;
+  color: rgba(255,210,80,0.7);
+  font: 600 20px -apple-system, system-ui, sans-serif;
 }
 @keyframes winner-pop {
   0%   { transform: scale(0.6); opacity: 0; }
@@ -306,76 +314,87 @@ html, body {
   100% { transform: scale(1);   opacity: 1; }
 }
 #gameWinner.show { animation: winner-pop 0.4s ease forwards; }
-#gameMyResult {
-  display: none;
+
+/* Personal outcome banner — top of winner card */
+#gameMyBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+#gameMyBannerLabel {
+  font: 800 36px -apple-system, system-ui, sans-serif;
+  letter-spacing: -0.5px;
+  text-align: center;
+}
+#gameMyBannerTime {
+  font: 500 18px -apple-system, system-ui, sans-serif;
+  color: rgba(255,255,255,0.45);
+  min-height: 22px;
+}
+
+/* Separator between personal result and winner info */
+.winner-sep {
+  width: 60px;
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+  margin: 4px 0;
+}
+
+/* Winner section at bottom */
+#gameWinnerSection {
+  display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  margin-top: 4px;
   width: 100%;
-}
-#gameMyDivider {
-  width: 40px;
-  height: 1px;
-  background: rgba(255,255,255,0.15);
-  margin: 10px auto;
-}
-#gameMyLabel {
-  color: rgba(255,255,255,0.35);
-  font: 500 11px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-}
-#gameMyTime {
-  color: rgba(255,255,255,0.7);
-  font: 600 26px -apple-system, system-ui, sans-serif;
-}
-#gameMyDelta {
-  font: 400 13px -apple-system, system-ui, sans-serif;
-  color: rgba(255,255,255,0.35);
 }
 </style>
 </head>
 <body>
 
-<!-- Detection mode: full-screen blink panel -->
-<div id="blinkScreen">
-  <div id="positionMap">
-    <canvas id="positionCanvas"></canvas>
-    <div id="positionLabel">Located</div>
+<!-- Blink card: background colour only (idle / detection flash / red missed flash) -->
+<div id="card-blink" style="display:none"></div>
+
+<!-- Waiting card: "Get ready" -->
+<div id="card-waiting" style="display:none">
+  <div class="wm-headline">Get ready</div>
+  <div class="wm-sub">
+    <span>Point your screen at the stage when the show starts</span>
+    <span>Brightness to full · Turn off auto-lock</span>
   </div>
-  <div id="waitingMsg">
-    <div class="wm-headline">Get ready</div>
-    <div class="wm-sub">
-      <span>Point your screen at the stage when the show starts</span>
-      <span>Brightness to full · Turn off auto-lock</span>
-    </div>
-    <div class="wm-divider"></div>
-    <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
-    <div id="crowdMsg"></div>
-    <div class="wm-divider2"></div>
-    <button id="likeBtn" aria-label="Send a like">
-      <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-        <path fill="#ffffff" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
-      </svg>
-    </button>
-    <div id="likeCount"></div>
-    <div id="likeHint">tap to like</div>
-  </div>
-  <div id="statusPill">connecting…</div>
+  <div class="wm-divider"></div>
+  <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
+  <div id="crowdMsg"></div>
+  <div class="wm-divider2"></div>
+  <button id="likeBtn" aria-label="Send a like">
+    <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path fill="#ffffff" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
+    </svg>
+  </button>
+  <div id="likeCount"></div>
+  <div id="likeHint">tap to like</div>
+  <div id="statusPill"></div>
 </div>
 
-<!-- Showtime mode: effects -->
-<div id="showtime">
+<!-- Located card: position confirmed map -->
+<div id="card-located" style="display:none">
+  <canvas id="positionCanvas"></canvas>
+  <div id="positionLabel">Located</div>
+</div>
+
+<!-- Effects card: showtime -->
+<div id="card-effects" style="display:none">
   <canvas id="projectionCanvas"></canvas>
   <canvas id="effectCanvas"></canvas>
 </div>
 
-<!-- Bug game progress pill (shown on all phones during game) -->
+<!-- Game progress pill — floats above all cards -->
 <div id="gameProgress"></div>
 
-<!-- Bug game overlay -->
-<div id="gameOverlay">
+<!-- Game card: countdown / bug / winner -->
+<div id="card-game" style="display:none">
   <div id="countdownText"></div>
   <div id="gameBugWrap">
     <div id="bugHappy">
@@ -388,14 +407,18 @@ html, body {
   </div>
   <div id="gameResult"></div>
   <div id="gameWinner">
-    <div id="gameWinnerLabel">Winner</div>
-    <div id="gameWinnerPhone"></div>
-    <div id="gameWinnerTime"></div>
-    <div id="gameMyResult">
-      <div id="gameMyDivider"></div>
-      <div id="gameMyLabel">You</div>
-      <div id="gameMyTime"></div>
-      <div id="gameMyDelta"></div>
+    <!-- Personal outcome — prominent, shown at top -->
+    <div id="gameMyBanner">
+      <div id="gameMyBannerLabel"></div>
+      <div id="gameMyBannerTime"></div>
+    </div>
+    <!-- Separator -->
+    <div class="winner-sep"></div>
+    <!-- Winner announcement -->
+    <div id="gameWinnerSection">
+      <div id="gameWinnerLabel">Winner</div>
+      <div id="gameWinnerPhone"></div>
+      <div id="gameWinnerTime"></div>
     </div>
   </div>
 </div>
