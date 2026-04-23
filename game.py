@@ -160,7 +160,7 @@ async def game_start_endpoint(payload: dict):
     game_active  = True
     game_results = {}
     _current_idx = -1
-    await _advance(0)
+    asyncio.create_task(_advance(0))
     return {"ok": True}
 
 
