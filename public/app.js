@@ -223,6 +223,17 @@ let effectB2       = 0;
 let effectSplit    = 0.5;
 let effectPath     = [];   // snake: ordered blink_ids (nearest-neighbour path)
 
+// ---- Bug game ----
+let gameShowAt  = 0;    // server-time ms when bug should appear for this phone
+let gameSlotMs  = 5000;
+let gameTapped  = false;
+let gameTimer   = null;
+const gameOverlay = document.getElementById("gameOverlay");
+const bugHappy    = document.getElementById("bugHappy");
+const bugScared   = document.getElementById("bugScared");
+const gamePrompt  = document.getElementById("gamePrompt");
+const gameResult  = document.getElementById("gameResult");
+
 let ws              = null;
 let reconnectDelay  = 500;
 let connectWatchdog = null;
@@ -278,7 +289,7 @@ function _sendSyncPing() {
 
 async function requestWakeLock() {
   try {
-    if ("wakeLock" in navigator) {
+    if ("wakeLock" in navigator && (!wakeLock || wakeLock.released)) {
       wakeLock = await navigator.wakeLock.request("screen");
     }
   } catch {}
@@ -361,6 +372,7 @@ function goBlack() {
   currentEffect = null;
   calibrated    = false;
   myBlinkPhases = [];
+  _hideGame();
   blinkScreen.style.background = "#000";
   showtime.style.background    = "#000";
   showtime.style.display       = "none";
@@ -497,10 +509,21 @@ function handleMessage(msg) {
     phoneState    = PS.WAITING;
     currentEffect = null;
     calibrated    = false;
+    _hideGame();
     waitingMsg.style.display = "flex";
     waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
     applyModeVisual();
     setStatus(myBlinkId !== null ? `ID ${myBlinkId + 1}` : "waiting…");
+    return;
+  }
+
+  if (msg.type === "game_start") {
+    gameShowAt = msg.start_at + msg.phone_index * msg.slot_ms;
+    gameSlotMs = msg.slot_ms;
+    gameTapped = false;
+    _hideGame();
+    const delay = gameShowAt - serverNow();
+    gameTimer = setTimeout(_showHappyBug, Math.max(0, delay));
     return;
   }
 }
@@ -518,6 +541,46 @@ function applyModeVisual() {
 
 function setStatus(text) {
   statusPill.textContent = text;
+}
+
+// ------------------------------------------------------------------ //
+// Bug game
+// ------------------------------------------------------------------ //
+
+function _showHappyBug() {
+  gameTapped = false;
+  bugHappy.style.display    = "block";
+  bugScared.style.display   = "none";
+  gamePrompt.textContent    = "TAP!";
+  gameResult.textContent    = "";
+  gameOverlay.style.display = "flex";
+  gameOverlay.addEventListener("pointerdown", _onGameTap);
+  gameTimer = setTimeout(_hideGame, gameSlotMs);
+}
+
+function _onGameTap(e) {
+  if (gameTapped) return;
+  gameTapped = true;
+  e.preventDefault();
+  gameOverlay.removeEventListener("pointerdown", _onGameTap);
+  clearTimeout(gameTimer);
+
+  const reaction_ms = Math.round(serverNow() - gameShowAt);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "game_tap", reaction_ms }));
+  }
+
+  bugHappy.style.display  = "none";
+  bugScared.style.display = "block";
+  gamePrompt.textContent  = "";
+  gameResult.textContent  = `${reaction_ms} ms`;
+  gameTimer = setTimeout(_hideGame, 2000);
+}
+
+function _hideGame() {
+  if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
+  gameOverlay.removeEventListener("pointerdown", _onGameTap);
+  gameOverlay.style.display = "none";
 }
 
 // ------------------------------------------------------------------ //

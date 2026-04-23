@@ -20,6 +20,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response as StarletteResponse
+import game
 
 _ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
 
@@ -67,6 +68,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
+app.include_router(game.router)
 
 # ------------------------------------------------------------------ #
 # Mode constants                                                       #
@@ -82,7 +84,7 @@ mode = MODE_WAITING
 def _build_id() -> str:
     h = hashlib.md5()
     base = os.path.join(os.path.dirname(__file__), "public")
-    # Only hash app.js — app.html is modified by run.sh cache-busting on every start
+    # Only hash app.js — changing app.js bumps BUILD_ID, triggering client reloads
     for fname in ("app.js",):
         try:
             with open(os.path.join(base, fname), "rb") as f:
@@ -98,6 +100,7 @@ current_effect_state: dict | None = None
 like_count: int    = 0
 like_enabled: bool = True
 _heart_dirty: bool  = False   # pending broadcast from tap accumulation
+
 
 # Whether the controller has actively started detection (distinct from mode).
 detection_active = False
@@ -118,6 +121,13 @@ sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset
 available_blinks = list(range(512))           # pool of unassigned blink IDs
 
 HEARTBEAT_TIMEOUT = 90   # seconds
+
+game.server_init(
+    blink_to_device   = lambda bid: blink_reverse.get(bid),
+    connections       = connections,
+    positions         = positions,
+    blink_assignments = blink_assignments,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -282,6 +292,10 @@ async def websocket_endpoint(ws: WebSocket):
                 if like_enabled:
                     like_count += 1
                     _heart_dirty = True
+
+            elif data.get("type") == "game_tap":
+                if device_id:
+                    game.handle_tap(device_id, data.get("reaction_ms", 0))
 
             elif data.get("type") == "ping":
                 if device_id:

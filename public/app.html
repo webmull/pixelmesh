@@ -185,6 +185,42 @@ html, body {
   width: 100%;
   height: 100%;
 }
+
+/* ---- Bug Game overlay ---- */
+#gameOverlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  z-index: 100;
+  touch-action: none;
+}
+#gameBugWrap img {
+  width: 180px;
+  height: auto;
+  pointer-events: none;
+  display: block;
+}
+#gamePrompt {
+  color: #fff;
+  font: 700 28px -apple-system, system-ui, sans-serif;
+  letter-spacing: 1px;
+}
+@keyframes bug-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-12px); }
+}
+#bugHappy img { animation: bug-bounce 0.6s ease-in-out infinite; }
+#bugScared { display: none; }
+
+#gameResult {
+  color: rgba(255,255,255,0.8);
+  font: 700 28px -apple-system, system-ui, sans-serif;
+}
 </style>
 </head>
 <body>
@@ -218,6 +254,20 @@ html, body {
   <canvas id="effectCanvas"></canvas>
 </div>
 
-<script src="/public/app.js?v=8f84f72461a644d7ac91b09ba89d8fc7"></script>
+<!-- Bug game overlay -->
+<div id="gameOverlay">
+  <div id="gameBugWrap">
+    <div id="bugHappy">
+      <img src="/public/assets/bug_happy.svg" alt="" draggable="false">
+    </div>
+    <div id="bugScared">
+      <img src="/public/assets/bug_scared.svg" alt="" draggable="false">
+    </div>
+    <div id="gamePrompt">TAP!</div>
+  </div>
+  <div id="gameResult"></div>
+</div>
+
+<script src="/public/app.js?v=__CACHE_BUST__"></script>
 </body>
 </html>
