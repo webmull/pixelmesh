@@ -159,6 +159,11 @@ async def _enable_sync():
         sync_active = True
         await broadcast({"type": "sync_start"})
 
+async def _stop_effects():
+    global current_effect_state
+    current_effect_state = None
+    await set_mode(MODE_WAITING)
+
 game.server_init(
     blink_to_device   = lambda bid: blink_reverse.get(bid),
     connections       = connections,
@@ -166,6 +171,7 @@ game.server_init(
     blink_assignments = blink_assignments,
     broadcast         = broadcast,
     enable_sync       = _enable_sync,
+    stop_effects      = _stop_effects,
 )
 
 
