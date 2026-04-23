@@ -726,7 +726,7 @@ function updateBlink() {
     }
 
     case PS.FOUND:
-      blinkScreen.style.background = "#000";
+      blinkScreen.style.background = "rgb(255, 100, 0)";
       waitingMsg.style.display = "none";
       break;
 
