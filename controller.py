@@ -1264,7 +1264,10 @@ def _detection_worker():
                 positions    = {}
                 for det in results:
                     # Dismiss decodes for IDs with no connected client.
-                    # Block until _valid_blink_ids is populated (first poll ≤ 2s).
+                    if det.blink_id not in _valid_blink_ids:
+                        # Phone may have connected since the last poll — refresh immediately
+                        # before discarding the decode result.
+                        _refresh_valid_blink_ids()
                     if det.blink_id not in _valid_blink_ids:
                         log.warning(f"[detect] rejected blink_id={det.blink_id} conf={det.confidence:.2f} valid={sorted(_valid_blink_ids)}")
                         detector.clear_id(det.blink_id)
@@ -1284,39 +1287,54 @@ def _detection_worker():
                     with state.lock:
                         state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
                     _detected_ids.add(det.blink_id)
-                    # Auto-stop when every connected client has been found
-                    if _valid_blink_ids and _detected_ids >= _valid_blink_ids:
-                        log.info("[detect] all clients found — auto-stopping detection")
-                        toggle_detection()
                     elapsed = time.time() - _detection_start_time
                     _log_timing(
                         f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
                         f"{det.confidence:>12.3f}"
                     )
+
+                # Post positions synchronously BEFORE signalling detection stop.
+                # Previously: toggle_detection() fired inside the loop (spawning an
+                # async /admin/detect thread), then positions were posted async after
+                # the loop.  The detect-stop request would often arrive at the server
+                # before the positions request, so the server sent detection_ended to
+                # the last-detected phone (not in positions yet) instead of
+                # update_position.  With the 0.3 s async timeout that position POST
+                # could also silently fail, leaving the phone blinking indefinitely
+                # while the controller showed it as located (local state was already set).
                 if positions:
-                    post_json_async("/admin/positions", {"positions": positions})
+                    post_json("/admin/positions", {"positions": positions}, timeout=1.0)
+
+                if _valid_blink_ids and _detected_ids >= _valid_blink_ids:
+                    log.info("[detect] all clients found — auto-stopping detection")
+                    toggle_detection()
         finally:
             _detect_queue.task_done()
 
 
-def poll_clients():
+def _refresh_valid_blink_ids():
+    """Fetch the current blink map and update _valid_blink_ids immediately."""
     global _valid_blink_ids
+    data = fetch_json("/admin/blink_map")
+    if data is None:
+        return
+    bmap = data.get("map", {})
+    new_ids = {int(bid) for bid in bmap}
+    if 511 in new_ids:
+        log.warning(f"[poll] blink_id 511 is assigned to a connected client: {bmap}")
+    if new_ids != _valid_blink_ids:
+        _valid_blink_ids = new_ids
+        with state.lock:
+            stale = [bid for bid in state.calibrated_positions if bid not in new_ids]
+            for bid in stale:
+                del state.calibrated_positions[bid]
+
+
+def poll_clients():
     while state.running:
         fetch_client_count(state)
-        data = fetch_json("/admin/blink_map")
-        if data is not None:
-            bmap = data.get("map", {})
-            new_ids = {int(bid) for bid in bmap}
-            if 511 in new_ids:
-                log.warning(f"[poll] blink_id 511 is assigned to a connected client: {bmap}")
-            if new_ids != _valid_blink_ids:
-                _valid_blink_ids = new_ids
-                # Prune positions for IDs that are no longer connected
-                with state.lock:
-                    stale = [bid for bid in state.calibrated_positions if bid not in new_ids]
-                    for bid in stale:
-                        del state.calibrated_positions[bid]
-        time.sleep(CLIENT_FETCH_SECS)
+        _refresh_valid_blink_ids()
+        time.sleep(1.0)
 
 
 def poll_sync_stats():

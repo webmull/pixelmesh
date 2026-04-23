@@ -194,7 +194,8 @@ async def game_results_endpoint():
     )
     for i, r in enumerate(rows):
         r["rank"] = i + 1
-    return {"results": rows, "active": game_active, "total": len(game_order)}
+    no_tap = [bid for bid in game_order if bid not in game_results]
+    return {"results": rows, "no_tap": no_tap, "active": game_active, "total": len(game_order)}
 
 
 @router.post("/admin/game/stop")
@@ -262,22 +263,28 @@ def _start_poll():
                 continue
             results = data.get("results", [])
             total   = data.get("total", 0)
-            _update_leaderboard(results, total)
+            no_tap  = data.get("no_tap", [])
+            _update_leaderboard(results, total, no_tap)
             if not data.get("active", True) or (total > 0 and len(results) >= total):
                 break
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def _update_leaderboard(results, total):
+def _update_leaderboard(results, total, no_tap=None):
     rows = []
     for r in results:
         rows.append(f"#{r['rank']}  Phone {r['blink_id'] + 1}   {r['reaction_ms']:.0f} ms")
+    if no_tap:
+        if rows:
+            rows.append("─" * 26)
+        for bid in no_tap:
+            rows.append(f"   Phone {bid + 1}   no tap")
     # Pad to keep the window height stable
     while len(rows) < 12:
         rows.append("")
     try:
         dpg.set_value("game_result_text",  "\n".join(rows[:12]))
-        dpg.set_value("game_status_text",  f"{len(results)}/{total} phones tapped")
+        dpg.set_value("game_status_text",  f"{len(results)}/{total} tapped")
     except Exception:
         pass
 

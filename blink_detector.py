@@ -351,6 +351,35 @@ class BlinkDetector:
                 self._diff_accum_count = 0
         # ---- end diff finder ----
 
+        # Evict stale non-decoded entries from _ever_active (and related caches).
+        # A sudden phone brightness change (auto-exposure, screen auto-brightness)
+        # spikes recent_std across many grid points simultaneously, flooding
+        # _ever_active with hundreds of new entries in a single frame.  Without
+        # eviction these points record history on every subsequent frame via the
+        # loop below — O(|ever_active|) Python appends per frame — and FPS never
+        # recovers because _ever_active only grows.
+        #
+        # Safe to evict: points that (a) have not been decoded, and (b) have been
+        # below gate for longer than one full decode cycle (13.2 s).  A phone that
+        # was genuinely blinking will come back above gate within the next cycle and
+        # re-enter _ever_active naturally.  Decoded points are never evicted.
+        _EVICT_EVERY = n * 4   # every ~6 s at 15 fps — amortises set comprehension
+        if self._std_buf_pos % _EVICT_EVERY == 0 and len(self._ever_active) > 0:
+            _stale_cutoff = CYCLE_LEN * PHASE_MS / 1000   # 13.2 s for default config
+            stale = {
+                i for i in self._ever_active
+                if self._points[i].decoded_id is None
+                and self._points[i].last_active_ts > 0
+                and (ts - self._points[i].last_active_ts) > _stale_cutoff
+            }
+            if stale:
+                self._ever_active   -= stale
+                self._diff_discovered -= stale
+                for i in stale:
+                    self._diff_centroids.pop(i, None)
+                    self._points[i].history.clear()
+                    self._points[i].decode_failures = 0
+
         # Only maintain decode history for points at or near an active phone.
         # Camera sensor noise typically produces std=0.003-0.009 across the whole frame,
         # causing all 25,920 grid points to record history with the old 0.003 gate.
