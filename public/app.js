@@ -239,6 +239,8 @@ const gameWinner     = document.getElementById("gameWinner");
 const gameWinnerPhone = document.getElementById("gameWinnerPhone");
 const gameWinnerTime  = document.getElementById("gameWinnerTime");
 const gameMyResult    = document.getElementById("gameMyResult");
+const gameMyTime      = document.getElementById("gameMyTime");
+const gameMyDelta     = document.getElementById("gameMyDelta");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -609,15 +611,21 @@ function _showWinner(msg) {
     gameWinnerTime.textContent  = "";
   }
   if (myReactionMs !== null) {
-    const diff = myReactionMs - (msg.reaction_ms ?? myReactionMs);
+    gameMyTime.textContent  = `${myReactionMs} ms`;
+    const winMs = msg.reaction_ms ?? myReactionMs;
+    const diff  = myReactionMs - winMs;
     if (diff === 0) {
-      gameMyResult.textContent = "You won!";
+      gameMyDelta.textContent = "fastest";
+      gameMyDelta.style.color = "rgba(255,255,255,0.6)";
     } else {
-      const sign = diff > 0 ? "+" : "";
-      gameMyResult.textContent = `Your time: ${myReactionMs} ms  (${sign}${diff} ms)`;
+      gameMyDelta.textContent = `+${diff} ms behind`;
+      gameMyDelta.style.color = diff < 200
+        ? "rgba(120,220,120,0.7)"   // close — green tint
+        : "rgba(255,255,255,0.35)";
     }
+    gameMyResult.style.display = "flex";
   } else {
-    gameMyResult.textContent = "";
+    gameMyResult.style.display = "none";
   }
   bugHappy.style.display  = "none";
   bugScared.style.display = "none";
@@ -635,7 +643,8 @@ function _hideGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
   gameOverlay.removeEventListener("pointerdown", _onGameTap);
   gameOverlay.style.display = "none";
-  gameWinner.style.display  = "none";
+  gameWinner.style.display   = "none";
+  gameMyResult.style.display = "none";
   gameWinner.classList.remove("show");
 }
 
