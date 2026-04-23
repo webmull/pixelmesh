@@ -483,6 +483,8 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "effect") {
+    _hideGame();
+    gameProgress.style.display = "none";
     phoneState     = PS.SHOWTIME;
     currentEffect  = msg.effect;
     effectStartTime = msg.start_time;

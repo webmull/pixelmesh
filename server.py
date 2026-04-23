@@ -466,6 +466,8 @@ async def heart_toggle():
 
 async def start_effect(effect_name: str, params: dict):
     global current_effect_state
+    if game.game_active:
+        await game.game_stop()
     await set_mode(MODE_SHOWTIME)
     msg = {
         "type":       "effect",
