@@ -533,8 +533,11 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "game_countdown") {
-    myReactionMs = null;
-    gameTapped   = false;
+    myReactionMs  = null;
+    gameTapped    = false;
+    phoneState    = PS.WAITING;
+    currentEffect = null;
+    applyModeVisual();
     _startCountdown(msg.start_at);
     return;
   }

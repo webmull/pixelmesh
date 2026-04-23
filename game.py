@@ -35,6 +35,7 @@ _positions         = None   # dict: device_uuid → {"u", "v"}
 _blink_assignments = None   # dict: device_uuid → blink_id
 _broadcast         = None   # coroutine: broadcast(msg) to all phones
 _enable_sync       = None   # coroutine: ensure clock sync is active
+_stop_effects      = None   # coroutine: clear effect state and go to WAITING
 
 _state            = None
 _set_status       = None
@@ -43,14 +44,15 @@ _fetch_json       = None
 _detection_order  = None   # ref to controller's _detection_order dict
 
 
-def server_init(blink_to_device, connections, positions, blink_assignments, broadcast, enable_sync):
-    global _blink_to_device, _connections, _positions, _blink_assignments, _broadcast, _enable_sync
+def server_init(blink_to_device, connections, positions, blink_assignments, broadcast, enable_sync, stop_effects):
+    global _blink_to_device, _connections, _positions, _blink_assignments, _broadcast, _enable_sync, _stop_effects
     _blink_to_device   = blink_to_device
     _connections       = connections
     _positions         = positions
     _blink_assignments = blink_assignments
     _broadcast         = broadcast
     _enable_sync       = enable_sync
+    _stop_effects      = stop_effects
 
 
 def init(state, set_status, post_json, fetch_json, detection_order):
@@ -170,6 +172,8 @@ async def game_start_endpoint(payload: dict):
 
 
 async def _countdown_then_advance():
+    if _stop_effects:
+        await _stop_effects()
     if _enable_sync:
         await _enable_sync()
     if _broadcast:
