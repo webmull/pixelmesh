@@ -221,6 +221,49 @@ html, body {
   color: rgba(255,255,255,0.8);
   font: 700 28px -apple-system, system-ui, sans-serif;
 }
+
+#gameProgress {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,255,255,0.12);
+  color: rgba(255,255,255,0.7);
+  font: 500 13px -apple-system, system-ui, sans-serif;
+  padding: 5px 14px;
+  border-radius: 20px;
+  pointer-events: none;
+  display: none;
+  z-index: 200;
+  white-space: nowrap;
+}
+
+#gameWinner {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+#gameWinnerLabel {
+  color: rgba(255,255,255,0.5);
+  font: 500 14px -apple-system, system-ui, sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+#gameWinnerPhone {
+  color: #fff;
+  font: 700 40px -apple-system, system-ui, sans-serif;
+}
+#gameWinnerTime {
+  color: rgba(255,255,255,0.6);
+  font: 400 18px -apple-system, system-ui, sans-serif;
+}
+@keyframes winner-pop {
+  0%   { transform: scale(0.6); opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+#gameWinner.show { animation: winner-pop 0.4s ease forwards; }
 </style>
 </head>
 <body>
@@ -254,6 +297,9 @@ html, body {
   <canvas id="effectCanvas"></canvas>
 </div>
 
+<!-- Bug game progress pill (shown on all phones during game) -->
+<div id="gameProgress"></div>
+
 <!-- Bug game overlay -->
 <div id="gameOverlay">
   <div id="gameBugWrap">
@@ -266,6 +312,11 @@ html, body {
     <div id="gamePrompt">TAP!</div>
   </div>
   <div id="gameResult"></div>
+  <div id="gameWinner">
+    <div id="gameWinnerLabel">Winner</div>
+    <div id="gameWinnerPhone"></div>
+    <div id="gameWinnerTime"></div>
+  </div>
 </div>
 
 <script src="/public/app.js?v=__CACHE_BUST__"></script>

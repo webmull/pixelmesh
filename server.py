@@ -122,12 +122,6 @@ available_blinks = list(range(512))           # pool of unassigned blink IDs
 
 HEARTBEAT_TIMEOUT = 90   # seconds
 
-game.server_init(
-    blink_to_device   = lambda bid: blink_reverse.get(bid),
-    connections       = connections,
-    positions         = positions,
-    blink_assignments = blink_assignments,
-)
 
 
 # ------------------------------------------------------------------ #
@@ -157,6 +151,15 @@ async def set_mode(new_mode: str):
 
 async def broadcast_count():
     await broadcast({"type": "crowd_count", "count": len(connections)})
+
+
+game.server_init(
+    blink_to_device   = lambda bid: blink_reverse.get(bid),
+    connections       = connections,
+    positions         = positions,
+    blink_assignments = blink_assignments,
+    broadcast         = broadcast,
+)
 
 
 async def cleanup_device(device_id: str):
@@ -295,7 +298,7 @@ async def websocket_endpoint(ws: WebSocket):
 
             elif data.get("type") == "game_tap":
                 if device_id:
-                    game.handle_tap(device_id, data.get("reaction_ms", 0))
+                    await game.handle_tap(device_id, data.get("reaction_ms", 0))
 
             elif data.get("type") == "ping":
                 if device_id:

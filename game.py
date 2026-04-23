@@ -15,6 +15,8 @@ Controller side:
     #                     game.build_window()
 """
 
+import asyncio
+import random
 import threading
 import time
 
@@ -31,6 +33,7 @@ _blink_to_device   = None   # callable: blink_id → device_uuid | None
 _connections       = None   # dict: device_uuid → WebSocket
 _positions         = None   # dict: device_uuid → {"u", "v"}
 _blink_assignments = None   # dict: device_uuid → blink_id
+_broadcast         = None   # coroutine: broadcast(msg) to all phones
 
 _state            = None
 _set_status       = None
@@ -39,12 +42,13 @@ _fetch_json       = None
 _detection_order  = None   # ref to controller's _detection_order dict
 
 
-def server_init(blink_to_device, connections, positions, blink_assignments):
-    global _blink_to_device, _connections, _positions, _blink_assignments
+def server_init(blink_to_device, connections, positions, blink_assignments, broadcast):
+    global _blink_to_device, _connections, _positions, _blink_assignments, _broadcast
     _blink_to_device   = blink_to_device
     _connections       = connections
     _positions         = positions
     _blink_assignments = blink_assignments
+    _broadcast         = broadcast
 
 
 def init(state, set_status, post_json, fetch_json, detection_order):
@@ -64,6 +68,84 @@ game_active:  bool             = False
 game_order:   list[int]        = []
 game_results: dict[int, float] = {}   # blink_id → reaction_ms
 game_slot_ms: int              = 5000
+_current_idx: int              = -1   # index of the phone currently active
+_timeout_task                  = None  # asyncio.Task for the current slot timeout
+
+
+# ------------------------------------------------------------------ #
+# Server — internal sequencing                                         #
+# ------------------------------------------------------------------ #
+
+async def _advance(idx: int):
+    """Show the bug on phone at game_order[idx], or end the game if past the last."""
+    global _current_idx, _timeout_task, game_active
+
+    # Cancel any running timeout from the previous slot
+    if _timeout_task and not _timeout_task.done():
+        _timeout_task.cancel()
+    _timeout_task = None
+
+    if idx >= len(game_order):
+        game_active = False
+        await _broadcast_winner()
+        return
+
+    _current_idx = idx
+    blink_id  = game_order[idx]
+    device_id = _blink_to_device(int(blink_id))
+
+    # Skip phones that aren't connected — advance immediately
+    if not device_id or device_id not in _connections:
+        await _advance(idx + 1)
+        return
+
+    # Random delay so the player can't anticipate the bug
+    delay_ms = random.randint(500, 2000)
+    show_at  = int(time.time() * 1000) + delay_ms
+
+    ws = _connections[device_id]
+    try:
+        await ws.send_json({
+            "type":    "game_show",
+            "show_at": show_at,
+            "slot_ms": game_slot_ms,
+        })
+    except Exception:
+        # Phone disconnected between the check and the send — skip it
+        await _advance(idx + 1)
+        return
+
+    await _broadcast_progress()
+
+    # Advance automatically if the phone doesn't tap within delay + slot_ms
+    _timeout_task = asyncio.create_task(_slot_timeout(idx, delay_ms))
+
+
+async def _slot_timeout(idx: int, delay_ms: int = 0):
+    """Fire after delay + slot_ms to move to the next phone if no tap arrived."""
+    await asyncio.sleep((delay_ms + game_slot_ms) / 1000)
+    if game_active and _current_idx == idx:
+        await _advance(idx + 1)
+
+
+async def _broadcast_progress():
+    if _broadcast is None:
+        return
+    tapped = len(game_results)
+    total  = len(game_order)
+    await _broadcast({"type": "game_progress", "tapped": tapped, "total": total})
+
+
+async def _broadcast_winner():
+    if _broadcast is None or not game_results:
+        await _broadcast({"type": "game_end"}) if _broadcast else None
+        return
+    winner_bid = min(game_results, key=game_results.get)
+    await _broadcast({
+        "type":        "game_winner",
+        "blink_id":    winner_bid,
+        "reaction_ms": round(game_results[winner_bid]),
+    })
 
 
 # ------------------------------------------------------------------ #
@@ -72,28 +154,14 @@ game_slot_ms: int              = 5000
 
 @router.post("/admin/game/start")
 async def game_start_endpoint(payload: dict):
-    global game_active, game_order, game_results, game_slot_ms
+    global game_active, game_order, game_results, game_slot_ms, _current_idx
     game_order   = payload.get("order", [])
     game_slot_ms = int(payload.get("slot_ms", 5000))
     game_active  = True
     game_results = {}
-
-    start_at = int(time.time() * 1000) + 2000   # 2 s buffer for all phones to receive
-    for idx, blink_id in enumerate(game_order):
-        device_id = _blink_to_device(int(blink_id))
-        if device_id and device_id in _connections:
-            ws = _connections[device_id]
-            try:
-                await ws.send_json({
-                    "type":        "game_start",
-                    "start_at":    start_at,
-                    "slot_ms":     game_slot_ms,
-                    "phone_index": idx,
-                })
-            except Exception:
-                pass
-
-    return {"ok": True, "start_at": start_at}
+    _current_idx = -1
+    await _advance(0)
+    return {"ok": True}
 
 
 @router.get("/admin/game/results")
@@ -109,22 +177,33 @@ async def game_results_endpoint():
 
 @router.post("/admin/game/stop")
 async def game_stop():
-    global game_active
+    global game_active, _timeout_task
     game_active = False
+    if _timeout_task and not _timeout_task.done():
+        _timeout_task.cancel()
+    _timeout_task = None
+    if _broadcast:
+        await _broadcast({"type": "game_end"})
     return {"ok": True}
 
 
-def handle_tap(device_id: str, reaction_ms: float):
-    """Called from the main WebSocket handler when a game_tap message arrives."""
+async def handle_tap(device_id: str, reaction_ms: float):
+    """Called (awaited) from the WS handler when a game_tap message arrives."""
     global game_active
     if not game_active:
         return
     blink_id = _blink_assignments.get(device_id)
-    if blink_id is not None and blink_id not in game_results:
-        game_results[blink_id] = float(reaction_ms)
-        # Auto-deactivate once every phone has tapped
-        if len(game_results) >= len(game_order) > 0:
-            game_active = False
+    if blink_id is None:
+        return
+    # Only accept a tap from the currently active phone
+    if _current_idx < 0 or _current_idx >= len(game_order):
+        return
+    if game_order[_current_idx] != blink_id:
+        return
+    if blink_id in game_results:
+        return
+    game_results[blink_id] = float(reaction_ms)
+    await _advance(_current_idx + 1)
 
 
 # ------------------------------------------------------------------ #

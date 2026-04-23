@@ -228,11 +228,15 @@ let gameShowAt  = 0;    // server-time ms when bug should appear for this phone
 let gameSlotMs  = 5000;
 let gameTapped  = false;
 let gameTimer   = null;
-const gameOverlay = document.getElementById("gameOverlay");
-const bugHappy    = document.getElementById("bugHappy");
-const bugScared   = document.getElementById("bugScared");
-const gamePrompt  = document.getElementById("gamePrompt");
-const gameResult  = document.getElementById("gameResult");
+const gameOverlay    = document.getElementById("gameOverlay");
+const gameProgress   = document.getElementById("gameProgress");
+const bugHappy       = document.getElementById("bugHappy");
+const bugScared      = document.getElementById("bugScared");
+const gamePrompt     = document.getElementById("gamePrompt");
+const gameResult     = document.getElementById("gameResult");
+const gameWinner     = document.getElementById("gameWinner");
+const gameWinnerPhone = document.getElementById("gameWinnerPhone");
+const gameWinnerTime  = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -373,6 +377,7 @@ function goBlack() {
   calibrated    = false;
   myBlinkPhases = [];
   _hideGame();
+  gameProgress.style.display = "none";
   blinkScreen.style.background = "#000";
   showtime.style.background    = "#000";
   showtime.style.display       = "none";
@@ -510,6 +515,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     _hideGame();
+    gameProgress.style.display = "none";
     waitingMsg.style.display = "flex";
     waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
     applyModeVisual();
@@ -517,13 +523,25 @@ function handleMessage(msg) {
     return;
   }
 
-  if (msg.type === "game_start") {
-    gameShowAt = msg.start_at + msg.phone_index * msg.slot_ms;
+  if (msg.type === "game_show") {
+    gameShowAt = msg.show_at;
     gameSlotMs = msg.slot_ms;
     gameTapped = false;
     _hideGame();
+    // show_at is server-time ms — delay accounts for any network lag
     const delay = gameShowAt - serverNow();
     gameTimer = setTimeout(_showHappyBug, Math.max(0, delay));
+    return;
+  }
+
+  if (msg.type === "game_progress") {
+    gameProgress.textContent  = `${msg.tapped} / ${msg.total} tapped`;
+    gameProgress.style.display = "block";
+    return;
+  }
+
+  if (msg.type === "game_winner" || msg.type === "game_end") {
+    _showWinner(msg);
     return;
   }
 }
@@ -577,10 +595,34 @@ function _onGameTap(e) {
   gameTimer = setTimeout(_hideGame, 2000);
 }
 
+function _showWinner(msg) {
+  _hideGame();
+  gameProgress.style.display = "none";
+  if (msg.blink_id !== undefined) {
+    gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
+    gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
+  } else {
+    gameWinnerPhone.textContent = "No taps recorded";
+    gameWinnerTime.textContent  = "";
+  }
+  bugHappy.style.display  = "none";
+  bugScared.style.display = "none";
+  gamePrompt.textContent  = "";
+  gameResult.textContent  = "";
+  gameWinner.style.display = "flex";
+  gameWinner.classList.remove("show");
+  void gameWinner.offsetWidth;   // force reflow so animation replays
+  gameWinner.classList.add("show");
+  gameOverlay.style.display = "flex";
+  gameTimer = setTimeout(_hideGame, 6000);
+}
+
 function _hideGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
   gameOverlay.removeEventListener("pointerdown", _onGameTap);
   gameOverlay.style.display = "none";
+  gameWinner.style.display  = "none";
+  gameWinner.classList.remove("show");
 }
 
 // ------------------------------------------------------------------ //
