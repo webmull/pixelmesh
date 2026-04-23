@@ -610,7 +610,6 @@ function _stopCountdown() {
   if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
   countdownText.classList.remove("pop");
   countdownText.textContent = "";
-  countdownText.style.display = "none";
 }
 
 function _showHappyBug() {
