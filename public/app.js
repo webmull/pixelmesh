@@ -533,6 +533,8 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "game_countdown") {
+    myReactionMs = null;
+    gameTapped   = false;
     _startCountdown(msg.start_at);
     return;
   }

@@ -68,8 +68,9 @@ game_active:  bool             = False
 game_order:   list[int]        = []
 game_results: dict[int, float] = {}   # blink_id → reaction_ms
 game_slot_ms: int              = 5000
-_current_idx: int              = -1   # index of the phone currently active
-_timeout_task                  = None  # asyncio.Task for the current slot timeout
+_current_idx:    int = -1    # index of the phone currently active
+_timeout_task        = None  # asyncio.Task for the current slot timeout
+_countdown_task      = None  # asyncio.Task for the pre-game countdown
 
 
 # ------------------------------------------------------------------ #
@@ -154,13 +155,15 @@ async def _broadcast_winner():
 
 @router.post("/admin/game/start")
 async def game_start_endpoint(payload: dict):
-    global game_active, game_order, game_results, game_slot_ms, _current_idx
+    global game_active, game_order, game_results, game_slot_ms, _current_idx, _countdown_task
+    if _countdown_task and not _countdown_task.done():
+        _countdown_task.cancel()
     game_order   = payload.get("order", [])
     game_slot_ms = int(payload.get("slot_ms", 5000))
     game_active  = True
     game_results = {}
     _current_idx = -1
-    asyncio.create_task(_countdown_then_advance())
+    _countdown_task = asyncio.create_task(_countdown_then_advance())
     return {"ok": True}
 
 
@@ -188,8 +191,11 @@ async def game_results_endpoint():
 
 @router.post("/admin/game/stop")
 async def game_stop():
-    global game_active, _timeout_task
+    global game_active, _timeout_task, _countdown_task
     game_active = False
+    if _countdown_task and not _countdown_task.done():
+        _countdown_task.cancel()
+    _countdown_task = None
     if _timeout_task and not _timeout_task.done():
         _timeout_task.cancel()
     _timeout_task = None
