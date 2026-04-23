@@ -281,6 +281,10 @@ async def websocket_endpoint(ws: WebSocket):
                     await ws.send_json({"type": "mode", "mode": mode})
                     if detection_active and device_id not in positions:
                         await ws.send_json({"type": "detection_started"})
+                    elif not detection_active:
+                        # Detection ended while this phone was disconnected —
+                        # send detection_ended so it exits PS.BLINKING cleanly.
+                        await ws.send_json({"type": "detection_ended"})
                 # MODE_WAITING: no message needed — client stays on idle screen
 
                 if sync_active:

@@ -420,7 +420,13 @@ function handleMessage(msg) {
     calibrated    = msg.calibrated === true;
     myBlinkPhases = encodeId(myBlinkId);
     blinkStartMs  = Date.now();
-    phoneState    = PS.WAITING;
+    if (calibrated) {
+      phoneState = PS.FOUND;
+      knownPositions[myBlinkId] = {u: myU, v: myV};
+      _drawPositionMap();
+    } else {
+      phoneState = PS.WAITING;
+    }
     setStatus(`ID ${myBlinkId + 1}`);
     return;
   }
