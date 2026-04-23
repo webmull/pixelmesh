@@ -286,6 +286,15 @@ async def websocket_endpoint(ws: WebSocket):
                 if sync_active:
                     await ws.send_json({"type": "sync_start"})
 
+                # Send current crowd map so late-joining phones see existing positions
+                crowd_map = {
+                    blink_assignments[dev]: {"u": p["u"], "v": p["v"]}
+                    for dev, p in positions.items()
+                    if dev in blink_assignments
+                }
+                if crowd_map:
+                    await ws.send_json({"type": "crowd_map", "positions": crowd_map})
+
             elif data.get("type") == "sync_ping":
                 if device_id:
                     last_seen[device_id] = time.time()
@@ -407,6 +416,14 @@ async def update_positions(payload: dict):
                 })
             except Exception:
                 pass
+
+        # Tell all phones where this device is on the grid
+        await broadcast({
+            "type":     "phone_located",
+            "blink_id": blink_id,
+            "u":        pos["u"],
+            "v":        pos["v"],
+        })
 
     return {"ok": True}
 
