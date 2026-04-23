@@ -169,6 +169,7 @@ async def game_start_endpoint(payload: dict):
 
 async def _countdown_then_advance():
     if _broadcast:
+        await _broadcast({"type": "sync_start"})
         await _broadcast({
             "type":     "game_countdown",
             "start_at": int(time.time() * 1000),
