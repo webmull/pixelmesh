@@ -639,7 +639,6 @@ function _showWinner(msg) {
   void gameWinner.offsetWidth;
   gameWinner.classList.add("show");
   gameOverlay.style.display = "flex";
-  gameTimer = setTimeout(_hideGame, 6000);
 }
 
 function _hideGame() {
