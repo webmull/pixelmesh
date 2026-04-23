@@ -399,7 +399,7 @@ function handleMessage(msg) {
     localStorage.setItem("pm_build_id", msg.build_id);
     if (stored !== null && stored !== msg.build_id) {
       document.body.style.transition = "background 0.15s";
-      document.body.style.background = "#fff";
+      document.body.style.background = "#00e676";
       setTimeout(() => location.reload(), 200);
       return;
     }
