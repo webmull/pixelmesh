@@ -218,7 +218,7 @@ def start_bug_game():
     # Use all detected phones in detection order (positions not required for this game)
     ordered = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
 
-    ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": 5000})
+    ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": 8000})
     if ok:
         _set_status(f"Bug game started — {len(ordered)} phones")
         dpg.configure_item("game_leaderboard_window", show=True)
