@@ -876,9 +876,6 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server,
                                indent=_PAD, width=-(_PAD + 1))
-                dpg.add_button(label="Save Report",
-                               callback=_save_report,
-                               indent=_PAD, width=-(_PAD + 1))
                 dpg.add_spacer(height=4)
                 dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
