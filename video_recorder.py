@@ -78,6 +78,7 @@ class VideoRecorder:
             except Exception as e:
                 log.warning(f"[rec] ffmpeg close error: {e}")
                 self._proc.kill()
+                self._proc.wait()   # reap zombie after forced kill
             self._proc = None
         path, self._path = self._path, ""
         return path
