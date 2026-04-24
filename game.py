@@ -129,6 +129,8 @@ async def _start_parallel_game():
     for blink_id in game_order:
         delay_ms = random.randint(0, max_delay_ms)
         task = asyncio.create_task(_show_bug(blink_id, delay_ms))
+        # Append immediately so game_start_endpoint's cancel loop covers tasks
+        # created before a rapid restart cancels this coroutine mid-loop.
         _phone_tasks.append(task)
 
     _end_task = asyncio.create_task(_game_end_timer())

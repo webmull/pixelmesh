@@ -105,6 +105,7 @@ class DebugCapture:
             except Exception as e:
                 log.warning(f"[debug] ffmpeg close error: {e}")
                 self._ffmpeg_proc.kill()
+                self._ffmpeg_proc.wait()   # reap zombie after forced kill
             self._ffmpeg_proc = None
         summary_path = os.path.join(self.run_dir, "summary.json")
         with open(summary_path, "w") as f:

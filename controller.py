@@ -1271,6 +1271,8 @@ def _detection_worker():
                     if det.blink_id not in _valid_blink_ids:
                         log.warning(f"[detect] rejected blink_id={det.blink_id} conf={det.confidence:.2f} valid={sorted(_valid_blink_ids)}")
                         detector.clear_id(det.blink_id)
+                        with state.lock:
+                            state.calibrated_positions.pop(det.blink_id, None)
                         continue
                     # Freeze position at first detection — centroid drifts as
                     # noise points accumulate the same decoded ID over time.
