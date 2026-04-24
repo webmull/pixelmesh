@@ -164,6 +164,10 @@ class BlinkDetector:
         self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
         self._last_evict_ts: float = 0.0               # wall-clock time of last eviction run
         self._locked_positions: dict[int, tuple[float, float]] = {}  # blink_id → (cx, cy) frozen at first decode
+        # Pre-allocated padded grayscale buffer — reused every frame to avoid
+        # the ~2MB allocation that np.pad issues on each call.
+        self._gray_pad:         np.ndarray | None = None
+        self._gray_pad_r:       int = -1   # radius used to size _gray_pad
         # Frame-diff state for diff-based phone finder
         self._diff_prev_gray:   np.ndarray | None = None
         self._diff_accum:       np.ndarray | None = None
@@ -193,6 +197,7 @@ class BlinkDetector:
         self._px_arr = np.array([pt.px for pt in self._points], dtype=np.int32)
         self._py_arr = np.array([pt.py for pt in self._points], dtype=np.int32)
         self._patch_idx = None   # force recompute (radius may differ)
+        self._gray_pad  = None   # reallocate on next frame (frame size changed)
         self._std_buf = None
         self._std_buf_pos = 0
         self._std_buf_count = 0
@@ -235,12 +240,18 @@ class BlinkDetector:
         #    reused every frame, replacing 25K Python slice ops with one gather.
         side      = 2 * r
         flat_size = side * side
-        # TODO PERF: pre-allocate gray_pad as a persistent (H+2r, W+2r) buffer and
-        #   fill in-place (interior copy + edge replication) instead of np.pad, which
-        #   allocates a new ~2MB array every frame.  Reset buffer in _rebuild_grid.
-        #   Measured saving: 0.13 ms/frame on detection thread. Risk: low — just
-        #   need to reset on frame-size change (already handled by _rebuild_grid).
-        gray_pad  = np.pad(gray, r, mode="edge")
+        # Pre-allocated padded buffer — allocated once per frame size / radius combo.
+        # Fills interior + edges in-place; avoids the ~2MB allocation np.pad issues
+        # every frame (measured saving: 0.13 ms/frame on M1 detection thread).
+        if self._gray_pad is None or self._gray_pad_r != r or self._gray_pad.shape != (h + 2*r, w + 2*r):
+            self._gray_pad   = np.empty((h + 2*r, w + 2*r), dtype=np.uint8)
+            self._gray_pad_r = r
+        gray_pad = self._gray_pad
+        gray_pad[r:r+h, r:r+w] = gray          # interior
+        gray_pad[:r,    r:r+w] = gray[0:1, :]  # top edge
+        gray_pad[r+h:,  r:r+w] = gray[-1:, :]  # bottom edge
+        gray_pad[:,  :r]        = gray_pad[:, r:r+1]   # left edge
+        gray_pad[:, r+w:]       = gray_pad[:, r+w-1:r+w]  # right edge
 
         if self._patch_idx is None or self._patch_idx_r != r:
             row_off = np.arange(side, dtype=np.int32)
