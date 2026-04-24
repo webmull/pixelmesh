@@ -80,6 +80,7 @@ likeBtn.addEventListener("pointerdown", (e) => {
 
 let _crowdCount = 0;
 let _msgIndex   = 0;
+let _msgDeck    = [];   // shuffled queue — exhausted before any message repeats
 let _msgTimer   = null;
 
 // Combined pool — functions require a crowd count, strings always show.
@@ -139,11 +140,18 @@ const _msgs = [
   `The inventor of the Pringles can is buried in one`,
 ];
 
-function _randOther(arr, current) {
-  if (arr.length <= 1) return 0;
-  let i;
-  do { i = Math.floor(Math.random() * arr.length); } while (i === current);
-  return i;
+function _shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function _eligibleIndices() {
+  return _crowdCount >= 1
+    ? _msgs.map((_, i) => i)
+    : _msgs.reduce((a, v, i) => (typeof v === 'string' ? [...a, i] : a), []);
 }
 
 function _renderMsg(idx) {
@@ -151,17 +159,19 @@ function _renderMsg(idx) {
   return typeof item === 'function' ? item(_crowdCount) : item;
 }
 
-function _rotateCrowdMsg() {
-  // When alone, skip crowd-count functions and pick only strings
-  if (_crowdCount < 1) {
-    let attempts = 0;
-    do {
-      _msgIndex = _randOther(_msgs, _msgIndex);
-      attempts++;
-    } while (typeof _msgs[_msgIndex] === 'function' && attempts < _msgs.length);
-  } else {
-    _msgIndex = _randOther(_msgs, _msgIndex);
+function _advanceMsgIndex() {
+  const eligible = _eligibleIndices();
+  // Drop any queued indices that are no longer eligible (e.g. crowd left)
+  _msgDeck = _msgDeck.filter(i => eligible.includes(i));
+  // Refill and shuffle when deck is exhausted, never repeat current
+  if (_msgDeck.length === 0) {
+    _msgDeck = _shuffle(eligible.filter(i => i !== _msgIndex));
   }
+  _msgIndex = _msgDeck.shift();
+}
+
+function _rotateCrowdMsg() {
+  _advanceMsgIndex();
   crowdMsg.textContent = _renderMsg(_msgIndex);
 }
 
@@ -173,7 +183,7 @@ function _setCrowdCount(n) {
 
 function _startMsgTimer() {
   if (_msgTimer) { crowdMsg.textContent = _renderMsg(_msgIndex); return; }
-  // Start at a random string entry so a fact shows immediately
+  // Start at a random string (fact) entry
   const stringIndices = _msgs.reduce((a, v, i) => (typeof v === 'string' ? [...a, i] : a), []);
   _msgIndex = stringIndices[Math.floor(Math.random() * stringIndices.length)];
   crowdMsg.textContent = _renderMsg(_msgIndex);
