@@ -512,6 +512,16 @@ async def sync(payload: dict):
     return {"ok": True}
 
 
+@app.get("/admin/show_stats")
+async def show_stats():
+    """Snapshot of session-level counters for the post-show report."""
+    return {
+        "like_count":       like_count,
+        "total_connected":  len(blink_assignments),
+        "detected":         len(positions),
+    }
+
+
 @app.post("/admin/reset")
 async def reset():
     global current_effect_state, detection_active, sync_active

@@ -51,6 +51,7 @@ import effects
 import game
 import elgato
 import midi
+import report
 
 # ------------------------------------------------------------------ #
 # Config
@@ -94,8 +95,9 @@ _EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attemp
 
 # Detection timing
 _detection_start_time: float = 0.0
-_detected_ids: set = set()          # blink_ids seen this detection session
-_detection_order: dict[int, int] = {}  # blink_id → found sequence number (1, 2, 3...)
+_detected_ids: set = set()                      # blink_ids seen this detection session
+_detection_order: dict[int, int] = {}           # blink_id → found sequence number (1, 2, 3...)
+_detection_timings: dict[int, tuple] = {}       # blink_id → (elapsed_s, confidence)
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 
@@ -643,12 +645,38 @@ def toggle_overlay_mode():
     set_status(f"Overlay: {mode}")
 
 
+def _save_report():
+    """Generate and save a post-show report, then open it. Safe to call with no data."""
+    global _detection_timings
+    if not _detected_ids and not game.game_order:
+        return   # nothing to report
+    try:
+        stats = fetch_json("/admin/show_stats") or {}
+        path  = report.generate(
+            detected_ids      = set(_detected_ids),
+            detection_timings = dict(_detection_timings),
+            detection_start   = _detection_start_time,
+            like_count        = stats.get("like_count", 0),
+            total_connected   = stats.get("total_connected", len(_detected_ids)),
+            game_results      = dict(game.game_results),
+            game_order        = list(game.game_order),
+        )
+        import subprocess
+        subprocess.Popen(["open", path])   # open in default text editor
+        set_status(f"Report saved → {_os.path.basename(path)}")
+        log.info(f"[report] saved → {path}")
+    except Exception as e:
+        log.warning(f"[report] failed: {e}")
+
+
 def reset_server():
-    global _detected_ids, _detection_start_time, _detection_order
+    global _detected_ids, _detection_start_time, _detection_order, _detection_timings
+    _save_report()
     post_json_async("/admin/reset", {})
     detector.reset()
     _detected_ids = set()
     _detection_order.clear()
+    _detection_timings = {}
     _detection_start_time = 0.0
     with state.lock:
         state.detecting = False
@@ -847,6 +875,9 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server,
+                               indent=_PAD, width=-(_PAD + 1))
+                dpg.add_button(label="Save Report",
+                               callback=_save_report,
                                indent=_PAD, width=-(_PAD + 1))
                 dpg.add_spacer(height=4)
                 dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
@@ -1290,6 +1321,7 @@ def _detection_worker():
                         state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
                     _detected_ids.add(det.blink_id)
                     elapsed = time.time() - _detection_start_time
+                    _detection_timings[det.blink_id] = (elapsed, det.confidence)
                     _log_timing(
                         f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
                         f"{det.confidence:>12.3f}"
