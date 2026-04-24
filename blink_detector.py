@@ -385,6 +385,8 @@ class BlinkDetector:
                     self._diff_centroids.pop(i, None)
                     self._points[i].history.clear()
                     self._points[i].decode_failures = 0
+                log.debug(f"[blink] evicted {len(stale)} stale pts from _ever_active "
+                          f"(remaining={len(self._ever_active)})")
 
         # Only maintain decode history for points at or near an active phone.
         # Camera sensor noise typically produces std=0.003-0.009 across the whole frame,
