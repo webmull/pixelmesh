@@ -135,6 +135,7 @@ Detection is started and stopped manually with `D` (or MIDI pad 8). The followin
 - **Auto-stops when all clients are found** — as soon as the last connected phone is detected, detection stops automatically. There is no need to stop it manually
 - **Positions persist across detection runs** — `calibrated_positions` is only cleared by an explicit **Reset** (`R` / K8), not by stopping and re-starting detection
 - **Identity preserved through reconnects** — if a phone briefly drops its WebSocket connection (iOS background, network blip), its blink ID and stored position are preserved. On reconnect it is immediately shown as located without re-blinking. Full cleanup only happens after 90s of no contact.
+- **Dead socket eviction** — if `update_position` or `detection_ended` fails to send (dead TCP not yet cleaned up by OS), `_drop_connection` is called immediately so the phone reconnects and receives the message on its next `hello`, rather than waiting for the heartbeat reaper.
 
 ---
 
@@ -151,7 +152,7 @@ Phones use a single-card view system. Exactly one card is shown at a time; `setV
 | `missed` | blink | 3 red flashes → black | Detection ended, this phone was not found |
 | `effects` | effects | Effect (wave, pulse, etc.) | Effect broadcast from controller |
 | `game` | game | Bug game UI | Game started by controller |
-| `game_wait` | blink | Black | Game active, not this phone's turn |
+| `game_wait` | blink | Black | Game active, waiting for this phone's bug to appear |
 
 A phone that is already calibrated (`calibrated=true` on reconnect, or has received `update_position`) ignores `detection_started` — it will not re-enter the blinking view even if the message arrives late due to a reconnect race.
 
@@ -207,13 +208,21 @@ The active effect is highlighted in orange in the sidebar.
 
 ## bug game
 
-A tap-reaction game launched from the controller sidebar. Phones are shown a bug one at a time in a random order; each player must tap before the slot expires. The leaderboard shows reaction times for tapped phones and marks no-tap phones explicitly.
+A tap-reaction game launched from the controller sidebar. All phones receive the bug at random private intervals within a 20-second round — each player's bug appears at a different, unpredictable moment. The first tap after the bug appears is recorded; the player with the lowest reaction time wins.
+
+- **Round length**: 20 seconds (hard wall-clock timer)
+- **Slot per phone**: 1.4 seconds to tap once the bug appears
+- **Timer bar**: a white strip at the top of the game screen drains over the full 20-second round, synced to server time — all phones show the same remaining time regardless of when their bug appeared
+- **Progress pill**: `X / Y tapped` floats above the game card, updated in real time
 
 The winner screen on each phone shows:
 - **YOU WIN** (gold) if this phone had the fastest reaction time
+- **IT'S A DRAW** (gold) if multiple phones tied on the same millisecond
 - **NOT THIS TIME** with the player's own time if they tapped but didn't win
-- **YOU MISSED IT** (red) if the slot expired without a tap
+- **YOU MISSED IT** (red) if the 1.4s slot expired without a tap
 - The winner's phone number and time is shown below in all cases
+
+The leaderboard in the controller shows reaction times ranked fastest-first, with no-tap phones listed below a separator.
 
 ---
 
