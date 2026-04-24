@@ -1,64 +1,30 @@
 # pixelmesh
 
-Audience device coordination using screen-blink detection. Each connected device is assigned a unique ID and identified by the camera via a Manchester-encoded blinking pattern — no QR codes, no GPS, no app install required.
+Audience device coordination using screen-blink detection. Each phone that opens the web app is assigned a unique ID and located by a camera pointed at the crowd — no QR codes, no GPS, no app install. Once found, every device renders light effects in perfect sync, turning the audience into a pixel display.
 
-Built for live events. Designed for Brighton Dome. Built and tested with the **Elgato Facecam 4K**.
-
----
-
-## how it works
-
-1. A device opens `https://join.pixelmesh.live` in their browser
-2. The server assigns it a unique **blink ID** (0–511)
-3. The device's screen blinks a Manchester-encoded pattern at 300ms per phase
-4. A camera pointed at the audience captures the screens
-5. The controller decodes each blinking screen and maps it to a position (u, v) in the room
-6. Once detected, devices switch to **showtime mode** and render effects in sync
+Built for live events. Designed for Brighton Dome. Tested with the **Elgato Facecam 4K**.
 
 ---
 
-## camera setup
+## quick start
 
-The camera **must** be on manual exposure before starting the controller.
-
-**Why auto-exposure breaks detection:** The blink signal is a screen switching between full-white and full-black at 300ms per phase. Auto-exposure sees a bright frame, reduces gain; sees a dark frame, increases gain — it tracks and cancels the blink. The resulting signal has a brightness range of ~0.28 instead of ~0.99. The decoder sees a near-flat signal and produces `empty_win` failures on every decode attempt. Detection stops working entirely.
-
-The Elgato Facecam 4K ignores both `CAP_PROP_AUTO_EXPOSURE` via OpenCV and `AVCaptureExposureModeLocked` via AVFoundation — the firmware runs its own internal AE loop regardless. **The only reliable fix is the Elgato Camera Hub app:**
-
-1. Open **Elgato Camera Hub**
-2. Disable **Auto Exposure**
-3. Set **ISO to 624**
-4. Leave shutter speed at whatever gives a stable 60fps in your venue lighting
-
-**Watchdog:** `elgato.py` connects to Camera Hub automatically via its local WebSocket API and monitors auto-exposure throughout the session. Camera Hub occasionally re-enables AE on its own; the watchdog forces it back off within 5 seconds. The **Camera Hub** section in the sidebar shows live connection status (`[ON]`/`[OFF]`), current AE state, and an ISO gain slider for live adjustment without switching apps.
-
-For other cameras that respect AVFoundation: `AVCaptureExposureModeLocked` is applied at startup and re-applied by a background monitor thread if fps drops below 8fps. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also issued as a fallback.
-
-**Signal quality indicator:** if signal range drops below 0.5, an amber dot appears on the HUD next to the fps counter. Causes: auto-exposure compressing amplitude, low phone screen brightness, or the ambient light sensor dimming the screen. Detection still works but takes longer — expect 25–35s instead of 13–15s. The amber dot only appears when phones are actively blinking; it does not trigger on ambient camera noise.
-
----
-
-## requirements
+**Requirements**
 
 - Python 3.10+
 - [ngrok](https://ngrok.com) account with a reserved domain (`join.pixelmesh.live`)
-- A wired webcam (USB-C recommended — built-in/Continuity Camera works but degrades signal quality). The controller auto-selects an Elgato Facecam 4K if present.
+- A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
 
 ```bash
 pip install -r requirements.txt
 ```
 
----
+**Run**
 
-## running
-
-The controller **must** be started via `run.sh` — it will not launch directly.
+The controller must be started via `run.sh` — it will not launch directly.
 
 ```bash
 ./run.sh
 ```
-
-Interactive menu:
 
 | Key | Action |
 |-----|--------|
@@ -67,216 +33,188 @@ Interactive menu:
 | `d` | Die — kill everything |
 | `q` | Quit |
 
-On first launch, everything starts automatically. Server and ngrok start in parallel; the controller waits up to 10s for the server's `/health` endpoint before launching.
+Server and ngrok start in parallel. The controller waits up to 10s for the server's `/health` endpoint before launching.
 
-Logs:
-
-| File | Contents |
-|------|----------|
-| `/tmp/pixelmesh-server.log` | FastAPI / uvicorn output — HTTP requests, WebSocket connects/disconnects, device assignments, effect broadcasts, errors |
-| `/tmp/pixelmesh-ngrok.log` | ngrok tunnel output — connection status, forwarding address, request logs |
-| `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
-| `debug/pixelmesh.log` | Blink detection diagnostics — camera open parameters, exposure lock status, per-frame gate/std stats, top active grid points, decode failures, effect triggers, UI errors. Appended across restarts. |
-| `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session. Records time-to-detect and confidence for each blink ID found. Also written to the active debug run folder if debug capture is on. |
-| `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Annotated camera view, started/stopped with `V`. Not committed to git. |
-
----
-
-## urls
+**URLs**
 
 | URL | Description |
 |-----|-------------|
-| `https://join.pixelmesh.live` | Client app — share this with the audience |
-| `http://localhost:8000/internal/dashboard` | Admin dashboard — camera stream preview, links to sim and client |
-| `http://localhost:8000/internal/sim` | Simulator — fake clients for testing (local only) |
-| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps, direct) |
+| `https://join.pixelmesh.live` | Audience URL — share this on screen |
+| `http://localhost:8000/internal/dashboard` | Admin dashboard |
+| `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
+| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
 
 ---
 
-## controller hotkeys
+## running a show
 
-| Key | Action |
-|-----|--------|
-| `D` | Toggle detection on/off |
-| `S` | Toggle clock sync |
-| `1`–`7` | Trigger effects (wave, gradient, binary wave, pulse, rainbow, colour flood, aurora) |
-| `R` | Reset server |
-| `Tab` | Toggle sidebar |
-| `G` | Start/stop debug capture (run saved as e.g. `debug/autumn-fox-42/`, last 15 kept) |
-| `V` | Start/stop video recording (saved to `debug/recordings/`) |
-| `O` | Toggle device ID overlays |
-| `P` | Toggle overlay mode — blink IDs or found order (1st, 2nd detected...) |
-| `Q` / `Esc` | Quit |
+### 1. camera setup
 
-## MIDI (Akai LPD8 mk2)
+The camera **must be on manual exposure** before starting detection.
 
-Connected automatically on startup if present.
+**Why auto-exposure breaks things:** The blink signal is a screen switching between full-white and full-black at 300ms per phase. Auto-exposure tracks and cancels the blink — the resulting signal has a brightness range of ~0.28 instead of ~0.99, producing `empty_win` failures on every decode attempt.
 
-**Pad 8 (top-right)** — Toggle detection on/off
+The Elgato Facecam 4K ignores both OpenCV and AVFoundation exposure locks — the firmware runs its own internal AE loop. **The only reliable fix is Elgato Camera Hub:**
 
-**Knobs**
+1. Open **Elgato Camera Hub**
+2. Disable **Auto Exposure**
+3. Set **ISO to 624**
+4. Leave shutter at whatever gives stable 60fps in your venue
 
-| Knob | CC | Action |
-|------|----|--------|
-| K1 | 70 | ISO gain (0–160) |
-| K2 | 71 | Video recording — turn up to start, back to zero to stop |
-| K3 | 72 | Device ID overlays — turn up to show, back to zero to hide |
-| K4 | 73 | Clock sync — turn up to enable, back to zero to disable |
-| K8 | 77 | Server reset — any value above zero triggers reset |
+**Watchdog:** `elgato.py` connects to Camera Hub via its local WebSocket API and monitors AE throughout the session. Camera Hub occasionally re-enables AE on its own — the watchdog forces it back off within 5 seconds. The sidebar shows live status, current AE state, and an ISO slider for live adjustment.
+
+For other cameras: `AVCaptureExposureModeLocked` is applied at startup and re-applied if fps drops below 8fps. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also set as fallback.
+
+**Signal quality:** if signal range drops below 0.5, an amber dot appears on the HUD. Detection still works but takes 25–35s instead of 13–15s. Causes: AE compressing amplitude, low phone brightness, or ambient light sensor dimming screens.
 
 ---
 
-## detection behaviour
+### 2. detection
 
-Detection is started and stopped manually with `D` (or MIDI pad 8). The following rules apply:
+Press **D** (or MIDI pad 8) to start detection. The camera decodes each blinking screen and maps it to a position in the room.
 
-- **Blocked if no clients are connected** — pressing `D` with nobody connected shows "No clients connected" and does nothing
-- **Partial re-detection** — phones already located keep their positions; only phones not yet found are asked to blink again. This means running detection a second time after a new device joins is safe — found phones are unaffected
-- **Auto-stops when all clients are found** — as soon as the last connected phone is detected, detection stops automatically. There is no need to stop it manually
-- **Positions persist across detection runs** — `calibrated_positions` is only cleared by an explicit **Reset** (`R` / K8), not by stopping and re-starting detection
-- **Identity preserved through reconnects** — if a phone briefly drops its WebSocket connection (iOS background, network blip), its blink ID and stored position are preserved. On reconnect it is immediately shown as located without re-blinking. Full cleanup only happens after 90s of no contact.
-- **Dead socket eviction** — if `update_position` or `detection_ended` fails to send (dead TCP not yet cleaned up by OS), `_drop_connection` is called immediately so the phone reconnects and receives the message on its next `hello`, rather than waiting for the heartbeat reaper.
+- **Blocked if nobody is connected** — `D` with no clients shows "No clients connected"
+- **Partial re-detection** — already-located phones keep their positions; only unfound phones are asked to blink again
+- **Auto-stops** when all connected phones are found
+- **Positions persist** across detection runs — only cleared by an explicit Reset (`R`)
+- **Identity preserved through reconnects** — brief WS drops (iOS background, network blip) preserve blink ID and position; the phone returns to located view immediately on reconnect. Full cleanup only after 90s of no contact
+- **Dead socket eviction** — if `update_position` fails on a stale TCP connection, `_drop_connection` fires immediately so the phone reconnects and receives the message on its next `hello`
 
----
-
-## device states
-
-Phones use a single-card view system. Exactly one card is shown at a time; `setView()` is the only point that changes the display.
-
-| View | Card | Screen | Trigger |
-|------|------|--------|---------|
-| `idle` | blink | Black | Initial load, disconnected, or server reset |
-| `waiting` | waiting | "Get ready" + like button | Connected, assigned, detection not yet started |
-| `blinking` | blink | White/black blink | Detection active and this phone not yet located |
-| `located` | located | Position map + crowd dots | Controller detected this phone |
-| `missed` | blink | 3 red flashes → black | Detection ended, this phone was not found |
-| `effects` | effects | Effect (wave, pulse, etc.) | Effect broadcast from controller |
-| `game` | game | Bug game UI | Game started by controller |
-| `game_wait` | blink | Black | Game active, waiting for this phone's bug to appear |
-
-A phone that is already calibrated (`calibrated=true` on reconnect, or has received `update_position`) ignores `detection_started` — it will not re-enter the blinking view even if the message arrives late due to a reconnect race.
-
-When `app.js` changes, clients reload immediately on reconnect — a server restart with no code changes produces the same hash and no reload.
+Expect 15–20s from a phone connecting to first detection at typical range. The HUD shows `camera fps / detection fps` when detection is active.
 
 ---
 
-## waiting screen
+### 3. effects
 
-When connected and waiting for the show to begin, devices display:
+Press keys 1–9 or use the sidebar to fire effects. Each effect has its own parameter dialog (`...` button) — changing a value immediately re-fires with the new settings. Effects are blocked until at least one phone has been detected.
 
-- **"Get ready"** headline with setup instructions
-- A pulsing dot + connected ID
-- Rotating crowd messages (solo messages when alone, crowd count messages once others join)
-- A like button (white thumbs-up, gently pulsing) — tap to add to the global like counter; flying thumbs-up SVGs animate across the screen
-- Like taps are batched server-side (max ~3 broadcasts/second) so 300 people tapping simultaneously won't flood WebSocket connections
-
-The screen requests a **Wake Lock** to prevent the phone sleeping. Brightness should be set to full.
-
----
-
-## effects
-
-Effects are launched from the controller sidebar (keys 1–7). Each effect stores its own parameters — the `...` button opens a settings dialog for that effect only. Changing a parameter immediately re-fires the effect with the new value. Effects are blocked if no clients have been detected.
-
-| Key | Effect | Description |
-|-----|--------|-------------|
-| `1` | Wave | Sine wave travelling across the audience |
-| `2` | Gradient | Scrolling brightness gradient |
-| `3` | Binary Wave | Hard on/off wave |
-| `4` | Pulse | Whole audience pulses to BPM |
-| `5` | Rainbow | Full spectrum hue sweep across the audience |
-| `6` | Colour Flood | Two colours flooding in from opposite sides |
-| `7` | Aurora | Teal-purple curtain bands drifting across the room |
-| `8` | Ripple | Concentric rings radiating outward from a point on the crowd edge |
-| `9` | Snake | Glowing head travels through phones via nearest-neighbour spatial path |
-
-| Effect | Parameters |
-|--------|-----------|
-| Wave | Colour A, Speed, Direction |
-| Gradient | Colour A, Speed, Direction |
-| Binary Wave | Colour A, Speed, Direction |
-| Pulse | Colour A, BPM |
-| Rainbow | Speed, Direction |
-| Colour Flood | Colour A, Colour B, Split, Speed, Direction |
-| Aurora | Speed |
-| Ripple | Colour, Origin angle, Speed, Frequency |
-| Snake | Colour, Speed, Tail length |
+| Key | Effect | Parameters |
+|-----|--------|------------|
+| `1` | Wave | Colour, Speed, Direction |
+| `2` | Gradient | Colour, Speed, Direction |
+| `3` | Binary Wave | Colour, Speed, Direction |
+| `4` | Pulse | Colour, BPM |
+| `5` | Rainbow | Speed, Direction |
+| `6` | Colour Flood | Colour A, Colour B, Split, Speed, Direction |
+| `7` | Aurora | Speed |
+| `8` | Ripple | Colour, Origin angle, Speed, Frequency |
+| `9` | Snake | Colour, Speed, Tail length |
 
 The active effect is highlighted in orange in the sidebar.
 
 ---
 
-## bug game
+### 4. bug game
 
-A tap-reaction game launched from the controller sidebar. All phones receive the bug at random private intervals within a 20-second round — each player's bug appears at a different, unpredictable moment. The first tap after the bug appears is recorded; the player with the lowest reaction time wins.
+A tap-reaction game. All phones receive a bug at random private intervals within a 20-second round — each player's bug appears at an unpredictable moment. Lowest reaction time wins.
 
-- **Round length**: 20 seconds (hard wall-clock timer)
-- **Slot per phone**: 1.4 seconds to tap once the bug appears
-- **Timer bar**: a white strip at the top of the game screen drains over the full 20-second round, synced to server time — all phones show the same remaining time regardless of when their bug appeared
-- **Progress pill**: `X / Y tapped` floats above the game card, updated in real time
+- **Round**: 20 seconds, hard wall-clock timer
+- **Slot**: 1.4 seconds to tap once the bug appears
+- **Timer bar**: drains over the full 20s, synced to server time — all phones show the same remaining time regardless of when their bug appeared
+- **Progress pill**: `X / Y tapped` shown live on every device
 
-The winner screen on each phone shows:
-- **YOU WIN** (gold) if this phone had the fastest reaction time
-- **IT'S A DRAW** (gold) if multiple phones tied on the same millisecond
-- **NOT THIS TIME** with the player's own time if they tapped but didn't win
-- **YOU MISSED IT** (red) if the 1.4s slot expired without a tap
-- The winner's phone number and time is shown below in all cases
+**Winner screen outcomes:**
 
-The leaderboard in the controller shows reaction times ranked fastest-first, with no-tap phones listed below a separator.
+| Result | Display |
+|--------|---------|
+| Fastest tap | **YOU WIN** in gold |
+| Tied fastest | **IT'S A DRAW** in gold |
+| Tapped but not fastest | **NOT THIS TIME** with your time |
+| Missed the slot | **YOU MISSED IT** in red |
 
----
+Winner's phone number and time shown below in all cases. The controller leaderboard shows all reaction times ranked fastest-first, with no-tap phones listed below a separator.
 
-## simulator
-
-`/internal/sim` spawns N fake clients in the browser. Simulator cells only flash white/black during detection mode — they go black in showtime or when detection ends, so they don't interfere with effect testing.
+Launch from the sidebar: **Start Bug Game**. The leaderboard window opens automatically.
 
 ---
 
-## auto-reload
+### 5. likes
 
-The server hashes `app.js` at startup into a `BUILD_ID`. On every request for the client page, the server injects this hash into the `<script>` tag so the browser always fetches the correct version. On connect, `BUILD_ID` is sent to the client via `server_hello`. If the stored ID differs, the client flashes green and reloads immediately.
+A global like counter on the waiting screen. Tap the thumbs-up to add to it — flying heart animations play locally. Taps are batched server-side at ~3 broadcasts/second so simultaneous taps from 300 people don't flood connections.
 
-- A server restart with no code changes produces the same hash — no reload triggered
-- Deploying new `app.js` and restarting the server produces a new hash — all connected clients reload automatically within seconds
-
----
-
-## likes
-
-A global like counter is shown on the waiting screen. Tapping the like button:
-- Sends a `like_tap` WebSocket message to the server
-- Increments a global counter
-- Broadcasts the new count to all connected clients (batched at ~3/s)
-- Triggers a local flying thumbs-up SVG animation
-
-Controller sidebar controls:
-- **Reset Like Counter** — zeros the global count and broadcasts to all clients
-- **Enable/Disable Likes** — gates whether taps are counted server-side
+**Sidebar controls:** Reset Like Counter · Enable/Disable Likes
 
 ---
 
-## debug capture
+### controller hotkeys
 
-Press **G** to start/stop a debug run. Each run creates a friendly-named folder under `debug/` (e.g. `autumn-fox-42`). The name is shown bottom-right on the camera feed while active. Old runs are pruned automatically — only the last 15 are kept.
+| Key | Action |
+|-----|--------|
+| `D` | Toggle detection |
+| `S` | Toggle clock sync |
+| `1`–`9` | Fire effects |
+| `R` | Reset server |
+| `Tab` | Toggle sidebar |
+| `G` | Start/stop debug capture |
+| `V` | Start/stop video recording |
+| `O` | Toggle device ID overlays |
+| `P` | Toggle overlay mode (blink IDs / found order) |
+| `Q` / `Esc` | Quit |
 
-```
-debug/autumn-fox-42/
-  run.mp4             ← full-speed H.264 video of the annotated camera view
-  calibration.log     ← copy of the calibration log for this session (if detection ran)
-  summary.json        ← per-frame detection summary
-  frames/
-    0000_raw.jpg      ← downscaled camera frame
-    0000_gray.jpg     ← grayscale used for detection
-    0000_contrast.jpg ← per-point variance heatmap
-    0000_overlay.jpg  ← annotated overlay (throttled)
-    0000.json         ← grid point brightness data
-```
+### MIDI (Akai LPD8 mk2)
 
-Video is encoded via ffmpeg pipe in real-time — no post-processing delay.
+Connected automatically on startup if present.
+
+**Pad 8** — Toggle detection
+
+| Knob | CC | Action |
+|------|----|--------|
+| K1 | 70 | ISO gain (0–160) |
+| K2 | 71 | Video recording — turn up to start, back to stop |
+| K3 | 72 | Device ID overlays — turn up to show |
+| K4 | 73 | Clock sync — turn up to enable |
+| K8 | 77 | Server reset |
 
 ---
 
-## architecture
+## client experience
+
+### screens
+
+Phones cycle through these views as the show progresses:
+
+| View | Shown when | What the audience sees |
+|------|-----------|------------------------|
+| `idle` | Disconnected / server reset | Black screen |
+| `waiting` | Connected, show not started | "Get ready" + like button |
+| `blinking` | Detection active, not yet found | White/black blink pattern |
+| `located` | Position confirmed | Map showing their spot in the crowd |
+| `missed` | Detection ended, not found | 3 red flashes → black |
+| `effects` | Showtime | Synchronised light effect |
+| `game_wait` | Game active, bug not yet appeared | Black screen |
+| `game` | Bug game (countdown / tap / result) | Bug game UI |
+
+Each card is a fixed full-screen div. `setView()` is the only point that changes the display — cards are shown/hidden via `style.display`, never via CSS class toggles.
+
+---
+
+### waiting screen
+
+Displayed when connected and waiting for the show:
+
+- **"Get ready"** headline + brightness/auto-lock reminder
+- Pulsing dot with assigned phone number
+- Rotating crowd messages — solo messages when alone, crowd-count messages once others join
+- **Like button** — tap to add to the global count; flying heart SVGs animate across the screen
+- **Wake Lock** requested to prevent the phone sleeping
+
+---
+
+### located screen
+
+Shown once the camera has confirmed the phone's position:
+
+- **"Found you!"** with "Here's your position in the crowd" subtitle
+- A position map — white dots for other detected phones, large animated green dot for this phone
+- **"You're all set · Hold your screen up when the show begins"**
+- **"Brightness to full · Turn off auto-lock"** reminder
+- The green dot pulses at 2Hz using a `requestAnimationFrame` loop synced to the visibility API — it restarts automatically if the screen wakes from sleep
+
+---
+
+## internals
+
+### architecture
 
 ```
 browser clients  ──WS──►  server.py (FastAPI)
@@ -293,7 +231,7 @@ browser clients  ──WS──►  server.py (FastAPI)
                                   (Manchester codec)
 ```
 
-The display thread and detection thread run independently. Frames are passed via a `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
+The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
 
 | File | Role |
 |------|------|
@@ -302,6 +240,7 @@ The display thread and detection thread run independently. Frames are passed via
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
+| `game.py` | Bug game — server routes, parallel scheduling, controller UI and leaderboard |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
 | `network.py` | HTTP helpers for controller → server calls |
@@ -309,13 +248,12 @@ The display thread and detection thread run independently. Frames are passed via
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
-| `game.py` | Bug game — server routes, sequencing, controller UI and leaderboard |
-| `public/app.js` | Client-side blink renderer + effect engine + waiting screen + game UI |
+| `public/app.js` | Client-side blink renderer, effect engine, waiting/located/game UI |
 | `public/sim.js` | Browser simulator (N fake clients) |
 
 ---
 
-## signal encoding
+### signal encoding
 
 Each device blinks one full cycle continuously:
 
@@ -323,77 +261,118 @@ Each device blinks one full cycle continuously:
 [ 4 dark guard phases ]  [ Manchester(start + ID + ID + end) ]
 ```
 
-- **PHASE_MS** `300ms` — duration of each screen phase
-- **NUM_BITS** `9` — supports IDs 0–511
-- **Cycle length** `44 phases × 300ms = 13.2s`
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `PHASE_MS` | 300ms | Duration of each screen phase |
+| `NUM_BITS` | 9 | Supports IDs 0–511 |
+| Cycle length | 13.2s | 44 phases × 300ms |
+
 - Manchester: bit `1` → `[bright, dark]`, bit `0` → `[dark, bright]`
-- ID is transmitted twice per cycle — up to 1 bit error corrected via majority vote
+- ID transmitted twice per cycle — up to 1 bit error corrected via majority vote
+- Detection uses actual frame timestamps + known `PHASE_MS` as ground truth — immune to variable camera fps
+- Anchor computed from the end of the guard run so phones arriving mid-cycle are decoded correctly
 
-Detection uses actual frame timestamps + known `PHASE_MS` as ground truth — immune to variable camera fps. Anchor is computed from the end of the guard run (not the start) so phones that arrive mid-cycle are decoded correctly.
+**Warmup:** the decoder needs a brightness history spanning at least one full cycle (13.2s) before attempting a decode. Expect 15–20s from connection to first detection.
 
-**Detection warmup**: the decoder requires a brightness history spanning at least one full cycle (13.2s) before it can attempt a decode. In practice, expect 15–20s from connection to first detection. At a live event with 300 phones joining over a few minutes, staggered arrival means most phones will be detected within 20s of connecting.
-
-**Minimum camera fps**: the decoder needs at least ~10 fps to reliably sample 300ms phases (≥3 samples/phase). The camera is locked to manual exposure via AVFoundation on open to prevent it from slowing to 2–4 fps in dark rooms.
-
-**Adaptive normalisation**: `hi` used for brightness normalisation is taken from the most recent one-cycle window (13.2s) rather than the all-time max. This prevents phone screen auto-dimming (ambient light sensor can reduce brightness by 4–5×) from pushing bright phases below the detection threshold.
-
-**Burst frame guard**: cameras sometimes deliver several frames in rapid succession with nearly identical timestamps. The guard detection accepts a dark run if either its time span is sufficient OR its sample count meets `NUM_GUARD` — so burst deliveries are decoded correctly regardless of timestamp spread.
+**Minimum fps:** ~10fps to reliably sample 300ms phases (≥3 samples/phase).
 
 ---
 
-## tuning
+### tuning
 
 Key parameters in `blink_detector.py`:
 
 | Parameter | Default | Notes |
 |-----------|---------|-------|
-| `grid_step` | `8px` | Distance between sample points. At step=8 the farthest any pixel can be from the nearest grid centre is ~5.7px — a phone just 3px wide always overlaps a patch. Covers phones at 25–30m at 1080p. |
-| `sample_radius` | `4px` | Patch radius — 8×8=64px per point. Chosen to keep the 25,920×64 sampling matrix at 1.66MB, fitting inside L2/L3 cache on M1. r=6 (3.7MB) spills to RAM and makes `np.partition` 10× slower. |
-| `brightness_pct` | `3` | Percentile used when sampling a patch. The ~2.8th percentile (k=1 of 64) catches even a single dark phone pixel during the dark phase. |
-| `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Uses asymmetric EMA (α=0.4 up, α=0.05 down) so a brightness spike raises the gate within 2–3 frames, limiting noise-point flooding. |
-| `recent_n` | `24` | Samples in recent window (~0.4s at 60fps) |
-| `history_seconds` | `30.0` | Rolling brightness history per point (≥ 2 full cycles) |
-| `decode_interval` | `0.2s` | Time between decode attempts per point (only applies to undiscovered phones) |
+| `grid_step` | 8px | Distance between sample points. At step=8 a phone just 3px wide always overlaps a patch. Covers phones at 25–30m at 1080p. |
+| `sample_radius` | 4px | Patch radius — 8×8=64px per point. Keeps the sampling matrix at 1.66MB, fitting inside L2/L3 cache on M1. r=6 (3.7MB) spills to RAM and makes `np.partition` 10× slower. |
+| `brightness_pct` | 3 | Percentile used when sampling a patch. The ~2.8th percentile catches even a single dark pixel during the dark phase. |
+| `min_recent_std` | adaptive | Auto-tuned to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Asymmetric EMA (α=0.4 up, α=0.05 down) — a brightness spike raises the gate within 2–3 frames. |
+| `recent_n` | 24 | Samples in recent window (~0.4s at 60fps) |
+| `history_seconds` | 30.0 | Rolling brightness history per point (≥2 full cycles) |
+| `decode_interval` | 0.2s | Time between decode attempts per point (undiscovered phones only) |
 
-**Decode backoff**: grid points that fail to decode back off exponentially — retry interval is `min(decode_interval × 2^failures, 5.0s)`. The failure counter resets to zero on a successful decode.
+**Notable behaviours:**
 
-**Stream display gate**: the binary stream overlay is only shown once a point has been active for at least 4 seconds AND has fewer than 6 consecutive decode failures. Real phones decode within ~26s; noise accumulates failures indefinitely.
-
-**Phantom ID suppression**: any two IDs whose centroids are within 120px of each other are deduplicated — the lower-confidence one is dropped. Prevents a single phone from reporting two IDs due to symmetric Manchester patterns.
-
-**Guard-phase decode extension**: after the main decode loop, the detector also tries points in `_ever_active` whose std has dropped below gate within the last 1.8s — recovering phones whose guard phase coincided with their warmup threshold crossing.
-
-**Backward-scan decoder**: when a phone starts blinking before detection begins, the guard phase of its first complete cycle lands near the end of the history window. After failing to find enough forward data, the decoder anchors from the guard start and scans pre-guard history. Confidence is penalised 5% per assumed bit.
-
-**Stale-entry eviction**: non-decoded entries in `_ever_active` that have been below gate for more than 13.2s are evicted every 3 seconds (wall-clock, not frame-count). This ensures FPS recovery after a brightness change is not throttled by degraded detection fps. Eviction events are logged at DEBUG level: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
+- **Decode backoff** — failed points retry at `min(interval × 2^failures, 5s)`. Counter resets on success.
+- **Stream display gate** — binary stream overlay only shown once a point has been active ≥4s with fewer than 6 consecutive failures.
+- **Phantom ID suppression** — two IDs within 120px are deduplicated; lower-confidence one is dropped.
+- **Backward-scan decoder** — phones that started blinking before detection began are decoded from pre-guard history. Confidence penalised 5% per assumed bit.
+- **Stale-entry eviction** — entries below gate for >13.2s are evicted every 3 seconds (wall-clock). Logged at DEBUG: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
+- **Guard-phase extension** — after the main decode loop, points in `_ever_active` whose std has just dropped below gate are retried, recovering phones whose guard phase coincided with their warmup threshold crossing.
 
 ---
 
-## performance
+### performance
 
-The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both when detection is active: `60 / 48 fps`. A green dot indicates detection is running; grey means idle.
+**Tested on Apple M1 Pro, 16GB RAM.** Display thread runs at ~60fps; detection thread at ~50fps. HUD shows `camera fps / detection fps` during detection.
 
-**Tested hardware: Apple M1 Pro, 16GB RAM**
-
-The bottleneck at 300+ phones is not compute — it is the 13.2s warmup cycle each phone must complete before its first decode attempt.
+The bottleneck at 300+ phones is not compute — it is the 13.2s warmup each phone must complete before its first decode attempt.
 
 Key optimisations:
 
-- **Threaded detection**: frames passed via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the display loop continues immediately
-- **Time-budget decode cap**: decode attempts run until a 50ms wall-clock budget is exhausted, not a fixed count
-- **Early-exit decoder**: exits as soon as confidence ≥ 0.95 — giving ~7× speedup per decode with clean signal
-- **No re-decode of found phones**: once a phone's ID is known it is skipped entirely
-- **Cache-friendly patch size**: `sample_radius=4` keeps the sampling matrix at 1.66MB (fits L2/L3 cache)
-- **Vectorised std**: single `np.std(buf, axis=1)` over an `(N, recent_n)` circular buffer
-- **Precomputed flat indices**: patch sampling is one numpy gather per frame, no per-point slicing
-- **Vectorised decoder window scans**: numpy boolean indexing releases the GIL, running ~10–20× faster than Python list comprehensions
-- **Gated history recording**: `add_sample` only called for points with std ≥ gate or in `_ever_active`
-- **Pre-allocated texture buffer**: persistent `(H, W, 4)` float32 buffer eliminates a 14MB/frame allocation
-- **Conditional heatmap**: variance heatmap only built when debug capture is active
-- **Batched like broadcasts**: like taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms
+| Optimisation | Impact |
+|---|---|
+| `Queue(maxsize=1)` frame drop | Display loop never blocked by detector |
+| 50ms wall-clock decode budget | Prevents per-frame overrun regardless of phone count |
+| Early-exit decoder at confidence ≥0.95 | ~7× speedup per decode with clean signal |
+| No re-decode of found phones | Zero cost per frame once located |
+| `sample_radius=4` — 1.66MB matrix | Fits L2/L3 cache; avoids RAM latency |
+| `np.std` over circular buffer | Single vectorised call, GIL released |
+| Precomputed flat patch indices | One numpy gather per frame, no per-point slicing |
+| Gated history recording | `add_sample` only called for active/gate-crossing points |
+| Pre-allocated texture buffer | Eliminates 14MB/frame allocation |
+| Batched like broadcasts | ~3/s cap prevents O(clients²) WebSocket storms |
+
+---
+
+### auto-reload
+
+The server hashes `app.js` at startup into a `BUILD_ID` injected into every page response. On connect, `server_hello` sends the current `BUILD_ID`. If the client's stored ID differs, it reloads immediately.
+
+- Same code + server restart → same hash, no reload
+- New `app.js` + server restart → new hash, all clients reload within seconds
+
+---
+
+### simulator
+
+`/internal/sim` spawns N fake clients in the browser. Simulator cells flash white/black during detection only — they go black in showtime mode so they don't interfere with effect testing.
+
+---
+
+### debug capture
+
+Press **G** to start/stop a debug run. Each run is saved to a friendly-named folder under `debug/` (e.g. `autumn-fox-42`). The last 15 runs are kept; older ones are pruned automatically.
+
+```
+debug/autumn-fox-42/
+  run.mp4             ← annotated camera view (H.264, real-time encoded)
+  calibration.log     ← time-to-detect and confidence per blink ID
+  summary.json        ← per-frame detection summary
+  frames/
+    0000_raw.jpg      ← downscaled camera frame
+    0000_gray.jpg     ← grayscale used for detection
+    0000_contrast.jpg ← per-point variance heatmap
+    0000_overlay.jpg  ← annotated overlay (throttled)
+    0000.json         ← grid point brightness data
+```
+
+---
+
+### logs
+
+| File | Contents |
+|------|----------|
+| `/tmp/pixelmesh-server.log` | FastAPI / uvicorn — HTTP, WebSocket, assignments, broadcasts, errors |
+| `/tmp/pixelmesh-ngrok.log` | ngrok tunnel — connection status, forwarding address |
+| `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
+| `debug/pixelmesh.log` | Blink detection diagnostics — gate/std stats, decode failures, effect triggers. Appended across restarts. |
+| `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session — time-to-detect and confidence per blink ID |
+| `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
 
 ---
 
 ## todo
 
-- **Blackout command** — instant all-phones-off for dramatic moments; pad or hotkey to send a blackout effect that overrides whatever is playing
+- **Blackout command** — instant all-phones-off for dramatic moments
