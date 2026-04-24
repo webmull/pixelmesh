@@ -102,6 +102,22 @@ html, body {
   letter-spacing: 2px;
   text-transform: uppercase;
 }
+#locatedMsg {
+  margin-top: 18px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#locatedMsg .lm-headline {
+  color: rgba(255,255,255,0.85);
+  font: 600 20px -apple-system, system-ui, sans-serif;
+  letter-spacing: -0.3px;
+}
+#locatedMsg .lm-sub {
+  color: rgba(255,255,255,0.35);
+  font: 400 13px -apple-system, system-ui, sans-serif;
+}
 
 /* ---- Waiting card content ---- */
 .wm-headline {
@@ -411,6 +427,10 @@ html, body {
 <div id="card-located" style="display:none">
   <canvas id="positionCanvas"></canvas>
   <div id="positionLabel">Located</div>
+  <div id="locatedMsg">
+    <div class="lm-headline">You're all set</div>
+    <div class="lm-sub">Hold your screen up when the show begins</div>
+  </div>
 </div>
 
 <!-- Effects card: showtime -->
