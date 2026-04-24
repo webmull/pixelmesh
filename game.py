@@ -145,12 +145,21 @@ async def _broadcast_winner():
     if _broadcast is None or not game_results:
         await _broadcast({"type": "game_end"}) if _broadcast else None
         return
-    winner_bid = min(game_results, key=game_results.get)
-    await _broadcast({
-        "type":        "game_winner",
-        "blink_id":    winner_bid,
-        "reaction_ms": round(game_results[winner_bid]),
-    })
+    min_ms   = round(min(game_results.values()))
+    winners  = [bid for bid, ms in game_results.items() if round(ms) == min_ms]
+    if len(winners) > 1:
+        await _broadcast({
+            "type":      "game_winner",
+            "draw":      True,
+            "blink_ids": winners,
+            "reaction_ms": min_ms,
+        })
+    else:
+        await _broadcast({
+            "type":        "game_winner",
+            "blink_id":    winners[0],
+            "reaction_ms": min_ms,
+        })
 
 
 # ------------------------------------------------------------------ #
