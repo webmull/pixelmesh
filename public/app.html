@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport"
@@ -97,10 +97,15 @@ html, body {
 /* ---- Located card ---- */
 #positionCanvas { display: block; }
 #positionLabel {
-  color: rgba(255,255,255,0.35);
-  font: 500 11px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
-  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+  font: 600 15px -apple-system, system-ui, sans-serif;
+  letter-spacing: -0.2px;
+  text-align: center;
+}
+#positionLabelSub {
+  color: rgba(255,255,255,0.55);
+  font: 400 12px -apple-system, system-ui, sans-serif;
+  text-align: center;
 }
 #locatedMsg {
   margin-top: 18px;
@@ -115,7 +120,7 @@ html, body {
   letter-spacing: -0.3px;
 }
 #locatedMsg .lm-sub {
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.55);
   font: 400 13px -apple-system, system-ui, sans-serif;
 }
 
@@ -127,7 +132,7 @@ html, body {
 }
 .wm-sub {
   margin-top: 10px;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.55);
   font: 13px -apple-system, system-ui, sans-serif;
   display: flex;
   flex-direction: column;
@@ -152,7 +157,7 @@ html, body {
 }
 #crowdMsg {
   margin-top: 8px;
-  color: rgba(255,255,255,0.3);
+  color: rgba(255,255,255,0.55);
   font: 13px -apple-system, system-ui, sans-serif;
   min-height: 18px;
 }
@@ -210,7 +215,7 @@ html, body {
 }
 #likeHint {
   margin-top: 6px;
-  color: rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.45);
   font: 12px -apple-system, system-ui, sans-serif;
 }
 
@@ -252,13 +257,7 @@ html, body {
   border-radius: 0 0 2px 0;
   pointer-events: none;
 }
-@keyframes slot-drain {
-  from { transform: scaleX(1); }
-  to   { transform: scaleX(0); }
-}
-#gameSlotBar.draining {
-  animation: slot-drain var(--slot-ms, 8000ms) linear forwards;
-}
+/* Game timer bar uses JS-driven transitions, no keyframe needed */
 
 #gameBugWrap {
   padding: 24px;
@@ -426,10 +425,12 @@ html, body {
 <!-- Located card: position confirmed map -->
 <div id="card-located" style="display:none">
   <canvas id="positionCanvas"></canvas>
-  <div id="positionLabel">Located</div>
+  <div id="positionLabel">Found you!</div>
+  <div id="positionLabelSub">Here's your position in the crowd</div>
   <div id="locatedMsg">
     <div class="lm-headline">You're all set</div>
     <div class="lm-sub">Hold your screen up when the show begins</div>
+    <div class="lm-sub" style="margin-top:10px; color:rgba(255,255,255,0.2)">Brightness to full · Turn off auto-lock</div>
   </div>
 </div>
 

@@ -213,7 +213,27 @@ const CARD_DISPLAY = {
   game:    "flex",
 };
 
+let _posMapAnim = null;
+
+function _startPositionMapAnim() {
+  _stopPositionMapAnim();
+  function frame() {
+    try { _drawPositionMap(); } catch(e) { /* don't kill the loop */ }
+    _posMapAnim = requestAnimationFrame(frame);
+  }
+  _posMapAnim = requestAnimationFrame(frame);
+}
+
+function _stopPositionMapAnim() {
+  if (_posMapAnim) { cancelAnimationFrame(_posMapAnim); _posMapAnim = null; }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && view === "located") _startPositionMapAnim();
+});
+
 function setView(name) {
+  if (name !== "located") _stopPositionMapAnim();
   view = name;
   const active = VIEW_CARD[name];
   for (const [k, el] of Object.entries(CARDS)) {
@@ -265,9 +285,10 @@ let effectPath        = [];   // snake: ordered blink_ids (nearest-neighbour pat
 let gameShowAt      = 0;    // server-time ms when bug should appear for this phone
 let gameSlotMs      = 5000;
 let gameTapped      = false;
-let gameTimer       = null;
-let myReactionMs    = null; // this phone's tap time, shown in winner overlay
-let countdownTimer  = null;
+let gameTimer          = null;
+let myReactionMs       = null;  // this phone's tap time, shown in winner overlay
+let countdownTimer     = null;
+let _gameRoundStartAt  = 0;     // server timestamp when the 20s round begins
 const gameBugWrap    = document.getElementById("gameBugWrap");
 const gameSlotBar    = document.getElementById("gameSlotBar");
 const gameProgress   = document.getElementById("gameProgress");
@@ -452,7 +473,7 @@ function handleMessage(msg) {
     blinkStartMs  = Date.now();
     if (calibrated) {
       knownPositions[myBlinkId] = {u: myU, v: myV};
-      _drawPositionMap();
+      _startPositionMapAnim();
       setView("located");
     } else {
       waitingId.textContent = `You're phone #${myBlinkId + 1}`;
@@ -494,7 +515,7 @@ function handleMessage(msg) {
     myV        = msg.v ?? myV;
     calibrated = true;
     if (myBlinkId !== null) knownPositions[myBlinkId] = {u: myU, v: myV};
-    _drawPositionMap();
+    _startPositionMapAnim();
     setView("located");
     setStatus(`ID ${myBlinkId + 1} – located ✓`);
     return;
@@ -502,7 +523,7 @@ function handleMessage(msg) {
 
   if (msg.type === "phone_located") {
     knownPositions[msg.blink_id] = {u: msg.u, v: msg.v};
-    if (view === "located") _drawPositionMap();
+    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
 
@@ -510,7 +531,7 @@ function handleMessage(msg) {
     for (const [bid, pos] of Object.entries(msg.positions)) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
-    if (view === "located") _drawPositionMap();
+    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
 
@@ -591,9 +612,10 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "game_countdown") {
-    myReactionMs  = null;
-    gameTapped    = false;
-    currentEffect = null;
+    myReactionMs      = null;
+    gameTapped        = false;
+    currentEffect     = null;
+    _gameRoundStartAt = msg.start_at + 3000;  // server time when game actually begins
     _cleanupGame();
     gameProgress.style.display = "none";
     setView("game");
@@ -640,10 +662,13 @@ function setStatus(text) {
 
 function _drawPositionMap() {
   const size = Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.78);
-  positionCanvas.width  = size;
-  positionCanvas.height = size;
   const ctx = _posCtx;
-  ctx.clearRect(0, 0, size, size);
+  if (positionCanvas.width !== size || positionCanvas.height !== size) {
+    positionCanvas.width  = size;
+    positionCanvas.height = size;
+  } else {
+    ctx.clearRect(0, 0, size, size);
+  }
 
   // Grid lines
   ctx.strokeStyle = "rgba(255,255,255,0.07)";
@@ -667,19 +692,23 @@ function _drawPositionMap() {
     ctx.fill();
   }
 
-  // Own phone — larger, glowing green
+  // Own phone — larger, glowing green (animated pulse)
   if (myBlinkId !== null && knownPositions[myBlinkId]) {
     const x = knownPositions[myBlinkId].u * size;
     const y = knownPositions[myBlinkId].v * size;
-    const grd = ctx.createRadialGradient(x, y, 0, x, y, 26);
-    grd.addColorStop(0, "rgba(0,230,118,0.4)");
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 1000 * Math.PI * 2 * 2); // 2 Hz
+    const glowR = 18 + pulse * 24;        // 18–42 px
+    const dotR  = 6  + pulse * 4;         // 6–10 px
+    const alpha = 0.2 + pulse * 0.55;     // 0.2–0.75
+    const grd = ctx.createRadialGradient(x, y, 0, x, y, glowR);
+    grd.addColorStop(0, `rgba(0,230,118,${alpha.toFixed(2)})`);
     grd.addColorStop(1, "rgba(0,230,118,0)");
     ctx.beginPath();
-    ctx.arc(x, y, 26, 0, Math.PI * 2);
+    ctx.arc(x, y, glowR, 0, Math.PI * 2);
     ctx.fillStyle = grd;
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(x, y, 7, 0, Math.PI * 2);
+    ctx.arc(x, y, dotR, 0, Math.PI * 2);
     ctx.fillStyle = "#00e676";
     ctx.fill();
   }
@@ -731,11 +760,14 @@ function _showHappyBug() {
   gameResult.textContent  = "";
   // Full-card tap zone — better than a small image target on mobile
   CARDS.game.addEventListener("pointerdown", _onGameTap);
-  // Slot drain bar
-  gameSlotBar.style.setProperty("--slot-ms", gameSlotMs + "ms");
-  gameSlotBar.classList.remove("draining");
-  void gameSlotBar.offsetWidth;   // force reflow to restart animation
-  gameSlotBar.classList.add("draining");
+  // Game-time bar: set start position from server clock, then transition to 0
+  const elapsed   = Math.max(0, serverNow() - _gameRoundStartAt);
+  const remaining = Math.max(0, 20000 - elapsed);
+  gameSlotBar.style.transition = "none";
+  gameSlotBar.style.transform  = `scaleX(${remaining / 20000})`;
+  void gameSlotBar.offsetWidth;   // force reflow before starting transition
+  gameSlotBar.style.transition = `transform ${remaining}ms linear`;
+  gameSlotBar.style.transform  = "scaleX(0)";
   gameTimer = setTimeout(_hideGame, gameSlotMs);
 }
 
@@ -752,7 +784,7 @@ function _onGameTap(e) {
     ws.send(JSON.stringify({ type: "game_tap", reaction_ms: myReactionMs }));
   }
 
-  gameSlotBar.classList.remove("draining");
+  gameSlotBar.style.transition = "none";
   gamePrompt.classList.remove("pulsing");
   gamePrompt.textContent  = "";
   bugHappy.style.display  = "none";
@@ -833,7 +865,8 @@ function _cleanupGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
   _stopCountdown();
   CARDS.game.removeEventListener("pointerdown", _onGameTap);
-  gameSlotBar.classList.remove("draining");
+  gameSlotBar.style.transition = "none";
+  gameSlotBar.style.transform  = "scaleX(0)";
   gamePrompt.classList.remove("pulsing");
   gameWinner.style.display = "none";
   gameWinner.classList.remove("show");
