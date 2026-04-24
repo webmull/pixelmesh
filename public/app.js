@@ -269,6 +269,7 @@ let gameTimer       = null;
 let myReactionMs    = null; // this phone's tap time, shown in winner overlay
 let countdownTimer  = null;
 const gameBugWrap    = document.getElementById("gameBugWrap");
+const gameSlotBar    = document.getElementById("gameSlotBar");
 const gameProgress   = document.getElementById("gameProgress");
 const countdownText  = document.getElementById("countdownText");
 const bugHappy       = document.getElementById("bugHappy");
@@ -725,9 +726,16 @@ function _showHappyBug() {
   gameTapped = false;
   bugHappy.style.display  = "block";
   bugScared.style.display = "none";
-  gamePrompt.textContent  = "";
+  gamePrompt.textContent  = "TAP!";
+  gamePrompt.classList.add("pulsing");
   gameResult.textContent  = "";
-  gameBugWrap.addEventListener("pointerdown", _onGameTap);
+  // Full-card tap zone — better than a small image target on mobile
+  CARDS.game.addEventListener("pointerdown", _onGameTap);
+  // Slot drain bar
+  gameSlotBar.style.setProperty("--slot-ms", gameSlotMs + "ms");
+  gameSlotBar.classList.remove("draining");
+  void gameSlotBar.offsetWidth;   // force reflow to restart animation
+  gameSlotBar.classList.add("draining");
   gameTimer = setTimeout(_hideGame, gameSlotMs);
 }
 
@@ -735,15 +743,20 @@ function _onGameTap(e) {
   if (gameTapped) return;
   gameTapped = true;
   e.preventDefault();
-  gameBugWrap.removeEventListener("pointerdown", _onGameTap);
+  CARDS.game.removeEventListener("pointerdown", _onGameTap);
   clearTimeout(gameTimer);
   gameTimer = null;
+
+  if (navigator.vibrate) navigator.vibrate(50);
 
   myReactionMs = Math.round(serverNow() - gameShowAt);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "game_tap", reaction_ms: myReactionMs }));
   }
 
+  gameSlotBar.classList.remove("draining");
+  gamePrompt.classList.remove("pulsing");
+  gamePrompt.textContent  = "";
   bugHappy.style.display  = "none";
   bugScared.style.display = "block";
   gameResult.textContent  = `${myReactionMs} ms`;
@@ -808,7 +821,9 @@ function _hideGame() {
 function _cleanupGame() {
   if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
   _stopCountdown();
-  gameBugWrap.removeEventListener("pointerdown", _onGameTap);
+  CARDS.game.removeEventListener("pointerdown", _onGameTap);
+  gameSlotBar.classList.remove("draining");
+  gamePrompt.classList.remove("pulsing");
   gameWinner.style.display = "none";
   gameWinner.classList.remove("show");
 }
