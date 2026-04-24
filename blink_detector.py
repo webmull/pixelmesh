@@ -700,46 +700,43 @@ class BlinkDetector:
         STREAM_CHECK_N = 22
         CLUSTER_R     = 120   # px — grid points within this distance = same phone
 
-        # numpy-gate: find above-threshold indices in one vectorised pass,
-        # then range-check only those ~0-50 points instead of all 25K.
-        if self._last_stds is not None:
-            cand_idx = np.where(self._last_stds >= min_std)[0]
-            candidates = sorted(
-                (self._points[i] for i in cand_idx
-                 if (self._points[i].history
-                     and (max(b for _, b in self._points[i].history[-STREAM_CHECK_N:])
-                          - min(b for _, b in self._points[i].history[-STREAM_CHECK_N:]))
-                     > max(min_std * 1.2, 0.08))),
-                key=lambda p: p.recent_std,
-                reverse=True,
-            )
-        else:
-            candidates = []
-
         # Gate: only draw a stream if the point looks like a real phone.
         # Age alone isn't enough — sustained LEDs/reflections also pass age.
         # decode_failures is the stronger signal: a real phone decodes within
         # ~26s (2 cycles); noise accumulates many failures and never decodes.
-        STREAM_MIN_AGE_S   = 4.0
-        STREAM_MAX_FAILURES = 6   # suppress after this many consecutive decode fails
+        STREAM_MIN_AGE_S    = 4.0
+        STREAM_MAX_FAILURES = 6    # suppress after this many consecutive decode fails
+        STREAM_MAX_CANDS    = 12   # cap work regardless of how many points are above gate
+
+        # numpy-gate: find above-threshold indices in one vectorised pass,
+        # then range-check only those ~0-50 points instead of all 25K.
+        # All filters (age, failures, decoded) are applied inside the generator
+        # so suppressed points never pay for the history slice + max/min scan.
+        _range_min = max(min_std * 1.2, 0.08)
+        if self._last_stds is not None:
+            cand_idx = np.where(self._last_stds >= min_std)[0]
+            candidates = sorted(
+                (self._points[i] for i in cand_idx
+                 if (self._points[i].decoded_id is None
+                     and self._points[i].decode_failures < STREAM_MAX_FAILURES
+                     and len(self._points[i].history) >= 2
+                     and (self._points[i].history[-1][0] - self._points[i].history[0][0]) >= STREAM_MIN_AGE_S
+                     and (max(b for _, b in self._points[i].history[-STREAM_CHECK_N:])
+                          - min(b for _, b in self._points[i].history[-STREAM_CHECK_N:]))
+                     > _range_min)),
+                key=lambda p: p.recent_std,
+                reverse=True,
+            )[:STREAM_MAX_CANDS]
+        else:
+            candidates = []
 
         seen_canvas: list[tuple[int, int]] = []
         for pt in candidates:
-            # Must have sustained history
-            if len(pt.history) < 2 or (pt.history[-1][0] - pt.history[0][0]) < STREAM_MIN_AGE_S:
-                continue
-            # Suppress points that have failed to decode too many times — likely noise
-            if pt.decode_failures >= STREAM_MAX_FAILURES:
-                continue
-
             cx, cy = to_canvas(pt.px, pt.py)
             if any(abs(cx - ex) < CLUSTER_R and abs(cy - ey) < CLUSTER_R
                    for ex, ey in seen_canvas):
                 continue
             seen_canvas.append((cx, cy))
-            # Skip stream text if a decoded label is already drawn here
-            if pt.decoded_id is not None and pt.decoded_id in drawn_ids:
-                continue
 
             vals = [b for _, b in pt.history[-STREAM_DISPLAY_N:]]
             lo, hi = min(vals), max(vals)
