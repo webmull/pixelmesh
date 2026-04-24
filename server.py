@@ -427,12 +427,12 @@ async def detect(payload: dict):
                 try:
                     await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
                 except Exception:
-                    pass
+                    _drop_connection(device_id)
             else:
                 try:
                     await ws.send_json({"type": "detection_ended"})
                 except Exception:
-                    pass
+                    _drop_connection(device_id)
     return {"ok": True}
 
 
@@ -465,7 +465,9 @@ async def update_positions(payload: dict):
                     "v":    pos["v"],
                 })
             except Exception:
-                pass
+                # Dead socket — drop it now so the phone reconnects immediately
+                # rather than waiting for TCP keepalive to detect the loss.
+                _drop_connection(device_id)
 
         # Tell all phones where this device is on the grid
         await broadcast({

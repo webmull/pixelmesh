@@ -68,46 +68,32 @@ def init(state, set_status, post_json, fetch_json, detection_order):
 # Game state                                                           #
 # ------------------------------------------------------------------ #
 
+GAME_DURATION_MS = 20_000   # total round length — game always ends after this
+
 game_active:  bool             = False
 game_order:   list[int]        = []
 game_results: dict[int, float] = {}   # blink_id → reaction_ms
-game_slot_ms: int              = 5000
-_current_idx:    int = -1    # index of the phone currently active
-_timeout_task        = None  # asyncio.Task for the current slot timeout
-_countdown_task      = None  # asyncio.Task for the pre-game countdown
+game_slot_ms: int              = 1400  # window for each phone to tap once bug appears
+
+_shown_set:     set            = set()  # blink_ids whose bug has been sent
+_phone_tasks:   list           = []     # per-phone delay tasks
+_end_task                      = None   # wall-clock game-end task
+_countdown_task                = None   # pre-game countdown task
 
 
 # ------------------------------------------------------------------ #
-# Server — internal sequencing                                         #
+# Server — internal helpers                                            #
 # ------------------------------------------------------------------ #
 
-async def _advance(idx: int):
-    """Show the bug on phone at game_order[idx], or end the game if past the last."""
-    global _current_idx, _timeout_task, game_active
-
-    # Cancel any running timeout from the previous slot
-    if _timeout_task and not _timeout_task.done():
-        _timeout_task.cancel()
-    _timeout_task = None
-
-    if idx >= len(game_order):
-        game_active = False
-        await _broadcast_winner()
+async def _show_bug(blink_id: int, delay_ms: int):
+    """Wait delay_ms then send game_show to this phone."""
+    await asyncio.sleep(delay_ms / 1000)
+    if not game_active:
         return
-
-    _current_idx = idx
-    blink_id  = game_order[idx]
     device_id = _blink_to_device(int(blink_id))
-
-    # Skip phones that aren't connected — advance immediately
     if not device_id or device_id not in _connections:
-        await _advance(idx + 1)
         return
-
-    # Random delay so the player can't anticipate the bug
-    delay_ms = random.randint(500, 2000)
-    show_at  = int(time.time() * 1000) + delay_ms
-
+    show_at = int(time.time() * 1000)
     ws = _connections[device_id]
     try:
         await ws.send_json({
@@ -115,22 +101,38 @@ async def _advance(idx: int):
             "show_at": show_at,
             "slot_ms": game_slot_ms,
         })
+        _shown_set.add(blink_id)
     except Exception:
-        # Phone disconnected between the check and the send — skip it
-        await _advance(idx + 1)
-        return
+        pass
 
+
+async def _game_end_timer():
+    """End the game after GAME_DURATION_MS from when it started."""
+    await asyncio.sleep(GAME_DURATION_MS / 1000)
+    global game_active
+    if game_active:
+        game_active = False
+        await _broadcast_winner()
+
+
+async def _start_parallel_game():
+    """Schedule each phone's bug at a random time within the game window."""
+    global _phone_tasks, _end_task, _shown_set
+    _shown_set    = set()
+    _phone_tasks  = []
+
+    # Each phone gets a random delay so their bug appears at an unpredictable moment.
+    # Leave at least slot_ms of window after the bug appears so every phone gets a
+    # fair chance to tap before the 20-second round ends.
+    max_delay_ms = max(0, GAME_DURATION_MS - game_slot_ms - 500)
+
+    for blink_id in game_order:
+        delay_ms = random.randint(0, max_delay_ms)
+        task = asyncio.create_task(_show_bug(blink_id, delay_ms))
+        _phone_tasks.append(task)
+
+    _end_task = asyncio.create_task(_game_end_timer())
     await _broadcast_progress()
-
-    # Advance automatically if the phone doesn't tap within delay + slot_ms
-    _timeout_task = asyncio.create_task(_slot_timeout(idx, delay_ms))
-
-
-async def _slot_timeout(idx: int, delay_ms: int = 0):
-    """Fire after delay + slot_ms to move to the next phone if no tap arrived."""
-    await asyncio.sleep((delay_ms + game_slot_ms) / 1000)
-    if game_active and _current_idx == idx:
-        await _advance(idx + 1)
 
 
 async def _broadcast_progress():
@@ -145,13 +147,13 @@ async def _broadcast_winner():
     if _broadcast is None or not game_results:
         await _broadcast({"type": "game_end"}) if _broadcast else None
         return
-    min_ms   = round(min(game_results.values()))
-    winners  = [bid for bid, ms in game_results.items() if round(ms) == min_ms]
+    min_ms  = round(min(game_results.values()))
+    winners = [bid for bid, ms in game_results.items() if round(ms) == min_ms]
     if len(winners) > 1:
         await _broadcast({
-            "type":      "game_winner",
-            "draw":      True,
-            "blink_ids": winners,
+            "type":        "game_winner",
+            "draw":        True,
+            "blink_ids":   winners,
             "reaction_ms": min_ms,
         })
     else:
@@ -168,19 +170,24 @@ async def _broadcast_winner():
 
 @router.post("/admin/game/start")
 async def game_start_endpoint(payload: dict):
-    global game_active, game_order, game_results, game_slot_ms, _current_idx, _countdown_task
+    global game_active, game_order, game_results, game_slot_ms, _countdown_task
+    # Cancel any in-progress game/countdown
     if _countdown_task and not _countdown_task.done():
         _countdown_task.cancel()
+    for t in _phone_tasks:
+        if not t.done(): t.cancel()
+    if _end_task and not _end_task.done():
+        _end_task.cancel()
+
     game_order   = payload.get("order", [])
-    game_slot_ms = int(payload.get("slot_ms", 5000))
+    game_slot_ms = int(payload.get("slot_ms", 1400))
     game_active  = True
     game_results = {}
-    _current_idx = -1
-    _countdown_task = asyncio.create_task(_countdown_then_advance())
+    _countdown_task = asyncio.create_task(_countdown_then_start())
     return {"ok": True}
 
 
-async def _countdown_then_advance():
+async def _countdown_then_start():
     if _stop_effects:
         await _stop_effects()
     if _enable_sync:
@@ -192,7 +199,7 @@ async def _countdown_then_advance():
         })
     await asyncio.sleep(3)
     if game_active:
-        await _advance(0)
+        await _start_parallel_game()
 
 
 @router.get("/admin/game/results")
@@ -209,14 +216,17 @@ async def game_results_endpoint():
 
 @router.post("/admin/game/stop")
 async def game_stop():
-    global game_active, _timeout_task, _countdown_task
+    global game_active, _countdown_task, _end_task
     game_active = False
     if _countdown_task and not _countdown_task.done():
         _countdown_task.cancel()
     _countdown_task = None
-    if _timeout_task and not _timeout_task.done():
-        _timeout_task.cancel()
-    _timeout_task = None
+    for t in _phone_tasks:
+        if not t.done(): t.cancel()
+    _phone_tasks.clear()
+    if _end_task and not _end_task.done():
+        _end_task.cancel()
+    _end_task = None
     if _broadcast:
         await _broadcast({"type": "game_end"})
     return {"ok": True}
@@ -224,21 +234,18 @@ async def game_stop():
 
 async def handle_tap(device_id: str, reaction_ms: float):
     """Called (awaited) from the WS handler when a game_tap message arrives."""
-    global game_active
     if not game_active:
         return
     blink_id = _blink_assignments.get(device_id)
     if blink_id is None:
         return
-    # Only accept a tap from the currently active phone
-    if _current_idx < 0 or _current_idx >= len(game_order):
-        return
-    if game_order[_current_idx] != blink_id:
+    # Only accept taps from phones whose bug has actually appeared
+    if blink_id not in _shown_set:
         return
     if blink_id in game_results:
         return
     game_results[blink_id] = float(reaction_ms)
-    await _advance(_current_idx + 1)
+    await _broadcast_progress()
 
 
 # ------------------------------------------------------------------ #
@@ -250,13 +257,11 @@ def start_bug_game():
         _set_status("No detected phones — run detection first")
         return
 
-    # Use all detected phones in detection order (positions not required for this game)
     ordered = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
-    random.shuffle(ordered)
 
-    ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": 8000})
+    ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": game_slot_ms})
     if ok:
-        _set_status(f"Bug game started — {len(ordered)} phones")
+        _set_status(f"Bug game started — {len(ordered)} phones · {GAME_DURATION_MS // 1000}s round")
         dpg.configure_item("game_leaderboard_window", show=True)
         _start_poll()
     else:
@@ -265,7 +270,7 @@ def start_bug_game():
 
 def _start_poll():
     def _worker():
-        for _ in range(60):   # poll for up to 60 s
+        for _ in range(GAME_DURATION_MS // 1000 + 10):
             time.sleep(1)
             data = _fetch_json("/admin/game/results")
             if data is None:
@@ -274,7 +279,7 @@ def _start_poll():
             total   = data.get("total", 0)
             no_tap  = data.get("no_tap", [])
             _update_leaderboard(results, total, no_tap)
-            if not data.get("active", True) or (total > 0 and len(results) >= total):
+            if not data.get("active", True):
                 break
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -288,7 +293,6 @@ def _update_leaderboard(results, total, no_tap=None):
             rows.append("─" * 26)
         for bid in no_tap:
             rows.append(f"   Phone {bid + 1}   no tap")
-    # Pad to keep the window height stable
     while len(rows) < 12:
         rows.append("")
     try:
