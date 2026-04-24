@@ -134,23 +134,28 @@ Detection is started and stopped manually with `D` (or MIDI pad 8). The followin
 - **Partial re-detection** — phones already located keep their positions; only phones not yet found are asked to blink again. This means running detection a second time after a new device joins is safe — found phones are unaffected
 - **Auto-stops when all clients are found** — as soon as the last connected phone is detected, detection stops automatically. There is no need to stop it manually
 - **Positions persist across detection runs** — `calibrated_positions` is only cleared by an explicit **Reset** (`R` / K8), not by stopping and re-starting detection
+- **Identity preserved through reconnects** — if a phone briefly drops its WebSocket connection (iOS background, network blip), its blink ID and stored position are preserved. On reconnect it is immediately shown as located without re-blinking. Full cleanup only happens after 90s of no contact.
 
 ---
 
 ## device states
 
-| State | Screen | Trigger |
-|-------|--------|---------|
-| **App closed / disconnected** | Black | Server shut down or connection lost |
-| **Connected, waiting** | Black with text + like button | Connected but detection not yet started |
-| **Detection active** | White/black blink | Controller started detection |
-| **Located** | Solid orange | Controller detected this device |
-| **Detection ended — not found** | 3 red flashes → black | Detection stopped, device was not found |
-| **Showtime — calibrated** | Effect (wave, pulse, etc.) | Effect broadcast from controller |
-| **Showtime — not calibrated** | Black | Effect fired but this device has never been located |
-| **Update** | Immediate reload | New version of app.js deployed |
+Phones use a single-card view system. Exactly one card is shown at a time; `setView()` is the only point that changes the display.
 
-Orange clears when detection restarts or an effect fires. Not-found (red flash) transitions to black and stays until the next detection cycle. When `app.js` changes, clients reload immediately on reconnect — a server restart with no code changes produces the same hash and no reload.
+| View | Card | Screen | Trigger |
+|------|------|--------|---------|
+| `idle` | blink | Black | Initial load, disconnected, or server reset |
+| `waiting` | waiting | "Get ready" + like button | Connected, assigned, detection not yet started |
+| `blinking` | blink | White/black blink | Detection active and this phone not yet located |
+| `located` | located | Position map + crowd dots | Controller detected this phone |
+| `missed` | blink | 3 red flashes → black | Detection ended, this phone was not found |
+| `effects` | effects | Effect (wave, pulse, etc.) | Effect broadcast from controller |
+| `game` | game | Bug game UI | Game started by controller |
+| `game_wait` | blink | Black | Game active, not this phone's turn |
+
+A phone that is already calibrated (`calibrated=true` on reconnect, or has received `update_position`) ignores `detection_started` — it will not re-enter the blinking view even if the message arrives late due to a reconnect race.
+
+When `app.js` changes, clients reload immediately on reconnect — a server restart with no code changes produces the same hash and no reload.
 
 ---
 
@@ -200,6 +205,18 @@ The active effect is highlighted in orange in the sidebar.
 
 ---
 
+## bug game
+
+A tap-reaction game launched from the controller sidebar. Phones are shown a bug one at a time in a random order; each player must tap before the slot expires. The leaderboard shows reaction times for tapped phones and marks no-tap phones explicitly.
+
+The winner screen on each phone shows:
+- **YOU WIN** (gold) if this phone had the fastest reaction time
+- **NOT THIS TIME** with the player's own time if they tapped but didn't win
+- **YOU MISSED IT** (red) if the slot expired without a tap
+- The winner's phone number and time is shown below in all cases
+
+---
+
 ## simulator
 
 `/internal/sim` spawns N fake clients in the browser. Simulator cells only flash white/black during detection mode — they go black in showtime or when detection ends, so they don't interfere with effect testing.
@@ -208,7 +225,7 @@ The active effect is highlighted in orange in the sidebar.
 
 ## auto-reload
 
-The server hashes `app.js` at startup into a `BUILD_ID`. On every request for the client page, the server injects this hash into the `<script>` tag so the browser always fetches the correct version. On connect, `BUILD_ID` is sent to the client via `server_hello`. If the stored ID differs, the client flashes white and reloads immediately.
+The server hashes `app.js` at startup into a `BUILD_ID`. On every request for the client page, the server injects this hash into the `<script>` tag so the browser always fetches the correct version. On connect, `BUILD_ID` is sent to the client via `server_hello`. If the stored ID differs, the client flashes green and reloads immediately.
 
 - A server restart with no code changes produces the same hash — no reload triggered
 - Deploying new `app.js` and restarting the server produces a new hash — all connected clients reload automatically within seconds
@@ -283,7 +300,8 @@ The display thread and detection thread run independently. Frames are passed via
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
-| `public/app.js` | Client-side blink renderer + effect engine + waiting screen |
+| `game.py` | Bug game — server routes, sequencing, controller UI and leaderboard |
+| `public/app.js` | Client-side blink renderer + effect engine + waiting screen + game UI |
 | `public/sim.js` | Browser simulator (N fake clients) |
 
 ---
@@ -323,7 +341,7 @@ Key parameters in `blink_detector.py`:
 | `grid_step` | `8px` | Distance between sample points. At step=8 the farthest any pixel can be from the nearest grid centre is ~5.7px — a phone just 3px wide always overlaps a patch. Covers phones at 25–30m at 1080p. |
 | `sample_radius` | `4px` | Patch radius — 8×8=64px per point. Chosen to keep the 25,920×64 sampling matrix at 1.66MB, fitting inside L2/L3 cache on M1. r=6 (3.7MB) spills to RAM and makes `np.partition` 10× slower. |
 | `brightness_pct` | `3` | Percentile used when sampling a patch. The ~2.8th percentile (k=1 of 64) catches even a single dark phone pixel during the dark phase. |
-| `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. |
+| `min_recent_std` | adaptive | Variance gate — auto-tuned each frame to scene noise floor. Starts at 0.10, adapts to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Uses asymmetric EMA (α=0.4 up, α=0.05 down) so a brightness spike raises the gate within 2–3 frames, limiting noise-point flooding. |
 | `recent_n` | `24` | Samples in recent window (~0.4s at 60fps) |
 | `history_seconds` | `30.0` | Rolling brightness history per point (≥ 2 full cycles) |
 | `decode_interval` | `0.2s` | Time between decode attempts per point (only applies to undiscovered phones) |
@@ -338,11 +356,13 @@ Key parameters in `blink_detector.py`:
 
 **Backward-scan decoder**: when a phone starts blinking before detection begins, the guard phase of its first complete cycle lands near the end of the history window. After failing to find enough forward data, the decoder anchors from the guard start and scans pre-guard history. Confidence is penalised 5% per assumed bit.
 
+**Stale-entry eviction**: non-decoded entries in `_ever_active` that have been below gate for more than 13.2s are evicted every 3 seconds (wall-clock, not frame-count). This ensures FPS recovery after a brightness change is not throttled by degraded detection fps. Eviction events are logged at DEBUG level: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
+
 ---
 
 ## performance
 
-The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both when detection is active: `45 fps  det 48`. A green dot indicates detection is running; grey means idle.
+The display thread runs at full camera speed (~60fps). The detection thread runs independently at ~50fps on M1. The HUD shows both when detection is active: `60 / 48 fps`. A green dot indicates detection is running; grey means idle.
 
 **Tested hardware: Apple M1 Pro, 16GB RAM**
 
@@ -358,7 +378,7 @@ Key optimisations:
 - **Vectorised std**: single `np.std(buf, axis=1)` over an `(N, recent_n)` circular buffer
 - **Precomputed flat indices**: patch sampling is one numpy gather per frame, no per-point slicing
 - **Vectorised decoder window scans**: numpy boolean indexing releases the GIL, running ~10–20× faster than Python list comprehensions
-- **Gated history recording**: `add_sample` only called for points with std ≥ 0.003
+- **Gated history recording**: `add_sample` only called for points with std ≥ gate or in `_ever_active`
 - **Pre-allocated texture buffer**: persistent `(H, W, 4)` float32 buffer eliminates a 14MB/frame allocation
 - **Conditional heatmap**: variance heatmap only built when debug capture is active
 - **Batched like broadcasts**: like taps accumulate server-side and broadcast at ~3/s — prevents O(clients²) WebSocket message storms
