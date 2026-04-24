@@ -78,11 +78,15 @@ likeBtn.addEventListener("pointerdown", (e) => {
 // Crowd count + rotating messages
 // ------------------------------------------------------------------ //
 
-let _crowdCount   = 0;
-let _msgIndex     = 0;
-let _msgTimer     = null;
+let _crowdCount = 0;
+let _msgIndex   = 0;
+let _msgTimer   = null;
 
-const _msgTemplates = [
+// Combined pool — functions require a crowd count, strings always show.
+// When alone, only strings are picked; when others are present the full
+// pool is used so facts and crowd-count messages interleave naturally.
+const _msgs = [
+  // crowd-count messages
   n => n === 1 ? `You're amongst 1 other beautiful person`           : `You're amongst ${n} other beautiful people`,
   n => n === 1 ? `1 other phone in the room`                         : `${n} phones in the room and counting`,
   n => n === 1 ? `1 stranger about to become one screen with you`    : `${n} strangers about to become one screen`,
@@ -113,9 +117,7 @@ const _msgTemplates = [
   n => n === 1 ? `1 other person is already doing better than most`  : `${n} people already doing better than the ones who closed this`,
   n => n === 1 ? `You and 1 other are the early ones`                : `${n} people in the room. Only you lot connected`,
   n => n === 1 ? `Hold tight. 1 other is doing the same`             : `Hold tight. ${n} others are doing the same`,
-];
-
-const _soloTemplates = [
+  // always-shown messages
   `You're the first one here`,
   `Others will join soon`,
   `Keep this screen open`,
@@ -136,7 +138,6 @@ const _soloTemplates = [
   `Penguins propose to their mates with a pebble`,
   `The inventor of the Pringles can is buried in one`,
 ];
-let _soloIndex = 0;
 
 function _randOther(arr, current) {
   if (arr.length <= 1) return 0;
@@ -145,26 +146,37 @@ function _randOther(arr, current) {
   return i;
 }
 
+function _renderMsg(idx) {
+  const item = _msgs[idx];
+  return typeof item === 'function' ? item(_crowdCount) : item;
+}
+
 function _rotateCrowdMsg() {
+  // When alone, skip crowd-count functions and pick only strings
   if (_crowdCount < 1) {
-    _soloIndex = _randOther(_soloTemplates, _soloIndex);
-    crowdMsg.textContent = _soloTemplates[_soloIndex];
-    return;
+    let attempts = 0;
+    do {
+      _msgIndex = _randOther(_msgs, _msgIndex);
+      attempts++;
+    } while (typeof _msgs[_msgIndex] === 'function' && attempts < _msgs.length);
+  } else {
+    _msgIndex = _randOther(_msgs, _msgIndex);
   }
-  _msgIndex = _randOther(_msgTemplates, _msgIndex);
-  crowdMsg.textContent = _msgTemplates[_msgIndex](_crowdCount);
+  crowdMsg.textContent = _renderMsg(_msgIndex);
 }
 
 function _setCrowdCount(n) {
   _crowdCount = n;
-  crowdMsg.textContent = n > 0 ? _msgTemplates[_msgIndex](n) : _soloTemplates[_soloIndex];
+  crowdMsg.textContent = _renderMsg(_msgIndex);
   if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
 
 function _startMsgTimer() {
-  if (_msgTimer) return;
-  _soloIndex = Math.floor(Math.random() * _soloTemplates.length);
-  crowdMsg.textContent = _soloTemplates[_soloIndex];
+  if (_msgTimer) { crowdMsg.textContent = _renderMsg(_msgIndex); return; }
+  // Start at a random string entry so a fact shows immediately
+  const stringIndices = _msgs.reduce((a, v, i) => (typeof v === 'string' ? [...a, i] : a), []);
+  _msgIndex = stringIndices[Math.floor(Math.random() * stringIndices.length)];
+  crowdMsg.textContent = _renderMsg(_msgIndex);
   _msgTimer = setInterval(_rotateCrowdMsg, 5000);
 }
 
