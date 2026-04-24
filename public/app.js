@@ -514,6 +514,11 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "detection_started") {
+    // If we're already calibrated (position confirmed), stay located — the
+    // server only sends detection_started to uncalibrated phones, but a
+    // race on reconnect could deliver this message late.  Guard here so we
+    // never regress from located to blinking.
+    if (calibrated) return;
     // Clear stale positions from previous sessions — the server is starting
     // fresh detection so any dots on the map are no longer valid.
     for (const k in knownPositions) delete knownPositions[k];

@@ -162,6 +162,7 @@ class BlinkDetector:
         self._last_stds:     np.ndarray | None = None   # (N,) float32, latest computed_stds
         self._decoded_pts:   list = []                  # points with decoded_id != None (tiny list)
         self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
+        self._last_evict_ts: float = 0.0               # wall-clock time of last eviction run
         self._locked_positions: dict[int, tuple[float, float]] = {}  # blink_id → (cx, cy) frozen at first decode
         # Frame-diff state for diff-based phone finder
         self._diff_prev_gray:   np.ndarray | None = None
@@ -363,8 +364,13 @@ class BlinkDetector:
         # below gate for longer than one full decode cycle (13.2 s).  A phone that
         # was genuinely blinking will come back above gate within the next cycle and
         # re-enter _ever_active naturally.  Decoded points are never evicted.
-        _EVICT_EVERY = n * 4   # every ~6 s at 15 fps — amortises set comprehension
-        if self._std_buf_pos % _EVICT_EVERY == 0 and len(self._ever_active) > 0:
+        #
+        # Eviction runs on a wall-clock timer (not frame count) so that FPS
+        # degradation after a brightness spike doesn't push the eviction window
+        # out to 20+ seconds and prevent recovery.
+        _EVICT_INTERVAL = 3.0   # seconds between eviction sweeps (vs. 6 s before)
+        if (ts - self._last_evict_ts) >= _EVICT_INTERVAL and len(self._ever_active) > 0:
+            self._last_evict_ts = ts
             _stale_cutoff = CYCLE_LEN * PHASE_MS / 1000   # 13.2 s for default config
             stale = {
                 i for i in self._ever_active
@@ -438,9 +444,13 @@ class BlinkDetector:
             stds = []
         if len(stds) >= 20:
             # p90 is robust — phones would need to cover 10%+ of the frame to bias it.
-            # Slow EMA (α=0.05, τ≈20 frames) prevents transient phone activity spiking the gate.
+            # Asymmetric EMA: rises fast (α=0.4) when noise spikes, falls slowly (α=0.05).
+            # Fast-up means the gate adapts within 2-3 frames after a sudden brightness
+            # change, preventing a sustained flood of background noise into _ever_active.
+            # Slow-down preserves sensitivity after the spike passes.
             p90 = float(np.percentile(stds, 90))
-            self._noise_floor = 0.95 * self._noise_floor + 0.05 * p90
+            alpha = 0.4 if p90 > self._noise_floor else 0.05
+            self._noise_floor = (1 - alpha) * self._noise_floor + alpha * p90
             cfg["min_recent_std"] = max(min(self._noise_floor * 3.5, 0.15), 0.05)
 
         # 5. Attempt decode on high-variance points only.
