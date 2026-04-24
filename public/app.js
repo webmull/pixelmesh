@@ -747,8 +747,6 @@ function _onGameTap(e) {
   clearTimeout(gameTimer);
   gameTimer = null;
 
-  if (navigator.vibrate) navigator.vibrate(50);
-
   myReactionMs = Math.round(serverNow() - gameShowAt);
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "game_tap", reaction_ms: myReactionMs }));
