@@ -418,9 +418,12 @@ class BlinkDetector:
             # currently quiet.  No time cutoff: once a phone has crossed the gate
             # it records for the rest of the session, giving the backward-scan
             # decoder a full 13.2s window even for borderline-std distant phones.
+            # Decoded phones are skipped — their history is no longer consumed.
             for i in self._ever_active:
                 if computed_stds[i] < gate:
                     pt = self._points[i]
+                    if pt.decoded_id is not None:
+                        continue
                     pt.add_sample(float(brightnesses[i]), ts, hist_secs)
         else:
             for pt, b in zip(self._points, brightnesses):
@@ -505,9 +508,13 @@ class BlinkDetector:
         #    A close/large phone covers several grid points that all decode the
         #    same ID.  Average their pixel positions for a centroid estimate and
         #    take the max confidence across all matching points.
+        #    Scan _ever_active (≤ active phone count) instead of all 25K points —
+        #    every decoded point enters _ever_active when it first crosses the gate
+        #    and eviction never removes decoded entries.
         id_pts:  dict[int, list] = {}   # blink_id → [_GridPoint, ...]
         decoded_pts_new: list = []
-        for pt in self._points:
+        for i in self._ever_active:
+            pt = self._points[i]
             if pt.decoded_id is None:
                 continue
             decoded_pts_new.append(pt)
