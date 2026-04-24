@@ -140,7 +140,9 @@ async def broadcast(message: dict):
         except Exception:
             dead.append(device_id)
     for device_id in dead:
-        await cleanup_device(device_id)
+        _drop_connection(device_id)
+    if dead:
+        await broadcast_count()
 
 
 async def set_mode(new_mode: str):
@@ -175,7 +177,21 @@ game.server_init(
 )
 
 
+def _drop_connection(device_id: str):
+    """Remove a device from active connections WITHOUT clearing its identity.
+
+    Used on WebSocket disconnect so that a brief reconnect (iOS background,
+    network blip) reuses the same blink_id and stored position instead of
+    getting a fresh assignment and re-entering detection.
+
+    last_seen is intentionally preserved so the heartbeat reaper can still
+    do a full cleanup after HEARTBEAT_TIMEOUT seconds of silence.
+    """
+    connections.pop(device_id, None)
+
+
 async def cleanup_device(device_id: str):
+    """Full teardown — used by the reaper for permanently gone devices."""
     ws = connections.pop(device_id, None)
     last_seen.pop(device_id, None)
     bid = blink_assignments.pop(device_id, None)
@@ -338,7 +354,8 @@ async def websocket_endpoint(ws: WebSocket):
 
     except WebSocketDisconnect:
         if device_id:
-            await cleanup_device(device_id)
+            _drop_connection(device_id)
+            await broadcast_count()
 
 
 # ------------------------------------------------------------------ #
