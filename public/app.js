@@ -766,11 +766,21 @@ function _showWinner(msg) {
   gameProgress.style.display = "none";
 
   // ---- Personal outcome (top, prominent) ----
-  const iWon = msg.blink_id !== undefined && msg.blink_id === myBlinkId;
+  const isDraw  = msg.draw === true;
+  const drawIds = msg.blink_ids || [];
+  const iWon    = !isDraw && msg.blink_id !== undefined && msg.blink_id === myBlinkId;
+  const iDrew   = isDraw && drawIds.includes(myBlinkId);
+
   if (iWon) {
     gameMyBannerLabel.textContent = "YOU WIN";
     gameMyBannerLabel.style.color = "#ffd740";
     gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.5)";
+    gameMyBannerTime.textContent  = myReactionMs !== null ? `${myReactionMs} ms` : "";
+    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
+  } else if (iDrew) {
+    gameMyBannerLabel.textContent = "IT'S A DRAW";
+    gameMyBannerLabel.style.color = "#ffd740";
+    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.3)";
     gameMyBannerTime.textContent  = myReactionMs !== null ? `${myReactionMs} ms` : "";
     gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
   } else if (myReactionMs !== null) {
@@ -787,7 +797,10 @@ function _showWinner(msg) {
   }
 
   // ---- Winner details (bottom) ----
-  if (msg.blink_id !== undefined) {
+  if (isDraw) {
+    gameWinnerPhone.textContent = `Draw — ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
+    gameWinnerTime.textContent  = `${msg.reaction_ms} ms each`;
+  } else if (msg.blink_id !== undefined) {
     gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
     gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
   } else {
