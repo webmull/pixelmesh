@@ -136,6 +136,45 @@ A global like counter on the waiting screen. Tap the thumbs-up to add to it — 
 
 ---
 
+### 6. post-show report
+
+A plain-text summary is generated automatically every time the server is reset (`R`). The file opens immediately in the default text editor.
+
+```
+══════════════════════════════════════════════
+   PIXELMESH — SHOW REPORT
+   24 Apr 2026, 20:15
+══════════════════════════════════════════════
+
+AUDIENCE
+  Connected:        47 phones
+  Detected:         43  (91%)
+  Missed:            4
+
+DETECTION
+  Started:        20:15:04
+  Completed:      20:28:31  (13m 27s)
+  Median time:    18.4s
+  Fastest:        12.1s  — Phone 12  (conf 0.94)
+  Slowest:        41.3s  — Phone 7   (conf 0.71)
+
+ENGAGEMENT
+  Likes:           284
+
+BUG GAME
+  Players:          43
+  Tapped:           38  (88%)
+  Winner:        Phone 24  —  142ms
+  Median react:   387ms
+  No tap:            5
+
+══════════════════════════════════════════════
+```
+
+Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game was never started). Reports are saved to `debug/reports/`; the last 20 are kept.
+
+---
+
 ### controller hotkeys
 
 | Key | Action |
@@ -241,6 +280,7 @@ The display and detection threads run independently. Frames pass via `Queue(maxs
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
 | `game.py` | Bug game — server routes, parallel scheduling, controller UI and leaderboard |
+| `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
 | `network.py` | HTTP helpers for controller → server calls |
@@ -369,6 +409,7 @@ debug/autumn-fox-42/
 | `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
 | `debug/pixelmesh.log` | Blink detection diagnostics — gate/std stats, decode failures, effect triggers. Appended across restarts. |
 | `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session — time-to-detect and confidence per blink ID |
+| `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report — generated automatically on every reset |
 | `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
 
 ---
