@@ -43,6 +43,7 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
+| `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
 
 ---
 

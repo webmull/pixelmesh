@@ -68,6 +68,12 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
+
+_DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
+if os.path.isdir(_DEBUG_DIR):
+    # Serve debug run files (videos, frames) — range requests handled by StaticFiles
+    app.mount("/debug-files", StaticFiles(directory=_DEBUG_DIR), name="debug_files")
+
 app.include_router(game.router)
 
 # ------------------------------------------------------------------ #
@@ -682,3 +688,177 @@ async def dashboard():
 @app.get("/internal/sim")
 async def sim():
     return FileResponse("public/sim.html", headers=_NO_CACHE)
+
+
+@app.get("/internal/debug")
+async def debug_runs_page():
+    import json
+    from fastapi.responses import HTMLResponse
+
+    runs = []
+    if os.path.isdir(_DEBUG_DIR):
+        names = sorted(
+            (n for n in os.listdir(_DEBUG_DIR)
+             if os.path.isdir(os.path.join(_DEBUG_DIR, n))
+             and n not in ("calibration_logs", "recordings", "reports")),
+            reverse=True,
+        )
+        for name in names:
+            run_dir   = os.path.join(_DEBUG_DIR, name)
+            has_video = os.path.isfile(os.path.join(run_dir, "run.mp4"))
+
+            cal_log = ""
+            cal_path = os.path.join(run_dir, "calibration.log")
+            if os.path.isfile(cal_path):
+                try:
+                    with open(cal_path) as f:
+                        cal_log = f.read().strip()
+                except Exception:
+                    pass
+
+            frame_count = None
+            summary_path = os.path.join(run_dir, "summary.json")
+            if os.path.isfile(summary_path):
+                try:
+                    with open(summary_path) as f:
+                        frame_count = json.load(f).get("frames")
+                except Exception:
+                    pass
+
+            runs.append({
+                "name":        name,
+                "has_video":   has_video,
+                "cal_log":     cal_log,
+                "frame_count": frame_count,
+                "video_url":   f"/debug-files/{name}/run.mp4",
+            })
+
+    return HTMLResponse(_debug_runs_html(runs), headers=_NO_CACHE)
+
+
+def _debug_runs_html(runs: list) -> str:
+    from html import escape
+
+    cards = ""
+    for r in runs:
+        video_block = ""
+        if r["has_video"]:
+            video_block = f"""
+        <video controls preload="none" poster="">
+          <source src="{r['video_url']}" type="video/mp4">
+        </video>"""
+        else:
+            video_block = '<div class="no-video">no video</div>'
+
+        meta = ""
+        if r["frame_count"] is not None:
+            meta += f'<span>{r["frame_count"]} frames</span>'
+
+        cal_block = ""
+        if r["cal_log"]:
+            cal_block = f'<pre>{escape(r["cal_log"])}</pre>'
+
+        cards += f"""
+    <div class="card">
+      <div class="card-head">
+        <span class="run-name">{escape(r["name"])}</span>
+        <span class="meta">{meta}</span>
+      </div>
+      {video_block}
+      {cal_block}
+    </div>"""
+
+    empty = '<p class="empty">No debug runs yet. Press G in the controller to start a capture.</p>' if not runs else ""
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>pixelmesh — debug runs</title>
+<style>
+*, *::before, *::after {{ box-sizing: border-box; }}
+body {{
+  margin: 0;
+  background: #0d0d0d;
+  color: #ccc;
+  font: 13px/1.5 -apple-system, system-ui, sans-serif;
+  padding: 24px 20px 60px;
+}}
+h1 {{
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  letter-spacing: -0.3px;
+}}
+.subtitle {{
+  color: rgba(255,255,255,0.3);
+  font-size: 12px;
+  margin-bottom: 28px;
+}}
+.grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+  gap: 16px;
+}}
+.card {{
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  overflow: hidden;
+}}
+.card-head {{
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid #222;
+}}
+.run-name {{
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: -0.2px;
+}}
+.meta {{
+  color: rgba(255,255,255,0.3);
+  font-size: 11px;
+}}
+video {{
+  display: block;
+  width: 100%;
+  background: #000;
+  max-height: 320px;
+}}
+.no-video {{
+  padding: 40px;
+  text-align: center;
+  color: rgba(255,255,255,0.2);
+  font-size: 12px;
+  background: #111;
+}}
+pre {{
+  margin: 0;
+  padding: 10px 14px;
+  font: 11px/1.6 "SF Mono", "Fira Mono", monospace;
+  color: rgba(255,255,255,0.45);
+  border-top: 1px solid #222;
+  white-space: pre-wrap;
+  word-break: break-all;
+}}
+.empty {{
+  color: rgba(255,255,255,0.3);
+  font-size: 13px;
+  margin-top: 40px;
+  text-align: center;
+}}
+</style>
+</head>
+<body>
+<h1>debug runs</h1>
+<div class="subtitle">{len(runs)} run{'s' if len(runs) != 1 else ''} · newest first · <a href="/internal/dashboard" style="color:rgba(255,255,255,0.3)">dashboard</a></div>
+{empty}
+<div class="grid">{cards}</div>
+</body>
+</html>"""
