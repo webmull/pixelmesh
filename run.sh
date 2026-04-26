@@ -89,17 +89,7 @@ status_line() {
     [[ -n $count ]] && clients="  ${DIM}(${count} connected)${RESET}"
   fi
 
-  # Fetch terminal tunnel URL from ngrok API
-  local term_url=""
-  term_url=$(curl -s --max-time 1 http://localhost:4040/api/tunnels 2>/dev/null | \
-    python3 -c "
-import sys, json
-try:
-    ts = json.load(sys.stdin).get('tunnels', [])
-    t  = next((x for x in ts if x.get('config',{}).get('addr','').endswith('7681')), None)
-    if t: print(t['public_url'])
-except: pass
-" 2>/dev/null)
+  local term_url="https://ssh.pixelmesh.live"
 
   echo "  ${W}server     ${RESET}$srv_s$clients"
   echo "  ${W}controller ${RESET}$ctl_s"
