@@ -47,14 +47,14 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
-| shown in status line on start | Remote terminal — browser-based, password protected |
+| `https://ssh.pixelmesh.live` | Remote terminal — browser-based, password protected |
 
 **Remote terminal**
 
 On startup a second ngrok tunnel exposes a browser-based terminal (via `ttyd`) at a dynamic URL shown in the status line:
 
 ```
-terminal → https://xxxx.ngrok.io  (pixel / mesh)
+terminal → https://ssh.pixelmesh.live  (pixel / mesh)
 ```
 
 Open that URL from anywhere, enter the credentials, and you have full interactive access to the `pixelmesh` tmux session — the same terminal running `run.sh`. Credentials are configured in `ngrok.pixelmesh.yml`.

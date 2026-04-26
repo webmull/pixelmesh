@@ -3,5 +3,6 @@ tunnels:
   terminal:
     proto: http
     addr: 7681
+    hostname: ssh.pixelmesh.live
     basic_auth:
       - "pixel:mesh"
