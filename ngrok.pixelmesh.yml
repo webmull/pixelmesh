@@ -1,0 +1,7 @@
+version: "3"
+tunnels:
+  terminal:
+    proto: http
+    addr: 7681
+    basic_auth:
+      - "pixel:mesh"

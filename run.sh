@@ -4,6 +4,28 @@
 cd "$(dirname "$0")"
 
 # ─────────────────────────────────────────────
+#  Wrap in tmux so the session persists and
+#  can be reached remotely via the ttyd tunnel.
+# ─────────────────────────────────────────────
+if [[ -z "$TMUX" && -z "$PIXELMESH_IN_TMUX" ]]; then
+  export PIXELMESH_IN_TMUX=1
+  # Re-attach if session already exists, otherwise create it
+  if tmux has-session -t pixelmesh 2>/dev/null; then
+    exec tmux attach-session -t pixelmesh
+  else
+    exec tmux new-session -s pixelmesh "$0" "$@"
+  fi
+fi
+
+# ─────────────────────────────────────────────
+#  Ensure ttyd is available
+# ─────────────────────────────────────────────
+if ! command -v ttyd &>/dev/null; then
+  echo "Installing ttyd..."
+  brew install ttyd
+fi
+
+# ─────────────────────────────────────────────
 #  Colours
 # ─────────────────────────────────────────────
 R=$'\e[0;31m'  G=$'\e[0;32m'  Y=$'\e[0;33m'
@@ -48,14 +70,17 @@ status_line() {
   local srv=$(pid_of_server)
   local ctl=$(pid_of_controller)
   local ngk=$(pid_of_ngrok)
+  local tty=$(pid_of_ttyd)
 
   local srv_s="${R}stopped${RESET}"
   local ctl_s="${R}stopped${RESET}"
   local ngk_s="${R}stopped${RESET}"
+  local tty_s="${R}stopped${RESET}"
 
   [[ -n $srv ]] && srv_s="${G}running${RESET} ${DIM}(pid $srv)${RESET}"
   [[ -n $ctl ]] && ctl_s="${G}running${RESET} ${DIM}(pid $ctl)${RESET}"
   [[ -n $ngk ]] && ngk_s="${G}running${RESET} ${DIM}(pid $ngk)${RESET}"
+  [[ -n $tty ]] && tty_s="${G}running${RESET} ${DIM}(pid $tty)${RESET}"
 
   local clients=""
   if [[ -n $srv ]]; then
@@ -64,17 +89,35 @@ status_line() {
     [[ -n $count ]] && clients="  ${DIM}(${count} connected)${RESET}"
   fi
 
+  # Fetch terminal tunnel URL from ngrok API
+  local term_url=""
+  term_url=$(curl -s --max-time 1 http://localhost:4040/api/tunnels 2>/dev/null | \
+    python3 -c "
+import sys, json
+try:
+    ts = json.load(sys.stdin).get('tunnels', [])
+    t  = next((x for x in ts if x.get('config',{}).get('addr','').endswith('7681')), None)
+    if t: print(t['public_url'])
+except: pass
+" 2>/dev/null)
+
   echo "  ${W}server     ${RESET}$srv_s$clients"
   echo "  ${W}controller ${RESET}$ctl_s"
   echo "  ${W}ngrok      ${RESET}$ngk_s"
+  echo "  ${W}terminal   ${RESET}$tty_s"
   echo ""
   if [[ -n $LAST_STARTED ]]; then
     echo "  ${DIM}last started  $LAST_STARTED${RESET}"
     echo ""
   fi
-  echo "  ${DIM}local  → http://localhost:8000/internal/dashboard${RESET}"
-  echo "  ${DIM}public → https://join.pixelmesh.live${RESET}"
-  echo "  ${DIM}sim    → http://localhost:8000/internal/sim${RESET}"
+  echo "  ${DIM}local    → http://localhost:8000/internal/dashboard${RESET}"
+  echo "  ${DIM}public   → https://join.pixelmesh.live${RESET}"
+  echo "  ${DIM}sim      → http://localhost:8000/internal/sim${RESET}"
+  if [[ -n $term_url ]]; then
+    echo "  ${C}terminal → $term_url${RESET}  ${DIM}(pixel / mesh)${RESET}"
+  else
+    echo "  ${DIM}terminal → starting...${RESET}"
+  fi
   echo ""
 }
 
@@ -84,9 +127,11 @@ status_line() {
 kill_all() {
   echo "${Y}→ Stopping all processes...${RESET}"
   lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
-  pkill -9 -f "uvicorn"    2>/dev/null || true
+  lsof -ti tcp:7681 | xargs kill -9 2>/dev/null || true
+  pkill -9 -f "uvicorn"       2>/dev/null || true
   pkill -9 -f "controller.py" 2>/dev/null || true
-  pkill -9 -f "ngrok"      2>/dev/null || true
+  pkill -9 -f "ngrok"         2>/dev/null || true
+  pkill -9 -f "ttyd"          2>/dev/null || true
 
   # Wait until port 8000 is actually free (up to 5s)
   local i=0
@@ -98,20 +143,32 @@ kill_all() {
   sleep 0.3
 }
 
+pid_of_ttyd() { pgrep -f "ttyd" | head -1; }
+
 start_all() {
   echo "${Y}→ Starting server...${RESET}"
   python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
-  echo "${Y}→ Starting ngrok (eu → join.pixelmesh.live)...${RESET}"
+  echo "${Y}→ Starting ngrok (audience + terminal)...${RESET}"
+  # Audience tunnel (reserved domain)
   ngrok http 8000 \
     --region eu \
     --hostname join.pixelmesh.live \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
+  # Terminal tunnel (basic auth pixel:mesh, dynamic URL)
+  ngrok start terminal \
+    --config ~/.config/ngrok/ngrok.yml \
+    --config "$(pwd)/ngrok.pixelmesh.yml" \
+    --log stdout \
+    --log-format logfmt >> /tmp/pixelmesh-ngrok-terminal.log 2>&1 &
+
+  echo "${Y}→ Starting ttyd (web terminal on :7681)...${RESET}"
+  ttyd -p 7681 -W tmux attach-session -t pixelmesh \
+    >> /tmp/pixelmesh-ttyd.log 2>&1 &
 
   echo "${Y}→ Starting controller...${RESET}"
-  # Wait for server to be ready (ngrok is independent — no need to wait for it)
   local i=0
   while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
     sleep 0.5; (( i++ ))
