@@ -13,6 +13,7 @@ Built for live events. Designed for Brighton Dome. Tested with the **Elgato Face
 - Python 3.10+
 - [ngrok](https://ngrok.com) account with a reserved domain (`join.pixelmesh.live`)
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
+- [ttyd](https://github.com/tsl0922/ttyd) — installed automatically via Homebrew on first run if not present
 
 ```bash
 pip install -r requirements.txt
@@ -35,6 +36,8 @@ The controller must be started via `run.sh` — it will not launch directly.
 
 Server and ngrok start in parallel. The controller waits up to 10s for the server's `/health` endpoint before launching.
 
+`run.sh` automatically wraps itself in a `tmux` session named `pixelmesh`. If the session already exists (e.g. after detaching), re-running `./run.sh` reattaches to it.
+
 **URLs**
 
 | URL | Description |
@@ -44,6 +47,17 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
+| shown in status line on start | Remote terminal — browser-based, password protected |
+
+**Remote terminal**
+
+On startup a second ngrok tunnel exposes a browser-based terminal (via `ttyd`) at a dynamic URL shown in the status line:
+
+```
+terminal → https://xxxx.ngrok.io  (pixel / mesh)
+```
+
+Open that URL from anywhere, enter the credentials, and you have full interactive access to the `pixelmesh` tmux session — the same terminal running `run.sh`. Credentials are configured in `ngrok.pixelmesh.yml`.
 
 ---
 
