@@ -737,7 +737,7 @@ class BlinkDetector:
         # Age alone isn't enough — sustained LEDs/reflections also pass age.
         # decode_failures is the stronger signal: a real phone decodes within
         # ~26s (2 cycles); noise accumulates many failures and never decodes.
-        STREAM_MIN_AGE_S    = 4.0
+        STREAM_MIN_AGE_S    = 1.5
         STREAM_MAX_FAILURES = 6    # suppress after this many consecutive decode fails
         STREAM_MAX_CANDS    = 12   # cap work regardless of how many points are above gate
 
