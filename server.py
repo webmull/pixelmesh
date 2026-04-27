@@ -701,6 +701,7 @@ async def debug_runs_page():
             (n for n in os.listdir(_DEBUG_DIR)
              if os.path.isdir(os.path.join(_DEBUG_DIR, n))
              and n not in ("calibration_logs", "recordings", "reports")),
+            key=lambda n: os.path.getmtime(os.path.join(_DEBUG_DIR, n)),
             reverse=True,
         )
         for name in names:
@@ -776,63 +777,79 @@ def _debug_runs_html(runs: list) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>pixelmesh — debug runs</title>
+<meta name="theme-color" content="#0d0d0d">
 <style>
 *, *::before, *::after {{ box-sizing: border-box; }}
+html, body {{
+  max-width: 100%;
+  overflow-x: hidden;
+}}
 body {{
   margin: 0;
   background: #0d0d0d;
   color: #ccc;
-  font: 13px/1.5 -apple-system, system-ui, sans-serif;
-  padding: 24px 20px 60px;
+  font: 14px/1.5 -apple-system, system-ui, sans-serif;
+  padding: 20px 16px 80px;
 }}
 h1 {{
   color: #fff;
-  font-size: 18px;
-  font-weight: 600;
-  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 700;
+  margin: 0 0 4px;
   letter-spacing: -0.3px;
 }}
 .subtitle {{
   color: rgba(255,255,255,0.3);
   font-size: 12px;
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }}
+.subtitle a {{ color: rgba(255,255,255,0.35); }}
 .grid {{
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 14px;
+}}
+@media (min-width: 900px) {{
+  body {{ padding: 28px 24px 80px; }}
+  .grid {{ grid-template-columns: repeat(auto-fill, minmax(480px, 1fr)); }}
 }}
 .card {{
   background: #1a1a1a;
   border: 1px solid #2a2a2a;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }}
 .card-head {{
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 12px 14px 10px;
+  gap: 8px;
+  padding: 13px 14px 11px;
   border-bottom: 1px solid #222;
 }}
 .run-name {{
   color: #fff;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   letter-spacing: -0.2px;
+  word-break: break-all;
 }}
 .meta {{
   color: rgba(255,255,255,0.3);
   font-size: 11px;
+  white-space: nowrap;
 }}
 video {{
   display: block;
   width: 100%;
   background: #000;
-  max-height: 320px;
+  max-height: 50vw;
+}}
+@media (min-width: 900px) {{
+  video {{ max-height: 320px; }}
 }}
 .no-video {{
-  padding: 40px;
+  padding: 36px;
   text-align: center;
   color: rgba(255,255,255,0.2);
   font-size: 12px;
@@ -840,18 +857,23 @@ video {{
 }}
 pre {{
   margin: 0;
-  padding: 10px 14px;
-  font: 11px/1.6 "SF Mono", "Fira Mono", monospace;
+  padding: 12px 14px;
+  font: 11px/1.7 "SF Mono", "Fira Mono", ui-monospace, monospace;
   color: rgba(255,255,255,0.45);
   border-top: 1px solid #222;
   white-space: pre-wrap;
-  word-break: break-all;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
 }}
 .empty {{
   color: rgba(255,255,255,0.3);
   font-size: 13px;
-  margin-top: 40px;
+  margin-top: 60px;
   text-align: center;
+  line-height: 1.8;
 }}
 </style>
 </head>

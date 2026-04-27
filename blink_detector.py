@@ -291,8 +291,13 @@ class BlinkDetector:
         if self._std_buf_count >= n:
             computed_stds = np.std(self._std_buf, axis=1)   # one call, all points
             self._last_stds = computed_stds                  # cached for _std_heatmap
-            for pt, s in zip(self._points, computed_stds):
-                pt.recent_std = float(s)
+            # Update recent_std only for points we actually read it from — _ever_active
+            # covers all decoded phones + guard-phase candidates.  Skips the 25K-entry
+            # Python loop that otherwise runs every frame (saves ~3-5 ms/frame).
+            # New above-gate points get updated in the active_idx loop below (they
+            # aren't in _ever_active yet this frame).
+            for i in self._ever_active:
+                self._points[i].recent_std = float(computed_stds[i])
         else:
             computed_stds = None
 
@@ -382,12 +387,15 @@ class BlinkDetector:
         _EVICT_INTERVAL = 3.0   # seconds between eviction sweeps (vs. 6 s before)
         if (ts - self._last_evict_ts) >= _EVICT_INTERVAL and len(self._ever_active) > 0:
             self._last_evict_ts = ts
-            _stale_cutoff = CYCLE_LEN * PHASE_MS / 1000   # 13.2 s for default config
+            _stale_full   = CYCLE_LEN * PHASE_MS / 1000   # 13.2 s — real phone in guard phase
+            _stale_noise  = 5.0                            # repeated failures → noise, evict fast
             stale = {
                 i for i in self._ever_active
                 if self._points[i].decoded_id is None
                 and self._points[i].last_active_ts > 0
-                and (ts - self._points[i].last_active_ts) > _stale_cutoff
+                and (ts - self._points[i].last_active_ts) > (
+                    _stale_noise if self._points[i].decode_failures > 3 else _stale_full
+                )
             }
             if stale:
                 self._ever_active   -= stale
@@ -420,10 +428,35 @@ class BlinkDetector:
             gate      = cfg["min_recent_std"]
             hist_secs = cfg["history_seconds"]
             active_idx = np.where(computed_stds >= gate)[0]
+            # Sort highest-std first so real phones (std 0.3–0.5) always enter
+            # _ever_active before noise at the gate floor (std 0.05–0.08).
+            if len(active_idx) > 1:
+                active_idx = active_idx[np.argsort(-computed_stds[active_idx])]
+            # Cap new _ever_active entries per second (not per frame) so the limit
+            # is independent of detection fps.  Points already in the set are
+            # unaffected.  Real phones have 6–10× higher std than gate-floor noise
+            # and are sorted first, so they always claim their slots before noise.
+            # At 300 phones × ~1-2 pts each = ~600 real entries needed; at 30/sec
+            # those populate within ~20s — fine given the 13.2s warmup window.
+            # Noise (std 0.05-0.08) only enters after real phones are admitted and
+            # is fast-evicted (5s) once it accumulates decode failures.
+            _MAX_NEW_PER_SEC = 30
+            _new_window_secs = 1.0
+            if not hasattr(self, '_new_ever_active_count'):
+                self._new_ever_active_count = 0
+                self._new_ever_active_window_ts = ts
+            if (ts - self._new_ever_active_window_ts) >= _new_window_secs:
+                self._new_ever_active_count    = 0
+                self._new_ever_active_window_ts = ts
             for i in active_idx:
                 pt = self._points[i]
+                pt.recent_std = float(computed_stds[i])  # catch first-time entries not yet in _ever_active
                 pt.last_active_ts = ts
                 pt.add_sample(float(brightnesses[i]), ts, hist_secs)
+                if i not in self._ever_active:
+                    if self._new_ever_active_count >= _MAX_NEW_PER_SEC:
+                        continue   # noise flood — skip, don't track for decode
+                    self._new_ever_active_count += 1
                 self._ever_active.add(i)
             # Record samples for points that have ever been above gate but are
             # currently quiet.  No time cutoff: once a phone has crossed the gate
