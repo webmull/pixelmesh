@@ -681,9 +681,11 @@ def reset_server():
     with state.lock:
         state.detecting = False
         state.syncing = False
+        state.current_effect = None
         state.calibrated_positions.clear()
         state.last_detections = []
         state.last_detection_count = 0
+    game.set_game_btn_highlight(False)
     set_status("Reset")
 
 
@@ -709,7 +711,6 @@ def camera_scan_worker(holder=None):
         state.camera_listbox_items   = labels
         state.camera_label_to_index  = lmap
 
-    safe_set("camera_selector_items", labels)
     log.info(f"[camera] scan complete: {labels}")
 
     # Auto-open Facecam 4K if present, otherwise first camera found
@@ -792,6 +793,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_9:
         trigger_effect("snake")
 
+    elif key == dpg.mvKey_0:
+        trigger_effect("groups")
+
 
 
 # ------------------------------------------------------------------ #
@@ -828,6 +832,13 @@ def setup_ui(holder: dict):
             dpg.add_theme_color(dpg.mvThemeCol_Button,        (180, 120, 20, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (210, 150, 40, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (220, 160, 50, 255))
+
+    # Theme for the game button while a game is active
+    with dpg.theme(tag="game_active_theme"):
+        with dpg.theme_component(dpg.mvButton):
+            dpg.add_theme_color(dpg.mvThemeCol_Button,        (20, 140, 60, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (30, 170, 75, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (40, 190, 85, 255))
 
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)

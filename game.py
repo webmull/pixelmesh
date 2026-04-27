@@ -263,11 +263,23 @@ def start_bug_game():
 
     ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": game_slot_ms})
     if ok:
+        with _state.lock:
+            _state.current_effect = None
+        set_game_btn_highlight(True)
         _set_status(f"Bug game started — {len(ordered)} phones · {GAME_DURATION_MS // 1000}s round")
         dpg.configure_item("game_leaderboard_window", show=True)
         _start_poll()
     else:
         _set_status("Game start failed")
+
+
+def set_game_btn_highlight(active: bool):
+    try:
+        if dpg.does_item_exist("game_start_btn"):
+            dpg.bind_item_theme("game_start_btn",
+                                "game_active_theme" if active else None)
+    except Exception:
+        pass
 
 
 def _start_poll():
@@ -282,6 +294,7 @@ def _start_poll():
             no_tap  = data.get("no_tap", [])
             _update_leaderboard(results, total, no_tap)
             if not data.get("active", True):
+                set_game_btn_highlight(False)
                 break
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -314,6 +327,7 @@ def build_sidebar_buttons(indent: int, pad: int):
     dpg.add_text("BUG GAME", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
     dpg.add_button(label="Start Bug Game",
+                   tag="game_start_btn",
                    callback=start_bug_game,
                    indent=indent, width=-(pad + 1))
     dpg.add_button(label="Leaderboard",

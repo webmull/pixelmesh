@@ -302,6 +302,7 @@ let effectG2          = 0;
 let effectB2          = 0;
 let effectSplit       = 0.5;
 let effectPath        = [];   // snake: ordered blink_ids (nearest-neighbour path)
+let effectGroups      = {};   // groups: blink_id → group_index
 
 // ---- Bug game ----
 let gameShowAt      = 0;    // server-time ms when bug should appear for this phone
@@ -605,7 +606,8 @@ function handleMessage(msg) {
     effectG2          = msg.color2_g ?? 0;
     effectB2          = msg.color2_b ?? 0;
     effectSplit       = msg.split ?? 0.5;
-    effectPath        = msg.path  ?? [];
+    effectPath        = msg.path   ?? [];
+    effectGroups      = msg.groups ?? {};
     setView("effects");
     return;
   }
@@ -1012,6 +1014,47 @@ function shade(u, v, t) {
     return [i * effectR, i * effectG, i * effectB];
   }
 
+  if (currentEffect === "sparkle") {
+    // Each phone gets its own rate, phase, and color assignment seeded from its ID.
+    // Density slider controls what fraction of phones are on at any moment.
+    const h0 = _hashFloat(myBlinkId);           // rate variation
+    const h1 = _hashFloat(myBlinkId * 7 + 1);   // phase offset
+    const h2 = _hashFloat(myBlinkId * 13 + 2);  // color A vs B
+    const flashRate = 0.5 + h0;                  // 0.5×–1.5× base rate
+    const threshold = 1.0 - 2.0 * effectSplit;  // split=0 → sparse, 1 → dense
+    const i = Math.sin(2 * Math.PI * (t * effectSpeed * flashRate + h1)) > threshold ? 1.0 : 0.0;
+    if (h2 < 0.5) return [i * effectR,  i * effectG,  i * effectB];
+    else          return [i * effectR2, i * effectG2, i * effectB2];
+  }
+
+  if (currentEffect === "sections") {
+    // Divide the crowd into a n_cols × n_rows grid; checkerboard A/B colours;
+    // diagonal sweep wave animates the sections when speed > 0.
+    const n_cols = Math.max(1, Math.round(effectSpatialFreq));
+    const n_rows = Math.max(1, Math.round(effectBpm));   // bpm slot reused as rows
+    const col = Math.min(n_cols - 1, Math.floor(myU * n_cols));
+    const row = Math.min(n_rows - 1, Math.floor(myV * n_rows));
+    const isA = (col + row) % 2 === 0;
+    const colFrac = n_cols > 1 ? col / (n_cols - 1) : 0.5;
+    const rowFrac = n_rows > 1 ? row / (n_rows - 1) : 0.5;
+    const wave = Math.sin(2 * Math.PI * ((colFrac + rowFrac) * 0.5 - t * effectSpeed));
+    const i = wave > 0 ? 1.0 : 0.0;
+    if (isA) return [i * effectR,  i * effectG,  i * effectB];
+    else     return [i * effectR2, i * effectG2, i * effectB2];
+  }
+
+  if (currentEffect === "groups") {
+    // Server assigns each phone a group index sorted by u position so every
+    // group has equal phone count.  Fallback to spatial split for uncalibrated phones.
+    const n   = Math.max(2, Math.round(effectSpatialFreq));
+    const col = (myBlinkId in effectGroups)
+      ? effectGroups[myBlinkId]
+      : Math.min(n - 1, Math.floor(myU * n));
+    const norm = (((col / n) - t * effectSpeed) % 1 + 1) % 1;
+    if (norm < 0.5) return [effectR,  effectG,  effectB];
+    else            return [effectR2, effectG2, effectB2];
+  }
+
   if (currentEffect === "aurora") {
     const sp = effectSpeed;
     // Horizontal curtain bands drifting across the room, rippled by v
@@ -1025,6 +1068,17 @@ function shade(u, v, t) {
   }
 
   return [0, 0, 0];
+}
+
+// Wang integer hash → float [0, 1).  Used to give each phone its own
+// pseudo-random rate/phase/color without any server-side per-phone data.
+function _hashFloat(n) {
+  n = ((n ^ 61) ^ (n >>> 16)) >>> 0;
+  n = ((n + (n << 3)) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 4)) >>> 0;
+  n = ((n * 0x27D4EB2D) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 15)) >>> 0;
+  return (n & 0x7FFFFFFF) / 0x7FFFFFFF;
 }
 
 function hslToRgb(h, s, l) {

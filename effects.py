@@ -85,6 +85,25 @@ EFFECT_PARAMS = {
         ("speed",       "Speed",       "slider_float", {"default_value": 1.0,  "min_value": 0.1, "max_value": 8.0}),
         ("spatial_freq","Tail Length", "slider_float", {"default_value": 4.0,  "min_value": 1.0, "max_value": 20.0, "format": "%.0f"}),
     ],
+    "groups": [
+        ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
+        ("color2",       "Colour B", "color",        {"default_value": (40,  40,  255, 255)}),
+        ("speed",        "Speed",    "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
+        ("spatial_freq", "Columns",  "slider_float", {"default_value": 6.0,  "min_value": 2.0,  "max_value": 16.0, "format": "%.0f"}),
+    ],
+    "sparkle": [
+        ("color",        "Colour A", "color",        {"default_value": (255, 200, 80,  255)}),
+        ("color2",       "Colour B", "color",        {"default_value": (80,  180, 255, 255)}),
+        ("speed",        "Rate",     "slider_float", {"default_value": 2.0,  "min_value": 0.1,  "max_value": 10.0}),
+        ("split",        "Density",  "slider_float", {"default_value": 0.5,  "min_value": 0.0,  "max_value": 1.0}),
+    ],
+    "sections": [
+        ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
+        ("color2",       "Colour B", "color",        {"default_value": (40,  40,  255, 255)}),
+        ("speed",        "Speed",    "slider_float", {"default_value": 0.4,  "min_value": 0.0,  "max_value": 4.0}),
+        ("spatial_freq", "Columns",  "slider_float", {"default_value": 2.0,  "min_value": 1.0,  "max_value": 8.0,  "format": "%.0f"}),
+        ("bpm",          "Rows",     "slider_float", {"default_value": 2.0,  "min_value": 1.0,  "max_value": 8.0,  "format": "%.0f"}),
+    ],
 }
 
 EFFECT_LABELS = {
@@ -97,6 +116,9 @@ EFFECT_LABELS = {
     "aurora":       "7  Aurora",
     "ripple":       "8  Ripple",
     "snake":        "9  Snake",
+    "groups":       "0  Groups",
+    "sparkle":      "   Sparkle",
+    "sections":     "   Sections",
 }
 
 
@@ -164,6 +186,19 @@ def trigger_effect(name: str):
     }
     if name == "snake":
         payload["path"] = _nearest_neighbour_path(positions)
+    if name == "groups":
+        # Sort phones left→right by u, divide into n equal-count groups.
+        # Caps n to phone count so every group has at least one phone.
+        n = max(2, round(_get(name, "spatial_freq", 6)))
+        sorted_bids = sorted(positions, key=lambda bid: positions[bid].get("u", 0))
+        total = len(sorted_bids)
+        n = min(n, total)   # can't have more groups than phones
+        groups = {
+            bid: min(n - 1, int(i * n / total))
+            for i, bid in enumerate(sorted_bids)
+        }
+        payload["spatial_freq"] = n   # phones need the effective n for norm = col/n
+        payload["groups"] = groups
     log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
     with _state.lock:
@@ -171,12 +206,37 @@ def trigger_effect(name: str):
     _set_status(f"Effect: {name}")
 
 
+_settings_debounce_timer: threading.Timer | None = None
+_settings_debounce_lock = threading.Lock()
+
+
 def _on_settings_changed(s, v, user_data):
-    """Re-fire the active effect immediately when a setting changes."""
+    """Re-fire the active effect after a short debounce (150 ms).
+
+    DPG fires this callback on every drag tick from sliders and colour pickers,
+    which would otherwise send 20+ broadcasts per second while the user drags.
+    We cancel any pending timer and restart it so the broadcast only fires
+    once the user stops moving.
+    """
+    global _settings_debounce_timer
     with _state.lock:
         current = _state.current_effect
-    if current:
-        trigger_effect(current)
+    if not current:
+        return
+
+    with _settings_debounce_lock:
+        if _settings_debounce_timer is not None:
+            _settings_debounce_timer.cancel()
+
+        def _fire():
+            with _state.lock:
+                eff = _state.current_effect
+            if eff:
+                trigger_effect(eff)
+
+        _settings_debounce_timer = threading.Timer(0.15, _fire)
+        _settings_debounce_timer.daemon = True
+        _settings_debounce_timer.start()
 
 
 # ------------------------------------------------------------------ #
@@ -279,6 +339,16 @@ def _preview_nn_path():
 _PREV_SNAKE_PATH = _preview_nn_path()
 
 
+def _hash_float(n: int) -> float:
+    """Wang integer hash → float in [0, 1). Used to seed per-phone randomness."""
+    n = (n ^ 61) ^ (n >> 16)
+    n = (n + (n << 3)) & 0x7FFFFFFF
+    n =  n ^ (n >> 4)
+    n = (n * 0x27D4EB2D) & 0x7FFFFFFF
+    n =  n ^ (n >> 15)
+    return (n & 0x7FFFFFFF) / 0x7FFFFFFF
+
+
 def _hsl_to_rgb(h, s, l):
     c = (1 - abs(2*l - 1)) * s
     x = c * (1 - abs((h * 6) % 2 - 1))
@@ -360,6 +430,46 @@ def _shade_preview(effect, u, v, idx, t, params):
         tail = sf
         i = max(0, 1 - dist / tail)
         return (i*r, i*g, i*b)
+
+    if effect == "groups":
+        n    = max(2, round(sf))
+        col  = min(n - 1, int(u * n))
+        norm = ((col / n - t * sp) % 1 + 1) % 1   # 0–1, sweeping
+        if norm < 0.5:
+            return (r,  g,  b)
+        else:
+            return (r2, g2, b2)
+
+    if effect == "sparkle":
+        # Per-phone random rate + phase seeded from point index; binary flash
+        h0 = _hash_float(idx)
+        h1 = _hash_float(idx * 7 + 1)
+        h2 = _hash_float(idx * 13 + 2)
+        flash_rate = 0.5 + h0          # rate varies 0.5×–1.5× base speed
+        phase      = h1                # unique phase offset per phone
+        density    = params.get("split", 0.5)
+        threshold  = 1.0 - 2.0 * density   # density=0 → rarely on, 1 → mostly on
+        iv = 1.0 if math.sin(2 * math.pi * (t * sp * flash_rate + phase)) > threshold else 0.0
+        if h2 < 0.5:
+            return (iv * r,  iv * g,  iv * b)
+        else:
+            return (iv * r2, iv * g2, iv * b2)
+
+    if effect == "sections":
+        # Grid of n_cols × n_rows sections; checkerboard A/B; diagonal sweep wave
+        n_cols = max(1, round(sf))
+        n_rows = max(1, round(params.get("bpm", 2)))
+        col = min(n_cols - 1, int(u * n_cols))
+        row = min(n_rows - 1, int(v * n_rows))
+        is_a = (col + row) % 2 == 0
+        col_frac = col / max(n_cols - 1, 1) if n_cols > 1 else 0.5
+        row_frac = row / max(n_rows - 1, 1) if n_rows > 1 else 0.5
+        wave = math.sin(2 * math.pi * ((col_frac + row_frac) * 0.5 - t * sp))
+        iv = 1.0 if wave > 0 else 0.0
+        if is_a:
+            return (iv * r,  iv * g,  iv * b)
+        else:
+            return (iv * r2, iv * g2, iv * b2)
 
     return (0, 0, 0)
 
