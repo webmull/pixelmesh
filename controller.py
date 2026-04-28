@@ -96,7 +96,7 @@ _EXP_RELOCK_COOLDOWN = 15.0 # minimum seconds between consecutive re-lock attemp
 # Detection timing
 _detection_start_time: float = 0.0
 _detected_ids: set = set()                      # blink_ids seen this detection session
-_detection_order: dict[int, int] = {}           # blink_id → found sequence number (1, 2, 3...)
+_render_order: dict[int, int] = {}              # blink_id → left-to-right rank (1=leftmost)
 _detection_timings: dict[int, tuple] = {}       # blink_id → (elapsed_s, confidence)
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
@@ -412,7 +412,7 @@ def draw_device_overlay(canvas: np.ndarray):
         positions    = state.calibrated_positions.copy()
         crop_x       = state.last_crop_x
         crop_y       = getattr(state, "last_crop_y", 0)
-        show_found   = state.overlay_show_found
+        show_render  = state.overlay_show_render
 
     for blink_id_str, pos in positions.items():
         blink_id = int(blink_id_str)
@@ -421,7 +421,7 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-        label = str(_detection_order.get(blink_id, "?")) if show_found else str(blink_id + 1)
+        label = str(_render_order.get(blink_id, "?")) if show_render else str(blink_id + 1)
         font_scale = 0.55
         (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
         pad = 5
@@ -503,7 +503,7 @@ def update_ui_from_state():
     safe_set("chk_detection", detecting)
     safe_set("chk_sync",     state.syncing)
     safe_set("chk_overlays",     state.show_device_overlay)
-    safe_set("chk_overlay_pos",  state.overlay_show_found)
+    safe_set("chk_overlay_pos",  state.overlay_show_render)
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
 
@@ -583,12 +583,12 @@ def toggle_detection():
         return
 
     if val:
-        global _detection_start_time, _detected_ids, _detection_order
+        global _detection_start_time, _detected_ids, _render_order
         _detection_start_time = time.time()
         _detected_ids = set()
-        _detection_order.clear()
+        _render_order.clear()
         with state.lock:
-            state.overlay_show_found = False
+            state.overlay_show_render = False
         # Don't reset detector or clear positions — preserve already-found devices.
         # Server will only ask unfound clients to blink.
         post_json_async("/admin/detect", {"detecting": True})
@@ -640,8 +640,8 @@ def toggle_device_overlay():
 
 def toggle_overlay_mode():
     with state.lock:
-        state.overlay_show_found = not state.overlay_show_found
-    mode = "found order" if state.overlay_show_found else "IDs"
+        state.overlay_show_render = not state.overlay_show_render
+    mode = "render order" if state.overlay_show_render else "IDs"
     set_status(f"Overlay: {mode}")
 
 
@@ -670,12 +670,12 @@ def _save_report():
 
 
 def reset_server():
-    global _detected_ids, _detection_start_time, _detection_order, _detection_timings
+    global _detected_ids, _detection_start_time, _render_order, _detection_timings
     _save_report()
     post_json_async("/admin/reset", {})
     detector.reset()
     _detected_ids = set()
-    _detection_order.clear()
+    _render_order.clear()
     _detection_timings = {}
     _detection_start_time = 0.0
     with state.lock:
@@ -823,7 +823,7 @@ def _chk(label: str, tag: str, callback, enabled: bool = True):
 
 def setup_ui(holder: dict):
     effects.init(state, set_status)
-    game.init(state, set_status, post_json, fetch_json, _detection_order)
+    game.init(state, set_status, post_json, fetch_json, _render_order)
     dpg.create_context()
 
     # Theme for the currently active effect button
@@ -1317,7 +1317,6 @@ def _detection_worker():
                     # noise points accumulate the same decoded ID over time.
                     if det.blink_id in _detected_ids:
                         continue
-                    _detection_order[det.blink_id] = len(_detection_order) + 1
                     u = det.cx_px / w_raw
                     v = det.cy_px / h_raw
                     positions[str(det.blink_id)] = {
@@ -1328,6 +1327,14 @@ def _detection_worker():
                     with state.lock:
                         state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
                     _detected_ids.add(det.blink_id)
+                    # Recompute render order (left-to-right by u) after each new detection.
+                    with state.lock:
+                        all_pos = dict(state.calibrated_positions)
+                    _render_order.clear()
+                    for rank, bid in enumerate(
+                        sorted(all_pos, key=lambda b: all_pos[b]["u"]), 1
+                    ):
+                        _render_order[bid] = rank
                     elapsed = time.time() - _detection_start_time
                     _detection_timings[det.blink_id] = (elapsed, det.confidence)
                     _log_timing(
