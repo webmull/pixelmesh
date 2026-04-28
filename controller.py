@@ -1120,7 +1120,7 @@ def main():
                         # explicit lock is needed — at worst we see one frame stale.
                         detector.draw_overlay(canvas, scale=_scale,
                                               crop_x=_crop_x, crop_y=_crop_y,
-                                              show_ids=show_ov,
+                                              show_ids=not show_ov,
                                               valid_ids=_valid_blink_ids or None)
 
                         if dbg_cap.active:
