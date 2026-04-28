@@ -878,7 +878,7 @@ def setup_ui(holder: dict):
                 _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
                 _chk("Clock Sync  [S]",   "chk_sync",       lambda: toggle_sync())
                 _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
-                _chk("Found Order  [P]",  "chk_overlay_pos", lambda: toggle_overlay_mode())
+                _chk("Render Order [P]",  "chk_overlay_pos", lambda: toggle_overlay_mode())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
                 dpg.add_text("[REC]", tag="rec_status_text",
