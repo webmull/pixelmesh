@@ -22,7 +22,7 @@ class AppState:
         self.syncing          = False        # clock sync broadcast active
         self.sidebar_visible  = True
         self.show_device_overlay  = True
-        self.overlay_show_found   = False   # False = show blink IDs, True = show found order (1st, 2nd...)
+        self.overlay_show_render  = False   # False = show blink IDs, True = show render order (left-to-right)
 
         self.last_detections  = []           # list of DetectedDevice
         self.last_detection_count = 0

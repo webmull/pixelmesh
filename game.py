@@ -41,7 +41,7 @@ _state            = None
 _set_status       = None
 _post_json        = None
 _fetch_json       = None
-_detection_order  = None   # ref to controller's _detection_order dict
+_render_order     = None   # ref to controller's _render_order dict (left-to-right rank)
 
 
 def server_init(blink_to_device, connections, positions, blink_assignments, broadcast, enable_sync, stop_effects):
@@ -55,13 +55,13 @@ def server_init(blink_to_device, connections, positions, blink_assignments, broa
     _stop_effects      = stop_effects
 
 
-def init(state, set_status, post_json, fetch_json, detection_order):
-    global _state, _set_status, _post_json, _fetch_json, _detection_order
-    _state           = state
-    _set_status      = set_status
-    _post_json       = post_json
-    _fetch_json      = fetch_json
-    _detection_order = detection_order
+def init(state, set_status, post_json, fetch_json, render_order):
+    global _state, _set_status, _post_json, _fetch_json, _render_order
+    _state        = state
+    _set_status   = set_status
+    _post_json    = post_json
+    _fetch_json   = fetch_json
+    _render_order = render_order
 
 
 # ------------------------------------------------------------------ #
@@ -255,11 +255,11 @@ async def handle_tap(device_id: str, reaction_ms: float):
 # ------------------------------------------------------------------ #
 
 def start_bug_game():
-    if not _detection_order:
+    if not _render_order:
         _set_status("No detected phones — run detection first")
         return
 
-    ordered = sorted(_detection_order.keys(), key=lambda bid: _detection_order[bid])
+    ordered = sorted(_render_order.keys(), key=lambda bid: _render_order[bid])
 
     ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": game_slot_ms})
     if ok:
