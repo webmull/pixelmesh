@@ -1295,18 +1295,22 @@ def main():
             # Update texture
             dpg.set_value("camera_texture", texture_data)
 
-            # Fit preview image inside panel, leaving room for status strip below
+            # Fit preview image to available space using viewport dimensions.
+            # get_item_rect_size("preview_panel") is unreliable (can return scroll
+            # content size or stale values); viewport dims are always correct.
             try:
-                pw, ph = dpg.get_item_rect_size("preview_panel")
-                _STATUS_H = 52   # approx height of separator + status_text + clients row
-                ph_img = max(1, ph - _STATUS_H)
-                if pw > 0 and ph_img > 0:
-                    aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
-                    if pw / ph_img > aspect:
-                        iw, ih = int(ph_img * aspect), ph_img
-                    else:
-                        iw, ih = pw, int(pw / aspect)
-                    dpg.configure_item("preview_image", width=iw, height=ih)
+                _SIDEBAR_W = 324   # sidebar child_window width + border
+                _STATUS_H  = 52    # separator + status_text + clients row
+                vw = dpg.get_viewport_client_width()
+                vh = dpg.get_viewport_client_height()
+                pw = max(1, vw - _SIDEBAR_W)
+                ph_img = max(1, vh - _STATUS_H)
+                aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
+                if pw / ph_img > aspect:
+                    iw, ih = int(ph_img * aspect), ph_img
+                else:
+                    iw, ih = pw, int(pw / aspect)
+                dpg.configure_item("preview_image", width=iw, height=ih)
             except Exception:
                 pass
 
