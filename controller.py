@@ -410,6 +410,8 @@ def no_camera_canvas() -> np.ndarray:
 # ------------------------------------------------------------------ #
 
 def draw_device_overlay(canvas: np.ndarray):
+    if not _overlays_on():
+        return
     with state.lock:
         positions    = state.calibrated_positions.copy()
         crop_x       = state.last_crop_x
@@ -435,8 +437,15 @@ def draw_device_overlay(canvas: np.ndarray):
                     FONT, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
 
+def _overlays_on() -> bool:
+    with state.lock:
+        return state.show_overlays
+
+
 def draw_roi_overlay(canvas: np.ndarray):
     """Dim the excluded ROI regions and draw boundary lines."""
+    if not _overlays_on():
+        return
     roi_top    = detector.cfg.get("roi_top_frac",    0.0)
     roi_bottom = detector.cfg.get("roi_bottom_frac", 0.0)
     roi_left   = detector.cfg.get("roi_left_frac",   0.0)
@@ -541,8 +550,9 @@ def update_ui_from_state():
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
 
-    safe_set("chk_detection", detecting)
-    safe_set("chk_sync",     state.syncing)
+    safe_set("chk_detection",    detecting)
+    safe_set("chk_sync",         state.syncing)
+    safe_set("chk_overlays_all", state.show_overlays)
     safe_set("chk_overlays",     state.show_device_overlay)
     safe_set("chk_overlay_pos",  state.overlay_show_render)
     safe_set("chk_debug",    dbg_cap.active)
@@ -691,6 +701,13 @@ def toggle_overlay_mode():
     set_status(f"Overlay: {mode}")
 
 
+def toggle_all_overlays():
+    with state.lock:
+        state.show_overlays = not state.show_overlays
+        val = state.show_overlays
+    set_status(f"Overlays {'ON' if val else 'OFF'}")
+
+
 def _set_roi():
     if _ui_syncing:
         return
@@ -815,6 +832,9 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_V:
         toggle_recording()
 
+    elif key == dpg.mvKey_H:
+        toggle_all_overlays()
+
     elif key == dpg.mvKey_O:
         toggle_device_overlay()
 
@@ -930,9 +950,10 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=4)
                 dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                _chk("Detection  [D]",    "chk_detection", lambda: toggle_detection())
-                _chk("Clock Sync  [S]",   "chk_sync",       lambda: toggle_sync())
-                _chk("ID Overlays  [O]",  "chk_overlays",  lambda: toggle_device_overlay())
+                _chk("Detection  [D]",    "chk_detection",   lambda: toggle_detection())
+                _chk("Clock Sync  [S]",   "chk_sync",        lambda: toggle_sync())
+                _chk("Overlays  [H]",     "chk_overlays_all",lambda: toggle_all_overlays())
+                _chk("ID Overlays  [O]",  "chk_overlays",    lambda: toggle_device_overlay())
                 _chk("Render Order [P]",  "chk_overlay_pos", lambda: toggle_overlay_mode())
                 _chk("Debug Capture  [G]","chk_debug",      lambda: toggle_debug())
                 _chk("Record Video  [V]", "chk_recording",  lambda: toggle_recording())
@@ -1192,7 +1213,7 @@ def main():
                         _crop_x = state.last_crop_x
                         _crop_y = getattr(state, "last_crop_y", 0)
 
-                    if detecting:
+                    if detecting and _overlays_on():
                         # draw_overlay reads detector's cached state (_last_stds,
                         # _decoded_pts) written by the detection thread.  NumPy
                         # reference swaps are atomic under CPython's GIL so no

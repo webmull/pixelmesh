@@ -21,6 +21,7 @@ class AppState:
         self.detecting        = False        # detection pipeline active
         self.syncing          = False        # clock sync broadcast active
         self.sidebar_visible  = True
+        self.show_overlays        = True     # master switch — hides all canvas annotations
         self.show_device_overlay  = True
         self.overlay_show_render  = False   # False = show blink IDs, True = show render order (left-to-right)
 
