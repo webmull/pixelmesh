@@ -1300,7 +1300,7 @@ def main():
             # content size or stale values); viewport dims are always correct.
             try:
                 _SIDEBAR_W = 324   # sidebar child_window width + border
-                _STATUS_H  = 42    # separator + status_text + clients row
+                _STATUS_H  = 22    # separator + status_text + clients row
                 vw = dpg.get_viewport_client_width()
                 vh = dpg.get_viewport_client_height()
                 pw = max(1, vw - _SIDEBAR_W)
