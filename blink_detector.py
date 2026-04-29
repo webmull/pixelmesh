@@ -47,7 +47,9 @@ DEFAULTS = dict(
                              # from its nearest grid centre) falls inside an adjacent
                              # centre's r=4 patch, so nothing is missed.
     roi_top_frac    = 0.00,  # fraction of frame height to skip from top (0 = full frame)
+    roi_bottom_frac = 0.00,  # fraction of frame height to skip from bottom
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
+    roi_right_frac  = 0.00,  # fraction of frame width to skip from right
     log_interval    = 3.0,   # seconds between diagnostic log lines
 )
 
@@ -144,7 +146,7 @@ class BlinkDetector:
         self._points:      list[_GridPoint] = []
         self.last_results: list[DetectedDevice] = []
         self.cfg           = dict(DEFAULTS)
-        self._grid_shape   = (0, 0, 0, 0)
+        self._grid_shape   = (0, 0, 0, 0, 0, 0)
         self._last_log_ts  = 0.0
         self._noise_floor  = DEFAULTS["min_recent_std"]  # adaptive EMA estimate
         self.signal_range: float = 1.0   # best observed range across active points (0–1)
@@ -178,13 +180,15 @@ class BlinkDetector:
     # ---------------------------------------------------------------- #
 
     def _rebuild_grid(self, h, w):
-        cfg     = self.cfg
-        roi_top  = int(h * cfg["roi_top_frac"])
-        roi_left = int(w * cfg["roi_left_frac"])
+        cfg        = self.cfg
+        roi_top    = int(h * cfg["roi_top_frac"])
+        roi_bottom = int(h * cfg["roi_bottom_frac"])
+        roi_left   = int(w * cfg["roi_left_frac"])
+        roi_right  = int(w * cfg["roi_right_frac"])
         step    = cfg["grid_step"]
-        xs = list(range(roi_left + step // 2, w, step))
-        ys = list(range(roi_top  + step // 2, h, step))
-        shape = (roi_top, roi_left, len(ys), len(xs))
+        xs = list(range(roi_left + step // 2, w - roi_right, step))
+        ys = list(range(roi_top  + step // 2, h - roi_bottom, step))
+        shape = (roi_top, roi_bottom, roi_left, roi_right, len(ys), len(xs))
         if shape == self._grid_shape and self._points:
             return
         self._grid_shape = shape
@@ -332,8 +336,8 @@ class BlinkDetector:
                 blink_mask = (self._diff_accum >= _DIFF_THRESH).astype(np.uint8) * 255
                 n_lbl, _, stats, centroids = cv2.connectedComponentsWithStats(
                     blink_mask, connectivity=8)
-                if n_lbl > 1 and self._grid_shape[3] > 0:
-                    roi_top, roi_left, n_ys, n_xs = self._grid_shape
+                if n_lbl > 1 and self._grid_shape[5] > 0:
+                    roi_top, roi_bottom, roi_left, roi_right, n_ys, n_xs = self._grid_shape
                     step = cfg["grid_step"]
                     injected = 0
                     # Sort smallest-area-first: phone blobs (1–5px²) get

@@ -436,27 +436,41 @@ def draw_device_overlay(canvas: np.ndarray):
 
 
 def draw_roi_overlay(canvas: np.ndarray):
-    """Dim the excluded ROI region and draw a boundary line."""
-    roi_top  = detector.cfg.get("roi_top_frac",  0.0)
-    roi_left = detector.cfg.get("roi_left_frac", 0.0)
-    if roi_top == 0.0 and roi_left == 0.0:
+    """Dim the excluded ROI regions and draw boundary lines."""
+    roi_top    = detector.cfg.get("roi_top_frac",    0.0)
+    roi_bottom = detector.cfg.get("roi_bottom_frac", 0.0)
+    roi_left   = detector.cfg.get("roi_left_frac",   0.0)
+    roi_right  = detector.cfg.get("roi_right_frac",  0.0)
+    if roi_top == 0.0 and roi_bottom == 0.0 and roi_left == 0.0 and roi_right == 0.0:
         return
     with state.lock:
         scale  = state.last_render_scale
         crop_x = state.last_crop_x
         crop_y = getattr(state, "last_crop_y", 0)
     h, w = canvas.shape[:2]
-    y1 = max(0, min(h - 1, int(roi_top  * CAM_HEIGHT * scale) - crop_y))
-    x1 = max(0, min(w - 1, int(roi_left * CAM_WIDTH  * scale) - crop_x))
+    y1 = max(0, min(h - 1, int(roi_top    * CAM_HEIGHT * scale) - crop_y))
+    y2 = max(0, min(h - 1, h - int(roi_bottom * CAM_HEIGHT * scale) + crop_y))
+    x1 = max(0, min(w - 1, int(roi_left   * CAM_WIDTH  * scale) - crop_x))
+    x2 = max(0, min(w - 1, w - int(roi_right  * CAM_WIDTH  * scale) + crop_x))
     color = (80, 160, 255)
     if y1 > 0:
         canvas[:y1, :] //= 3
         cv2.line(canvas, (0, y1), (w - 1, y1), color, 1)
+    if y2 < h - 1:
+        canvas[y2:, :] //= 3
+        cv2.line(canvas, (0, y2), (w - 1, y2), color, 1)
     if x1 > 0:
         canvas[:, :x1] //= 3
         cv2.line(canvas, (x1, 0), (x1, h - 1), color, 1)
-    label = f"ROI  top {int(roi_top * 100)}%  left {int(roi_left * 100)}%"
-    cv2.putText(canvas, label, (x1 + 4, y1 + 14),
+    if x2 < w - 1:
+        canvas[:, x2:] //= 3
+        cv2.line(canvas, (x2, 0), (x2, h - 1), color, 1)
+    parts = []
+    if roi_top    > 0: parts.append(f"top {int(roi_top * 100)}%")
+    if roi_bottom > 0: parts.append(f"bot {int(roi_bottom * 100)}%")
+    if roi_left   > 0: parts.append(f"left {int(roi_left * 100)}%")
+    if roi_right  > 0: parts.append(f"right {int(roi_right * 100)}%")
+    cv2.putText(canvas, "ROI  " + "  ".join(parts), (x1 + 4, y1 + 14),
                 FONT, 0.4, color, 1, cv2.LINE_AA)
 
 
@@ -680,10 +694,10 @@ def toggle_overlay_mode():
 def _set_roi():
     if _ui_syncing:
         return
-    top  = dpg.get_value("sld_roi_top")  / 100.0
-    left = dpg.get_value("sld_roi_left") / 100.0
-    detector.cfg["roi_top_frac"]  = top
-    detector.cfg["roi_left_frac"] = left
+    detector.cfg["roi_top_frac"]    = dpg.get_value("sld_roi_top")    / 100.0
+    detector.cfg["roi_bottom_frac"] = dpg.get_value("sld_roi_bottom") / 100.0
+    detector.cfg["roi_left_frac"]   = dpg.get_value("sld_roi_left")   / 100.0
+    detector.cfg["roi_right_frac"]  = dpg.get_value("sld_roi_right")  / 100.0
 
 
 def _save_report():
@@ -936,8 +950,18 @@ def setup_ui(holder: dict):
                                    default_value=0, min_value=0, max_value=60,
                                    callback=_set_roi,
                                    indent=_PAD, width=-(_PAD + 1))
+                dpg.add_text("Bottom %", color=(180, 180, 180), indent=_PAD)
+                dpg.add_slider_int(label="##roi_bottom", tag="sld_roi_bottom",
+                                   default_value=0, min_value=0, max_value=60,
+                                   callback=_set_roi,
+                                   indent=_PAD, width=-(_PAD + 1))
                 dpg.add_text("Left %", color=(180, 180, 180), indent=_PAD)
                 dpg.add_slider_int(label="##roi_left", tag="sld_roi_left",
+                                   default_value=0, min_value=0, max_value=60,
+                                   callback=_set_roi,
+                                   indent=_PAD, width=-(_PAD + 1))
+                dpg.add_text("Right %", color=(180, 180, 180), indent=_PAD)
+                dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
                                    default_value=0, min_value=0, max_value=60,
                                    callback=_set_roi,
                                    indent=_PAD, width=-(_PAD + 1))
