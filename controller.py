@@ -962,7 +962,6 @@ def setup_ui(holder: dict):
                                        indent=_PAD, width=-(_PAD + 1))
 
                         dpg.add_spacer(height=8)
-                        dpg.add_text("EFFECTS", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
                         effects.build_preview_widget(indent=_PAD)
                         dpg.add_spacer(height=4)
