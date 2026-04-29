@@ -66,6 +66,8 @@ FONT               = cv2.FONT_HERSHEY_SIMPLEX
 
 state    = AppState()
 detector = BlinkDetector()
+detector.cfg["history_seconds"] = 15.0   # decode needs 13.2s; 30s default wastes memory/trim cost
+detector.cfg["recent_n"]        = 18     # smaller std window (1.2s @ 15fps) — still covers 6 blink cycles
 dbg_cap  = DebugCapture()
 
 # Throttle debug saves: one frame every N camera frames
