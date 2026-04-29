@@ -920,7 +920,7 @@ def setup_ui(holder: dict):
 
     # Zero padding on the preview panel so get_item_rect_size == usable pixel area
     with dpg.theme(tag="preview_panel_theme"):
-        with dpg.theme_component(dpg.mvAll):
+        with dpg.theme_component(dpg.mvWindowAppItem):
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
 
     with dpg.texture_registry(show=False):
@@ -1055,7 +1055,6 @@ def setup_ui(holder: dict):
             with dpg.child_window(tag="preview_panel", border=False,
                                   width=-1, height=-1,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
-                dpg.bind_item_theme("preview_panel", "preview_panel_theme")
                 dpg.add_image("camera_texture", tag="preview_image",
                               width=1, height=1)
                 dpg.add_separator()
@@ -1067,6 +1066,7 @@ def setup_ui(holder: dict):
                     dpg.add_spacer(width=24)
                     dpg.add_text("[REC]", tag="rec_status_text",
                                  color=(220, 60, 60), show=False)
+        dpg.bind_item_theme("preview_panel", "preview_panel_theme")
 
     # ---- Per-effect settings modals (hidden until ... is clicked) ----
     effects.build_window()
