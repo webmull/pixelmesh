@@ -1050,9 +1050,10 @@ def setup_ui(holder: dict):
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
-                                  width=-1, height=-1):
+                                  width=-1, height=-1,
+                                  no_scrollbar=True, no_scroll_with_mouse=True):
                 dpg.add_image("camera_texture", tag="preview_image",
-                              width=PREVIEW_WIDTH, height=PREVIEW_HEIGHT)
+                              width=1, height=1)
                 dpg.add_separator()
                 dpg.add_text("", tag="status_text", indent=_PAD)
                 with dpg.group(horizontal=True, indent=_PAD):
