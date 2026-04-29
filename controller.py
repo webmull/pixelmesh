@@ -435,6 +435,31 @@ def draw_device_overlay(canvas: np.ndarray):
                     FONT, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
 
+def draw_roi_overlay(canvas: np.ndarray):
+    """Dim the excluded ROI region and draw a boundary line."""
+    roi_top  = detector.cfg.get("roi_top_frac",  0.0)
+    roi_left = detector.cfg.get("roi_left_frac", 0.0)
+    if roi_top == 0.0 and roi_left == 0.0:
+        return
+    with state.lock:
+        scale  = state.last_render_scale
+        crop_x = state.last_crop_x
+        crop_y = getattr(state, "last_crop_y", 0)
+    h, w = canvas.shape[:2]
+    y1 = max(0, min(h - 1, int(roi_top  * CAM_HEIGHT * scale) - crop_y))
+    x1 = max(0, min(w - 1, int(roi_left * CAM_WIDTH  * scale) - crop_x))
+    color = (80, 160, 255)
+    if y1 > 0:
+        canvas[:y1, :] //= 3
+        cv2.line(canvas, (0, y1), (w - 1, y1), color, 1)
+    if x1 > 0:
+        canvas[:, :x1] //= 3
+        cv2.line(canvas, (x1, 0), (x1, h - 1), color, 1)
+    label = f"ROI  top {int(roi_top * 100)}%  left {int(roi_left * 100)}%"
+    cv2.putText(canvas, label, (x1 + 4, y1 + 14),
+                FONT, 0.4, color, 1, cv2.LINE_AA)
+
+
 def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
         detecting = state.detecting
@@ -650,6 +675,15 @@ def toggle_overlay_mode():
         state.overlay_show_render = not state.overlay_show_render
     mode = "render order" if state.overlay_show_render else "IDs"
     set_status(f"Overlay: {mode}")
+
+
+def _set_roi():
+    if _ui_syncing:
+        return
+    top  = dpg.get_value("sld_roi_top")  / 100.0
+    left = dpg.get_value("sld_roi_left") / 100.0
+    detector.cfg["roi_top_frac"]  = top
+    detector.cfg["roi_left_frac"] = left
 
 
 def _save_report():
@@ -894,6 +928,20 @@ def setup_ui(holder: dict):
                 dpg.add_button(label="Reset Server  [R]",
                                callback=reset_server,
                                indent=_PAD, width=-(_PAD + 1))
+                dpg.add_spacer(height=4)
+                dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
+                dpg.add_separator()
+                dpg.add_text("Top %", color=(180, 180, 180), indent=_PAD)
+                dpg.add_slider_int(label="##roi_top", tag="sld_roi_top",
+                                   default_value=0, min_value=0, max_value=60,
+                                   callback=_set_roi,
+                                   indent=_PAD, width=-(_PAD + 1))
+                dpg.add_text("Left %", color=(180, 180, 180), indent=_PAD)
+                dpg.add_slider_int(label="##roi_left", tag="sld_roi_left",
+                                   default_value=0, min_value=0, max_value=60,
+                                   callback=_set_roi,
+                                   indent=_PAD, width=-(_PAD + 1))
+
                 dpg.add_spacer(height=4)
                 dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
@@ -1155,6 +1203,8 @@ def main():
                                         blobs=active_blobs,
                                         detections=results_snap,
                                     )
+
+                    draw_roi_overlay(canvas)
 
                     if show_ov:
                         draw_device_overlay(canvas)
