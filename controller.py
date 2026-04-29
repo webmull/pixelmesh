@@ -1301,18 +1301,22 @@ def main():
             try:
                 _SIDEBAR_W = 324   # sidebar child_window width + border
                 _STATUS_H  = 22    # separator + status_text + clients row
-                ww, wh = dpg.get_item_rect_size("main_window")
+                ww, wh     = dpg.get_item_rect_size("main_window")
+                pw_panel, ph_panel = dpg.get_item_rect_size("preview_panel")
+                pw_sid, _  = dpg.get_item_rect_size("sidebar_panel")
                 pw = max(1, ww - _SIDEBAR_W)
                 ph_img = max(1, wh - _STATUS_H)
+                log.debug(f"[fit] main={ww}x{wh}  panel={pw_panel}x{ph_panel}  sidebar={pw_sid}  → pw={pw} ph={ph_img}")
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
                     if pw / ph_img > aspect:
                         iw, ih = int(ph_img * aspect), ph_img
                     else:
                         iw, ih = pw, int(pw / aspect)
+                    log.debug(f"[fit] → image {iw}x{ih}")
                     dpg.configure_item("preview_image", width=iw, height=ih)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug(f"[fit] exception: {e}")
 
             update_ui_from_state()
 
