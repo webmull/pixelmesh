@@ -938,7 +938,7 @@ def setup_ui(holder: dict):
                     no_resize=True, no_move=True, no_collapse=True,
                     width=-1, height=-1):
 
-        with dpg.group(horizontal=True):
+        with dpg.group(horizontal=True, horizontal_spacing=0):
 
             # ---- Sidebar ----
             with dpg.child_window(width=320, height=-1, border=True,
@@ -1307,7 +1307,6 @@ def main():
             try:
                 _STATUS_H = 22   # separator + status_text + clients row
                 pw, ph = dpg.get_item_rect_size("preview_panel")
-                img_pos = dpg.get_item_rect_min("preview_image")
                 ph_img = max(1, ph - _STATUS_H)
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
@@ -1316,10 +1315,8 @@ def main():
                     else:
                         iw, ih = pw, int(pw / aspect)
                     dpg.configure_item("preview_image", width=iw, height=ih)
-                    panel_pos = dpg.get_item_pos("preview_panel")
-                    log.debug(f"[fit] panel_pos={panel_pos} panel={pw}x{ph}  img_pos={img_pos}  → {iw}x{ih}")
-            except Exception as e:
-                log.debug(f"[fit] err: {e}")
+            except Exception:
+                pass
 
             update_ui_from_state()
 
