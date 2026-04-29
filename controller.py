@@ -920,7 +920,7 @@ def setup_ui(holder: dict):
 
     # Zero padding on the preview panel so get_item_rect_size == usable pixel area
     with dpg.theme(tag="preview_panel_theme"):
-        with dpg.theme_component(dpg.mvChildWindow):
+        with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
 
     with dpg.texture_registry(show=False):
