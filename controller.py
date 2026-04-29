@@ -1316,8 +1316,8 @@ def main():
                     else:
                         iw, ih = pw, int(pw / aspect)
                     dpg.configure_item("preview_image", width=iw, height=ih)
-                    panel_min = dpg.get_item_rect_min("preview_panel")
-                    log.debug(f"[fit] panel_min={panel_min} panel={pw}x{ph}  img_pos={img_pos}  → {iw}x{ih}")
+                    panel_pos = dpg.get_item_pos("preview_panel")
+                    log.debug(f"[fit] panel_pos={panel_pos} panel={pw}x{ph}  img_pos={img_pos}  → {iw}x{ih}")
             except Exception as e:
                 log.debug(f"[fit] err: {e}")
 
