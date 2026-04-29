@@ -960,6 +960,8 @@ def setup_ui(holder: dict):
                         dpg.add_spacer(height=8)
                         dpg.add_text("EFFECTS", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
+                        effects.build_preview_widget(indent=_PAD)
+                        dpg.add_spacer(height=4)
                         for _ename, _elabel in effects.EFFECT_LABELS.items():
                             with dpg.group(horizontal=True, indent=_PAD):
                                 dpg.add_button(
@@ -975,7 +977,6 @@ def setup_ui(holder: dict):
                                     user_data=_ename,
                                     width=30,
                                 )
-                        effects.build_preview_widget(indent=_PAD)
 
                     # ---- CAMERA tab ----
                     with dpg.tab(label="CAMERA"):
@@ -1291,19 +1292,20 @@ def main():
             # Update texture
             dpg.set_value("camera_texture", texture_data)
 
-            # Fit preview image inside panel
+            # Fit preview image inside panel, leaving room for status strip below
             try:
                 pw, ph = dpg.get_item_rect_size("preview_panel")
-                if pw > 0 and ph > 0:
+                _STATUS_H = 52   # approx height of separator + status_text + clients row
+                ph_img = max(1, ph - _STATUS_H)
+                if pw > 0 and ph_img > 0:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
-                    if pw / ph > aspect:
-                        iw, ih = int(ph * aspect), ph
+                    if pw / ph_img > aspect:
+                        iw, ih = int(ph_img * aspect), ph_img
                     else:
                         iw, ih = pw, int(pw / aspect)
                     x0 = max((pw - iw) // 2, 0)
-                    y0 = 0  # pin to top — vertical centering creates a gap at full-screen height
                     dpg.configure_item("preview_image", width=iw, height=ih)
-                    dpg.set_item_pos("preview_image", [x0, y0])
+                    dpg.set_item_pos("preview_image", [x0, 0])
             except Exception:
                 pass
 
