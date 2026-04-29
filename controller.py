@@ -557,6 +557,7 @@ def update_ui_from_state():
     safe_set("chk_overlay_pos",  state.overlay_show_render)
     safe_set("chk_debug",    dbg_cap.active)
     safe_set("chk_recording", vid_rec.active)
+    ui_queue.put(("_roi_enabled", not detecting))
 
     _push_elgato_state()
 
@@ -710,6 +711,9 @@ def toggle_all_overlays():
 def _set_roi():
     if _ui_syncing:
         return
+    with state.lock:
+        if state.detecting:
+            return   # guard: ROI rebuild races with draw_overlay during detection
     detector.cfg["roi_top_frac"]    = dpg.get_value("sld_roi_top")    / 100.0
     detector.cfg["roi_bottom_frac"] = dpg.get_value("sld_roi_bottom") / 100.0
     detector.cfg["roi_left_frac"]   = dpg.get_value("sld_roi_left")   / 100.0
@@ -1303,9 +1307,7 @@ def main():
                         iw, ih = int(ph_img * aspect), ph_img
                     else:
                         iw, ih = pw, int(pw / aspect)
-                    x0 = max((pw - iw) // 2, 0)
                     dpg.configure_item("preview_image", width=iw, height=ih)
-                    dpg.set_item_pos("preview_image", [x0, 0])
             except Exception:
                 pass
 
@@ -1330,6 +1332,11 @@ def main():
                         continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
+                        continue
+                    if tag == "_roi_enabled":
+                        for item in ("sld_roi_top", "sld_roi_bottom",
+                                     "sld_roi_left", "sld_roi_right"):
+                            dpg.enable_item(item) if value else dpg.disable_item(item)
                         continue
                     if tag == "elgato_color":
                         col = (80, 200, 80) if value else (120, 120, 120)
