@@ -918,6 +918,11 @@ def setup_ui(holder: dict):
             dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (30, 170, 75, 255))
             dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,  (40, 190, 85, 255))
 
+    # Zero padding on the preview panel so get_item_rect_size == usable pixel area
+    with dpg.theme(tag="preview_panel_theme"):
+        with dpg.theme_component(dpg.mvChildWindow):
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
         dpg.add_dynamic_texture(PREVIEW_WIDTH, PREVIEW_HEIGHT, blank,
@@ -1050,6 +1055,7 @@ def setup_ui(holder: dict):
             with dpg.child_window(tag="preview_panel", border=False,
                                   width=-1, height=-1,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
+                dpg.bind_item_theme("preview_panel", "preview_panel_theme")
                 dpg.add_image("camera_texture", tag="preview_image",
                               width=1, height=1)
                 dpg.add_separator()
@@ -1299,24 +1305,18 @@ def main():
             # main_window always fills the full window — subtract sidebar to get
             # the true available width without relying on viewport client dims.
             try:
-                _SIDEBAR_W = 324   # sidebar child_window width + border
-                _STATUS_H  = 22    # separator + status_text + clients row
-                ww, wh     = dpg.get_item_rect_size("main_window")
-                pw_panel, ph_panel = dpg.get_item_rect_size("preview_panel")
-                pw_sid, _  = dpg.get_item_rect_size("sidebar_panel")
-                pw = max(1, ww - _SIDEBAR_W)
-                ph_img = max(1, wh - _STATUS_H)
-                log.debug(f"[fit] main={ww}x{wh}  panel={pw_panel}x{ph_panel}  sidebar={pw_sid}  → pw={pw} ph={ph_img}")
+                _STATUS_H = 22   # separator + status_text + clients row
+                pw, ph = dpg.get_item_rect_size("preview_panel")
+                ph_img = max(1, ph - _STATUS_H)
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
                     if pw / ph_img > aspect:
                         iw, ih = int(ph_img * aspect), ph_img
                     else:
                         iw, ih = pw, int(pw / aspect)
-                    log.debug(f"[fit] → image {iw}x{ih}")
                     dpg.configure_item("preview_image", width=iw, height=ih)
-            except Exception as e:
-                log.debug(f"[fit] exception: {e}")
+            except Exception:
+                pass
 
             update_ui_from_state()
 
