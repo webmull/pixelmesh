@@ -1295,22 +1295,22 @@ def main():
             # Update texture
             dpg.set_value("camera_texture", texture_data)
 
-            # Fit preview image to available space using viewport dimensions.
-            # get_item_rect_size("preview_panel") is unreliable (can return scroll
-            # content size or stale values); viewport dims are always correct.
+            # Fit preview image to available space.
+            # main_window always fills the full window — subtract sidebar to get
+            # the true available width without relying on viewport client dims.
             try:
                 _SIDEBAR_W = 324   # sidebar child_window width + border
                 _STATUS_H  = 22    # separator + status_text + clients row
-                vw = dpg.get_viewport_client_width()
-                vh = dpg.get_viewport_client_height()
-                pw = max(1, vw - _SIDEBAR_W)
-                ph_img = max(1, vh - _STATUS_H)
-                aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
-                if pw / ph_img > aspect:
-                    iw, ih = int(ph_img * aspect), ph_img
-                else:
-                    iw, ih = pw, int(pw / aspect)
-                dpg.configure_item("preview_image", width=iw, height=ih)
+                ww, wh = dpg.get_item_rect_size("main_window")
+                pw = max(1, ww - _SIDEBAR_W)
+                ph_img = max(1, wh - _STATUS_H)
+                if pw > 1 and ph_img > 1:
+                    aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
+                    if pw / ph_img > aspect:
+                        iw, ih = int(ph_img * aspect), ph_img
+                    else:
+                        iw, ih = pw, int(pw / aspect)
+                    dpg.configure_item("preview_image", width=iw, height=ih)
             except Exception:
                 pass
 
