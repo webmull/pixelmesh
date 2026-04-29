@@ -589,8 +589,13 @@ def toggle_detection():
         _render_order.clear()
         with state.lock:
             state.overlay_show_render = False
-        # Don't reset detector or clear positions — preserve already-found devices.
-        # Server will only ask unfound clients to blink.
+        # Reset detector internal state (_ever_active, history, diff accum) so
+        # accumulated points from previous runs don't slow process_frame.
+        # Already-found positions are preserved in state.calibrated_positions and
+        # on the server — the detector state does not need to carry over.
+        ever_active_before = len(detector._ever_active)
+        detector.reset()
+        log.info(f"[detect] detector reset on run start (cleared {ever_active_before} _ever_active points)")
         post_json_async("/admin/detect", {"detecting": True})
         _open_timing_log()
         set_status("Detection ON")
