@@ -1307,6 +1307,7 @@ def main():
             try:
                 _STATUS_H = 22   # separator + status_text + clients row
                 pw, ph = dpg.get_item_rect_size("preview_panel")
+                img_pos = dpg.get_item_rect_min("preview_image")
                 ph_img = max(1, ph - _STATUS_H)
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
@@ -1315,8 +1316,9 @@ def main():
                     else:
                         iw, ih = pw, int(pw / aspect)
                     dpg.configure_item("preview_image", width=iw, height=ih)
-            except Exception:
-                pass
+                    log.debug(f"[fit] panel={pw}x{ph}  img_pos={img_pos}  → {iw}x{ih}")
+            except Exception as e:
+                log.debug(f"[fit] err: {e}")
 
             update_ui_from_state()
 
