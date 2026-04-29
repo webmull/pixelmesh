@@ -585,7 +585,7 @@ class BlinkDetector:
         # caused by phase-shifted decodes of the same phone — most common with IDs
         # whose Manchester pattern is purely alternating (e.g. ID=0 → all-dark-bright,
         # whose 1-phase-shifted complement decodes as ID=511 = all-ones).
-        CLUSTER_R = 120  # px — same radius used in draw_overlay stream dedup
+        CLUSTER_R = 60   # px — same radius used in draw_overlay stream dedup
         detections = sorted(id_map.values(), key=lambda d: d.confidence, reverse=True)
         kept: list[DetectedDevice] = []
         for det in detections:
@@ -731,7 +731,7 @@ class BlinkDetector:
         # Check window must span past the guard (NUM_GUARD phases × ~3 frames/phase at 11fps ≈ 13 frames)
         # so the max-min check includes pre-guard Manchester frames and doesn't drop to zero.
         STREAM_CHECK_N = 22
-        CLUSTER_R     = 120   # px — grid points within this distance = same phone
+        CLUSTER_R     = 60    # px — grid points within this distance = same phone
 
         # Gate: only draw a stream if the point looks like a real phone.
         # Age alone isn't enough — sustained LEDs/reflections also pass age.
