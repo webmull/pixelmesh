@@ -1106,6 +1106,10 @@ def setup_ui(holder: dict):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
+    with dpg.theme() as _main_theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+    dpg.bind_item_theme("main_window", _main_theme)
 
 
 def on_camera_selected(label: str, holder: dict):
