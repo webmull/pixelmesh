@@ -962,7 +962,6 @@ def setup_ui(holder: dict):
                                        indent=_PAD, width=-(_PAD + 1))
 
                         dpg.add_spacer(height=8)
-                        dpg.add_separator()
                         effects.build_preview_widget(indent=_PAD)
                         dpg.add_spacer(height=4)
                         for _ename, _elabel in effects.EFFECT_LABELS.items():
