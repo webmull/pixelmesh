@@ -1056,7 +1056,7 @@ def setup_ui(holder: dict):
                                   width=-1, height=-1,
                                   no_scrollbar=True, no_scroll_with_mouse=True):
                 dpg.add_image("camera_texture", tag="preview_image",
-                              width=1, height=1)
+                              width=-1, height=1)
                 dpg.add_separator()
                 dpg.add_text("", tag="status_text", indent=_PAD)
                 with dpg.group(horizontal=True, indent=_PAD):
@@ -1309,16 +1309,10 @@ def main():
             # main_window always fills the full window — subtract sidebar to get
             # the true available width without relying on viewport client dims.
             try:
-                _STATUS_H = 22   # separator + status_text + clients row
-                pw, ph = dpg.get_item_rect_size("preview_panel")
-                ph_img = max(1, ph - _STATUS_H)
-                if pw > 1 and ph_img > 1:
-                    aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
-                    if pw / ph_img > aspect:
-                        iw, ih = int(ph_img * aspect), ph_img
-                    else:
-                        iw, ih = pw, int(pw / aspect)
-                    dpg.configure_item("preview_image", width=iw, height=ih)
+                iw = dpg.get_item_rect_size("preview_image")[0]
+                if iw > 1:
+                    ih = int(iw / (PREVIEW_WIDTH / PREVIEW_HEIGHT))
+                    dpg.configure_item("preview_image", height=ih)
             except Exception:
                 pass
 
