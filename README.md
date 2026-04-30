@@ -98,7 +98,11 @@ Press **D** (or MIDI pad 8) to start detection. The camera decodes each blinking
 
 Expect 15–20s from a phone connecting to first detection at typical range. The HUD shows `camera fps / detection fps` when detection is active.
 
-**ROI (Region of Interest):** Use the sliders in the **CAMERA** tab to exclude edges of the frame from the detection grid — top, bottom, left, right, each as a percentage. Useful when fixed scene elements (stage furniture, lighting rigs) generate false activity. ROI boundaries are shown on the camera feed as a blue overlay. Sliders are disabled while detection is active; adjustments take effect immediately on the next detection run.
+**ROI (Region of Interest):** The detection grid normally covers the entire camera frame. ROI lets you crop it down — excluding the top, bottom, left, or right edges as a percentage of the frame — so the detector only looks inside the region where the audience actually is.
+
+Why this matters: the blink detector works by finding bright spots that vary rhythmically over time. Anything that changes brightness — a monitor, a moving light, a reflective surface — can activate grid points and consume CPU. Trimming the ROI to the audience area eliminates those false sources before they reach the detector, and typically gives a noticeable fps improvement in venues with active stage lighting.
+
+Use the sliders in the **CAMERA** tab. The excluded region is dimmed on the camera feed and a blue boundary line marks where detection begins. Sliders are disabled while detection is active; changes take effect on the next detection run.
 
 ---
 
@@ -291,7 +295,7 @@ browser clients  ──WS──►  server.py (FastAPI)
                                   (Manchester codec)
 ```
 
-The sidebar is organised into three tabs: **RUN** (detection, overlays, effects, server controls), **CAMERA** (exposure, ROI sliders), and **GAME** (bug game, likes). Status and client count are shown below the camera preview.
+The sidebar is organised into three tabs: **CAMERA** (exposure, ROI sliders — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME** (bug game, likes). Status and client count are shown below the camera preview.
 
 The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
 
