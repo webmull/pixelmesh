@@ -94,8 +94,11 @@ Press **D** (or MIDI pad 8) to start detection. The camera decodes each blinking
 - **Positions persist** across detection runs — only cleared by an explicit Reset (`R`)
 - **Identity preserved through reconnects** — brief WS drops (iOS background, network blip) preserve blink ID and position; the phone returns to located view immediately on reconnect. Full cleanup only after 90s of no contact
 - **Dead socket eviction** — if `update_position` fails on a stale TCP connection, `_drop_connection` fires immediately so the phone reconnects and receives the message on its next `hello`
+- **State reset on each run** — the detector's internal `_ever_active` set is cleared at the start of every detection session, preventing fps degradation across multiple runs without an app restart
 
 Expect 15–20s from a phone connecting to first detection at typical range. The HUD shows `camera fps / detection fps` when detection is active.
+
+**ROI (Region of Interest):** Use the sliders in the **CAMERA** tab to exclude edges of the frame from the detection grid — top, bottom, left, right, each as a percentage. Useful when fixed scene elements (stage furniture, lighting rigs) generate false activity. ROI boundaries are shown on the camera feed as a blue overlay. Sliders are disabled while detection is active; adjustments take effect immediately on the next detection run.
 
 ---
 
@@ -115,7 +118,9 @@ Press keys 1–9 or use the sidebar to fire effects. Each effect has its own par
 | `8` | Ripple | Colour, Origin angle, Speed, Frequency |
 | `9` | Snake | Colour, Speed, Tail length |
 
-The active effect is highlighted in orange in the sidebar.
+The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect list previews the selected effect in real time.
+
+**Overlay modes (P):** toggle between showing blink IDs (0-based) or render order (left-to-right spatial rank) on the camera feed. Render order is what the effects engine uses to sequence phones across the crowd.
 
 ---
 
@@ -196,13 +201,14 @@ Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game
 |-----|--------|
 | `D` | Toggle detection |
 | `S` | Toggle clock sync |
+| `H` | Toggle all camera overlays (blink streams, device IDs, ROI boundary) |
+| `O` | Toggle device ID overlays |
+| `P` | Toggle overlay mode (blink IDs / render order) |
 | `1`–`9` | Fire effects |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `G` | Start/stop debug capture |
 | `V` | Start/stop video recording |
-| `O` | Toggle device ID overlays |
-| `P` | Toggle overlay mode (blink IDs / found order) |
 | `Q` / `Esc` | Quit |
 
 ### MIDI (Akai LPD8 mk2)
@@ -285,6 +291,8 @@ browser clients  ──WS──►  server.py (FastAPI)
                                   (Manchester codec)
 ```
 
+The sidebar is organised into three tabs: **RUN** (detection, overlays, effects, server controls), **CAMERA** (exposure, ROI sliders), and **GAME** (bug game, likes). Status and client count are shown below the camera preview.
+
 The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
 
 | File | Role |
@@ -343,15 +351,16 @@ Key parameters in `blink_detector.py`:
 | `sample_radius` | 4px | Patch radius — 8×8=64px per point. Keeps the sampling matrix at 1.66MB, fitting inside L2/L3 cache on M1. r=6 (3.7MB) spills to RAM and makes `np.partition` 10× slower. |
 | `brightness_pct` | 3 | Percentile used when sampling a patch. The ~2.8th percentile catches even a single dark pixel during the dark phase. |
 | `min_recent_std` | adaptive | Auto-tuned to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Asymmetric EMA (α=0.4 up, α=0.05 down) — a brightness spike raises the gate within 2–3 frames. |
-| `recent_n` | 24 | Samples in recent window (~0.4s at 60fps) |
-| `history_seconds` | 30.0 | Rolling brightness history per point (≥2 full cycles) |
+| `recent_n` | 18 | Samples in recent window (~1.2s at 15fps). Reduced from 24 — ~25% cheaper `np.std` with no decode impact at typical frame rates. |
+| `history_seconds` | 15.0 | Rolling brightness history per point. Reduced from 30s — halves list size and `add_sample` trim cost; well above the 13.2s minimum needed for a full decode cycle. |
 | `decode_interval` | 0.2s | Time between decode attempts per point (undiscovered phones only) |
+| `roi_top_frac` / `roi_bottom_frac` / `roi_left_frac` / `roi_right_frac` | 0.0 | Fraction of frame to exclude from the detection grid on each edge. Controlled via sidebar sliders. |
 
 **Notable behaviours:**
 
 - **Decode backoff** — failed points retry at `min(interval × 2^failures, 5s)`. Counter resets on success.
 - **Stream display gate** — binary stream overlay only shown once a point has been active ≥4s with fewer than 6 consecutive failures.
-- **Phantom ID suppression** — two IDs within 120px are deduplicated; lower-confidence one is dropped.
+- **Phantom ID suppression** — two IDs within 60px are deduplicated; lower-confidence one is dropped. Reduced from 120px to allow detection of phones closer together in a dense crowd (≈1.6m exclusion radius at 30m/1080p).
 - **Backward-scan decoder** — phones that started blinking before detection began are decoded from pre-guard history. Confidence penalised 5% per assumed bit.
 - **Stale-entry eviction** — entries below gate for >13.2s are evicted every 3 seconds (wall-clock). Logged at DEBUG: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
 - **Guard-phase extension** — after the main decode loop, points in `_ever_active` whose std has just dropped below gate are retried, recovering phones whose guard phase coincided with their warmup threshold crossing.
