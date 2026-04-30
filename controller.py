@@ -950,42 +950,7 @@ def setup_ui(holder: dict):
 
                 with dpg.tab_bar():
 
-                    # ---- RUN tab ----
-                    with dpg.tab(label="RUN"):
-                        dpg.add_spacer(height=4)
-                        dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
-                        _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
-                        _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
-                        _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
-                        _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
-                        _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
-                        _chk("Record Video  [V]",  "chk_recording",    lambda: toggle_recording())
-                        dpg.add_spacer(height=4)
-                        dpg.add_button(label="Reset Server  [R]", callback=reset_server,
-                                       indent=_PAD, width=-(_PAD + 1))
-
-                        dpg.add_spacer(height=8)
-                        effects.build_preview_widget(indent=_PAD)
-                        dpg.add_spacer(height=4)
-                        for _ename, _elabel in effects.EFFECT_LABELS.items():
-                            with dpg.group(horizontal=True, indent=_PAD):
-                                dpg.add_button(
-                                    label=_elabel,
-                                    tag=f"fx_btn_{_ename}",
-                                    callback=lambda s, a, u: effects.trigger_effect(u),
-                                    user_data=_ename,
-                                    width=262,
-                                )
-                                dpg.add_button(
-                                    label="...",
-                                    callback=lambda s, a, u: effects._open_modal(u),
-                                    user_data=_ename,
-                                    width=30,
-                                )
-
-                    # ---- CAMERA tab ----
+                    # ---- CAMERA tab (default) ----
                     with dpg.tab(label="CAMERA"):
                         dpg.add_spacer(height=4)
                         dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
@@ -1030,6 +995,41 @@ def setup_ui(holder: dict):
                                 dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
                                                    default_value=0, min_value=0, max_value=60,
                                                    callback=_set_roi, width=-1)
+
+                    # ---- RUN tab ----
+                    with dpg.tab(label="RUN"):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
+                        _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
+                        _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
+                        _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
+                        _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
+                        _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
+                        _chk("Record Video  [V]",  "chk_recording",    lambda: toggle_recording())
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(label="Reset Server  [R]", callback=reset_server,
+                                       indent=_PAD, width=-(_PAD + 1))
+
+                        dpg.add_spacer(height=8)
+                        effects.build_preview_widget(indent=_PAD)
+                        dpg.add_spacer(height=4)
+                        for _ename, _elabel in effects.EFFECT_LABELS.items():
+                            with dpg.group(horizontal=True, indent=_PAD):
+                                dpg.add_button(
+                                    label=_elabel,
+                                    tag=f"fx_btn_{_ename}",
+                                    callback=lambda s, a, u: effects.trigger_effect(u),
+                                    user_data=_ename,
+                                    width=262,
+                                )
+                                dpg.add_button(
+                                    label="...",
+                                    callback=lambda s, a, u: effects._open_modal(u),
+                                    user_data=_ename,
+                                    width=30,
+                                )
 
                     # ---- GAME tab ----
                     with dpg.tab(label="GAME"):
