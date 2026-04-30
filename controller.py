@@ -941,7 +941,7 @@ def setup_ui(holder: dict):
         with dpg.group(horizontal=True, horizontal_spacing=0):
 
             # ---- Sidebar ----
-            with dpg.child_window(width=320, height=-1, border=True,
+            with dpg.child_window(width=318, height=-1, border=True,
                                   tag="sidebar_panel"):
 
                 dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
