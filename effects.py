@@ -532,7 +532,7 @@ def build_preview_widget(indent: int = 8):
     dpg.add_text("PREVIEW", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
     dpg.add_spacer(height=4)
-    dpg.add_image("effect_preview_texture", width=300, height=150,
+    dpg.add_image("effect_preview_texture", width=305, height=150,
                   indent=0)
 
 
