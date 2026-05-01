@@ -483,6 +483,16 @@ def draw_roi_overlay(canvas: np.ndarray):
                 FONT, 0.4, color, 1, cv2.LINE_AA)
 
 
+def draw_detect_border(canvas: np.ndarray):
+    """Thick green inset border drawn on the canvas while detecting."""
+    h, w = canvas.shape[:2]
+    thickness = 8
+    color = (40, 220, 90)
+    half = thickness // 2
+    cv2.rectangle(canvas, (half, half), (w - 1 - half, h - 1 - half),
+                  color, thickness, cv2.LINE_AA)
+
+
 def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
         detecting = state.detecting
@@ -1279,6 +1289,9 @@ def main():
 
                     if show_ov:
                         draw_device_overlay(canvas)
+
+                    if detecting:
+                        draw_detect_border(canvas)
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
