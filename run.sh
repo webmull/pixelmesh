@@ -101,7 +101,7 @@ status_line() {
     echo ""
   fi
   echo "  ${DIM}local    → http://localhost:8000/internal/dashboard${RESET}"
-  echo "  ${DIM}public   → https://join.pixelmesh.live${RESET}"
+  echo "  ${DIM}public   → https://joinmesh.io${RESET}"
   echo "  ${DIM}sim      → http://localhost:8000/internal/sim${RESET}"
   if [[ -n $term_url ]]; then
     echo "  ${C}terminal → $term_url${RESET}  ${DIM}(pixel / mesh)${RESET}"
@@ -135,16 +135,18 @@ kill_all() {
 
 pid_of_ttyd() { pgrep -f "ttyd" | head -1; }
 
+PYTHON=python3.10
+
 start_all() {
   echo "${Y}→ Starting server...${RESET}"
-  python3 -m uvicorn server:app --host 0.0.0.0 --port 8000 \
+  $PYTHON -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
   echo "${Y}→ Starting ngrok (audience + terminal)...${RESET}"
   # Audience tunnel (reserved domain)
   ngrok http 8000 \
     --region eu \
-    --hostname join.pixelmesh.live \
+    --hostname joinmesh.io \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
   # Terminal tunnel (basic auth pixel:mesh, dynamic URL)
@@ -163,7 +165,7 @@ start_all() {
   while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
     sleep 0.5; (( i++ ))
   done
-  PIXELMESH_LAUNCHED=1 python3 controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
+  PIXELMESH_LAUNCHED=1 $PYTHON controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
 
   LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"

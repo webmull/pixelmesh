@@ -11,7 +11,7 @@ Built for live events. Designed for Brighton Dome. Tested with the **Elgato Face
 **Requirements**
 
 - Python 3.10+
-- [ngrok](https://ngrok.com) account with a reserved domain (`join.pixelmesh.live`)
+- [ngrok](https://ngrok.com) account with a reserved domain (`joinmesh.io`)
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
 - [ttyd](https://github.com/tsl0922/ttyd) — installed automatically via Homebrew on first run if not present
 
@@ -42,7 +42,8 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 
 | URL | Description |
 |-----|-------------|
-| `https://join.pixelmesh.live` | Audience URL — share this on screen |
+| `https://joinmesh.io` | Audience URL — share this on screen |
+| `https://joinmesh.io/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
@@ -195,7 +196,7 @@ BUG GAME
 ══════════════════════════════════════════════
 ```
 
-Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game was never started). Reports are saved to `debug/reports/`; the last 20 are kept.
+Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game was never started). Reports are saved to `debug/reports/` and kept indefinitely.
 
 ---
 
@@ -411,7 +412,7 @@ The server hashes `app.js` at startup into a `BUILD_ID` injected into every page
 
 ### debug capture
 
-Press **G** to start/stop a debug run. Each run is saved to a friendly-named folder under `debug/` (e.g. `autumn-fox-42`). The last 15 runs are kept; older ones are pruned automatically.
+Press **G** to start/stop a debug run. Each run is saved to a friendly-named folder under `debug/` (e.g. `autumn-fox-42`). Runs are kept indefinitely — prune manually if disk space matters.
 
 ```
 debug/autumn-fox-42/
@@ -439,6 +440,12 @@ debug/autumn-fox-42/
 | `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session — time-to-detect and confidence per blink ID |
 | `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report — generated automatically on every reset |
 | `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
+
+---
+
+## prior art
+
+The idea of using a crowd's phones as pixels traces back to Seb Lee-Delisle's [PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/) (2011) — phones held up in an audience, manually positioned to form a coordinated display. PixelMesh tackles the same end goal but auto-locates each device via screen-blink detection, so positioning happens live with no setup per phone.
 
 ---
 

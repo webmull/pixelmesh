@@ -56,9 +56,15 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+# Public read-only admin routes — exempt from token check.
+_ADMIN_PUBLIC = {"/admin/show_stats"}
+
+
 class AdminTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if _ADMIN_TOKEN and request.url.path.startswith("/admin/"):
+        if (_ADMIN_TOKEN
+                and request.url.path.startswith("/admin/")
+                and request.url.path not in _ADMIN_PUBLIC):
             if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
                 return Response(status_code=403)
         return await call_next(request)
