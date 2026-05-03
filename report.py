@@ -3,7 +3,7 @@
 PixelMesh V2 — Post-show report generator.
 
 Writes a plain-text summary to debug/reports/ on every reset.
-Keeps the last 20 reports; older ones are pruned automatically.
+Reports are kept indefinitely.
 """
 
 import os
@@ -11,7 +11,6 @@ import time
 import statistics
 
 _REPORT_DIR = os.path.join(os.path.dirname(__file__), "debug", "reports")
-_KEEP = 20
 
 
 def generate(
@@ -39,7 +38,6 @@ def generate(
     )
     with open(path, "w") as f:
         f.write(text)
-    _prune()
     return path
 
 
@@ -142,15 +140,3 @@ def _build(*, detected_ids, detection_timings, detection_start,
     return "\n".join(lines) + "\n"
 
 
-# ------------------------------------------------------------------ #
-
-def _prune():
-    try:
-        files = sorted(
-            (f for f in os.listdir(_REPORT_DIR) if f.endswith(".txt")),
-            reverse=True,
-        )
-        for old in files[_KEEP:]:
-            os.remove(os.path.join(_REPORT_DIR, old))
-    except Exception:
-        pass

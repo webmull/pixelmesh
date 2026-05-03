@@ -33,8 +33,6 @@ _NOUNS = [
     "zenith",
 ]
 
-_MAX_RUNS = 15
-
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
 
 _FFMPEG = (
@@ -62,26 +60,7 @@ class DebugCapture:
         num  = random.randint(10, 99)
         return f"{adj}-{noun}-{num}"
 
-    @staticmethod
-    def _prune_old_runs():
-        """Delete oldest debug run folders, keeping at most _MAX_RUNS."""
-        if not os.path.isdir(DEBUG_DIR):
-            return
-        runs = sorted(
-            [d for d in os.listdir(DEBUG_DIR)
-             if os.path.isdir(os.path.join(DEBUG_DIR, d))],
-            key=lambda d: os.path.getmtime(os.path.join(DEBUG_DIR, d)),
-        )
-        for old in runs[:max(0, len(runs) - _MAX_RUNS + 1)]:
-            path = os.path.join(DEBUG_DIR, old)
-            try:
-                shutil.rmtree(path)
-                log.info(f"[debug] pruned old run → {old}")
-            except Exception as e:
-                log.warning(f"[debug] could not prune {old}: {e}")
-
     def start_run(self) -> str:
-        self._prune_old_runs()
         name            = self._friendly_name()
         self.run_dir    = os.path.join(DEBUG_DIR, name)
         self.frames_dir = os.path.join(self.run_dir, "frames")

@@ -479,7 +479,18 @@ def draw_roi_overlay(canvas: np.ndarray):
     if roi_bottom > 0: parts.append(f"bot {int(roi_bottom * 100)}%")
     if roi_left   > 0: parts.append(f"left {int(roi_left * 100)}%")
     if roi_right  > 0: parts.append(f"right {int(roi_right * 100)}%")
-    cv2.putText(canvas, "ROI  " + "  ".join(parts), (x1 + 4, y1 + 14),
+    label = "ROI  " + "  ".join(parts)
+    (tw, th), _ = cv2.getTextSize(label, FONT, 0.4, 1)
+    pad_x, pad_y = 10, 7
+    tx = x1 + 18
+    ty = y1 + 18 + th
+    bg_x0 = tx - pad_x
+    bg_y0 = ty - th - pad_y
+    bg_x1 = tx + tw + pad_x
+    bg_y1 = ty + pad_y
+    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), (8, 8, 10), -1)
+    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), color, 1)
+    cv2.putText(canvas, label, (tx, ty),
                 FONT, 0.4, color, 1, cv2.LINE_AA)
 
 
@@ -1411,6 +1422,15 @@ def main():
         cap = holder.get("cap")
         if cap:
             cap.release()
+        # Overwrite the MJPEG cache with a blank frame so /internal/feed/v1
+        # doesn't keep serving the last camera image after shutdown.
+        try:
+            blank = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8)
+            _tmp = _STREAM_PATH + ".new.jpg"
+            cv2.imwrite(_tmp, blank, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            _os.replace(_tmp, _STREAM_PATH)
+        except Exception as e:
+            log.info(f"[shutdown] could not blank stream frame: {e}")
         dpg.destroy_context()
 
 
