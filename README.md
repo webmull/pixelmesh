@@ -11,7 +11,7 @@ Built for live events. Designed for Brighton Dome. Tested with the **Elgato Face
 **Requirements**
 
 - Python 3.10+
-- [ngrok](https://ngrok.com) account with a reserved domain (`joinmesh.io`)
+- [ngrok](https://ngrok.com) account with a reserved domain (`pixelmesh.show`)
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
 - [ttyd](https://github.com/tsl0922/ttyd) — installed automatically via Homebrew on first run if not present
 
@@ -42,8 +42,8 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 
 | URL | Description |
 |-----|-------------|
-| `https://joinmesh.io` | Audience URL — share this on screen |
-| `https://joinmesh.io/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
+| `https://pixelmesh.show` | Audience URL — share this on screen |
+| `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
