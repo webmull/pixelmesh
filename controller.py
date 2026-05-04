@@ -419,6 +419,17 @@ def draw_device_overlay(canvas: np.ndarray):
         crop_y       = getattr(state, "last_crop_y", 0)
         show_render  = state.overlay_show_render
 
+    # Derive render-order labels directly from current positions so the
+    # overlay never shows '?' just because _render_order is mid-rebuild.
+    render_map = {}
+    if show_render:
+        visible = [b for b in positions
+                   if not _valid_blink_ids or b in _valid_blink_ids]
+        for rank, bid in enumerate(
+            sorted(visible, key=lambda b: positions[b]["u"]), 1
+        ):
+            render_map[bid] = rank
+
     for blink_id_str, pos in positions.items():
         blink_id = int(blink_id_str)
         if _valid_blink_ids and blink_id not in _valid_blink_ids:
@@ -426,7 +437,7 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-        label = str(_render_order.get(blink_id, "?")) if show_render else str(blink_id + 1)
+        label = str(render_map[blink_id]) if show_render else str(blink_id + 1)
         font_scale = 0.55
         (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
         pad = 5
