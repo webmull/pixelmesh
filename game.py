@@ -76,7 +76,8 @@ game_results: dict[int, float] = {}   # blink_id → reaction_ms
 game_slot_ms: int              = 1400  # window for each phone to tap once bug appears
 
 _shown_set:     set            = set()  # blink_ids whose bug has been sent
-_phone_tasks:   list           = []     # per-phone delay tasks
+_missed_set:    set            = set()  # blink_ids whose slot expired without a tap
+_phone_tasks:   list           = []     # per-phone delay + slot-expiry tasks
 _end_task                      = None   # wall-clock game-end task
 _countdown_task                = None   # pre-game countdown task
 
@@ -92,6 +93,9 @@ async def _show_bug(blink_id: int, delay_ms: int):
         return
     device_id = _blink_to_device(int(blink_id))
     if not device_id or device_id not in _connections:
+        # Phone is gone — count it as missed so the round can finish early.
+        _missed_set.add(blink_id)
+        await _check_finish_early()
         return
     show_at = int(time.time() * 1000)
     ws = _connections[device_id]
@@ -103,11 +107,42 @@ async def _show_bug(blink_id: int, delay_ms: int):
         })
         _shown_set.add(blink_id)
     except Exception:
-        pass
+        _missed_set.add(blink_id)
+        await _check_finish_early()
+        return
+    # Slot-expiry watchdog — if no tap arrives within game_slot_ms, mark missed.
+    _phone_tasks.append(asyncio.create_task(_slot_expiry(blink_id)))
+
+
+async def _slot_expiry(blink_id: int):
+    """Wait one slot; if the phone hasn't tapped, count it as missed."""
+    await asyncio.sleep(game_slot_ms / 1000)
+    if not game_active:
+        return
+    if blink_id in game_results:
+        return
+    _missed_set.add(blink_id)
+    await _check_finish_early()
+
+
+async def _check_finish_early():
+    """End the round as soon as every phone has either tapped or missed."""
+    global game_active, _end_task
+    if not game_active:
+        return
+    total = len(game_order)
+    if total == 0:
+        return
+    if len(game_results) + len(_missed_set) < total:
+        return
+    game_active = False
+    if _end_task and not _end_task.done():
+        _end_task.cancel()
+    await _broadcast_winner()
 
 
 async def _game_end_timer():
-    """End the game after GAME_DURATION_MS from when it started."""
+    """Wall-clock fallback — ends the round after GAME_DURATION_MS."""
     await asyncio.sleep(GAME_DURATION_MS / 1000)
     global game_active
     if game_active:
@@ -117,8 +152,9 @@ async def _game_end_timer():
 
 async def _start_parallel_game():
     """Schedule each phone's bug at a random time within the game window."""
-    global _phone_tasks, _end_task, _shown_set
+    global _phone_tasks, _end_task, _shown_set, _missed_set
     _shown_set    = set()
+    _missed_set   = set()
     _phone_tasks  = []
 
     # Each phone gets a random delay so their bug appears at an unpredictable moment.
@@ -248,6 +284,7 @@ async def handle_tap(device_id: str, reaction_ms: float):
         return
     game_results[blink_id] = float(reaction_ms)
     await _broadcast_progress()
+    await _check_finish_early()
 
 
 # ------------------------------------------------------------------ #

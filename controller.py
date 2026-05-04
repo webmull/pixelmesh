@@ -1542,7 +1542,16 @@ def _detection_worker():
 
                 if _valid_blink_ids and _detected_ids >= _valid_blink_ids:
                     log.info("[detect] all clients found — auto-stopping detection")
-                    toggle_detection()
+                    # Don't go through toggle_detection here: its _ui_syncing
+                    # guard exists to stop UI events from re-triggering the
+                    # checkbox callback, but it also silently swallows this
+                    # programmatic stop if it happens to land mid-UI-drain.
+                    with state.lock:
+                        was_on = state.detecting
+                        state.detecting = False
+                    if was_on:
+                        post_json_async("/admin/detect", {"detecting": False})
+                        set_status("Detection OFF")
         finally:
             _detect_queue.task_done()
 
