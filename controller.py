@@ -1278,10 +1278,17 @@ def main():
                         # _decoded_pts) written by the detection thread.  NumPy
                         # reference swaps are atomic under CPython's GIL so no
                         # explicit lock is needed — at worst we see one frame stale.
-                        detector.draw_overlay(canvas, scale=_scale,
-                                              crop_x=_crop_x, crop_y=_crop_y,
-                                              show_ids=not show_ov,
-                                              valid_ids=_valid_blink_ids or None)
+                        # Race after detector.reset() (e.g. ROI change + detect-on)
+                        # can leave stale integer indices pointing past the rebuilt
+                        # _points array; swallow that one-frame IndexError instead
+                        # of crashing the controller. Recovers on the next frame.
+                        try:
+                            detector.draw_overlay(canvas, scale=_scale,
+                                                  crop_x=_crop_x, crop_y=_crop_y,
+                                                  show_ids=not show_ov,
+                                                  valid_ids=_valid_blink_ids or None)
+                        except IndexError as e:
+                            log.info(f"[overlay] skipped one frame after detector reset: {e}")
 
                         if dbg_cap.active:
                             _dbg_counter += 1
