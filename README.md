@@ -103,25 +103,25 @@ Expect 15–20s from a phone connecting to first detection at typical range. The
 
 Why this matters: the blink detector works by finding bright spots that vary rhythmically over time. Anything that changes brightness — a monitor, a moving light, a reflective surface — can activate grid points and consume CPU. Trimming the ROI to the audience area eliminates those false sources before they reach the detector, and typically gives a noticeable fps improvement in venues with active stage lighting.
 
-Use the sliders in the **CAMERA** tab. The excluded region is dimmed on the camera feed and a blue boundary line marks where detection begins. Sliders are disabled while detection is active; changes take effect on the next detection run.
+Use the sliders in the **SCENE** tab. The excluded region is dimmed on the camera feed and a blue boundary line marks where detection begins. Sliders are disabled while detection is active; changes take effect on the next detection run.
 
 ---
 
 ### 3. effects
 
-Press keys 1–9 or use the sidebar to fire effects. Each effect has its own parameter dialog (`...` button) — changing a value immediately re-fires with the new settings. Effects are blocked until at least one phone has been detected.
+Click the sidebar buttons to fire effects. Each effect has its own parameter dialog (`...` button) — changing a value immediately re-fires with the new settings. Effects are blocked until at least one phone has been detected.
 
-| Key | Effect | Parameters |
-|-----|--------|------------|
-| `1` | Wave | Colour, Speed, Direction |
-| `2` | Gradient | Colour, Speed, Direction |
-| `3` | Binary Wave | Colour, Speed, Direction |
-| `4` | Pulse | Colour, BPM |
-| `5` | Rainbow | Speed, Direction |
-| `6` | Colour Flood | Colour A, Colour B, Split, Speed, Direction |
-| `7` | Aurora | Speed |
-| `8` | Ripple | Colour, Origin angle, Speed, Frequency |
-| `9` | Snake | Colour, Speed, Tail length |
+| Effect | Parameters |
+|--------|------------|
+| Wave | Colour, Speed, Direction |
+| Gradient | Colour, Speed, Direction |
+| Binary Wave | Colour, Speed, Direction |
+| Pulse | Colour, BPM |
+| Rainbow | Speed, Direction |
+| Colour Flood | Colour A, Colour B, Split, Speed, Direction |
+| Aurora | Speed |
+| Ripple | Colour, Origin angle, Speed, Frequency |
+| Snake | Colour, Speed, Tail length |
 
 The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect list previews the selected effect in real time.
 
@@ -209,7 +209,6 @@ Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game
 | `H` | Toggle all camera overlays (blink streams, device IDs, ROI boundary) |
 | `O` | Toggle device ID overlays |
 | `P` | Toggle overlay mode (blink IDs / render order) |
-| `1`–`9` | Fire effects |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `G` | Start/stop debug capture |
@@ -296,7 +295,7 @@ browser clients  ──WS──►  server.py (FastAPI)
                                   (Manchester codec)
 ```
 
-The sidebar is organised into three tabs: **CAMERA** (exposure, ROI sliders — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME** (bug game, likes). Status and client count are shown below the camera preview.
+The sidebar is organised into three tabs: **SCENE** (exposure, ROI sliders, live information panel — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME** (bug game, likes).
 
 The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the detector is busy the frame is dropped and the camera loop continues unblocked.
 
@@ -452,3 +451,4 @@ The idea of using a crowd's phones as pixels traces back to Seb Lee-Delisle's [P
 ## todo
 
 - **Blackout command** — instant all-phones-off for dramatic moments
+- **Batch `phone_located` broadcasts** — `/admin/positions` currently broadcasts once per detected phone, so N new phones × M connected clients = N·M sends in one POST (e.g. 30 × 200 ≈ 6 000). Replace with a single `phones_located` message carrying all new `{blink_id: {u,v}}` per batch; needs matching handler in `public/app.js` alongside the existing `phone_located` handler. Defer until after a venue with ≥80 phones — small rooms aren't affected.
