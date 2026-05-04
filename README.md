@@ -442,9 +442,24 @@ debug/autumn-fox-42/
 
 ---
 
-## prior art
+## origins
 
-The idea of using a crowd's phones as pixels traces back to Seb Lee-Delisle's [PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/) (2011) — phones held up in an audience, manually positioned to form a coordinated display. PixelMesh tackles the same end goal but auto-locates each device via screen-blink detection, so positioning happens live with no setup per phone.
+The idea of using a crowd's phones as pixels traces back to Seb Lee-Delisle's [PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/) (2011) — phones held up in an audience, manually positioned to form a coordinated display.
+
+**PixelMesh V1** built on the same idea but located each phone via an AprilTag printed on its lock screen and a homography-based calibration step. It worked, but the printed-tag step was the friction point that limited scale.
+
+**PixelMesh V2** (this repo) replaces AprilTag calibration with screen-blink detection: each phone Manchester-encodes its assigned ID by flashing white/black at 300 ms per phase, and a single camera decodes the position of every phone in the room live — no calibration, no printed tags, no app install.
+
+Reused from V1: the WebSocket protocol, the u-space `[0,1]² ` coordinate system, and the effects engine. Replaced: AprilTags → blink detection.
+
+### guiding principles
+
+The four principles the project keeps coming back to:
+
+- **Time over position** — sync clocks first; spatial layout is optional decoration.
+- **Detection over configuration** — the system finds you, you don't set anything up.
+- **Fast join over precision** — a phone joining 5 seconds late should still play.
+- **Robustness over perfection** — partial detections, dropped frames, and reconnects are the norm, not the exception.
 
 ---
 
