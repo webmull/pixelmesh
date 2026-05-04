@@ -52,9 +52,9 @@ EFFECT_PARAMS = {
     ],
     "binary_wave": [
         ("color",        "Colour",    "color",        {"default_value": (255, 255, 255, 255)}),
-        ("speed",        "Speed",     "slider_float", {"default_value": 0.4,  "min_value": 0.05, "max_value": 4.0}),
+        ("speed",        "Speed",     "slider_float", {"default_value": 2.0,  "min_value": 0.05, "max_value": 4.0}),
         ("angle",        "Direction", "slider_float", {"default_value": 0.0,  "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
-        ("spatial_freq", "Frequency", "slider_float", {"default_value": 2.0,  "min_value": 0.5,  "max_value": 10.0}),
+        ("spatial_freq", "Frequency", "slider_float", {"default_value": 0.5,  "min_value": 0.5,  "max_value": 10.0}),
     ],
     "pulse": [
         ("color", "Colour", "color",        {"default_value": (255, 255, 255, 255)}),
@@ -89,13 +89,13 @@ EFFECT_PARAMS = {
         ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
         ("color2",       "Colour B", "color",        {"default_value": (40,  40,  255, 255)}),
         ("speed",        "Speed",    "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
-        ("spatial_freq", "Columns",  "slider_float", {"default_value": 6.0,  "min_value": 2.0,  "max_value": 16.0, "format": "%.0f"}),
+        ("spatial_freq", "Columns",  "slider_float", {"default_value": 2.0,  "min_value": 2.0,  "max_value": 16.0, "format": "%.0f"}),
     ],
     "sparkle": [
         ("color",        "Colour A", "color",        {"default_value": (255, 200, 80,  255)}),
         ("color2",       "Colour B", "color",        {"default_value": (80,  180, 255, 255)}),
-        ("speed",        "Rate",     "slider_float", {"default_value": 2.0,  "min_value": 0.1,  "max_value": 10.0}),
-        ("split",        "Density",  "slider_float", {"default_value": 0.5,  "min_value": 0.0,  "max_value": 1.0}),
+        ("speed",        "Rate",     "slider_float", {"default_value": 5.0,  "min_value": 0.1,  "max_value": 10.0}),
+        ("split",        "Density",  "slider_float", {"default_value": 0.05, "min_value": 0.0,  "max_value": 1.0}),
     ],
     "sections": [
         ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
