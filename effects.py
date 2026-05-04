@@ -163,9 +163,8 @@ def _nearest_neighbour_path(positions: dict) -> list[int]:
 
 def trigger_effect(name: str):
     with _state.lock:
-        detected   = _state.last_detection_count
-        positions  = _state.calibrated_positions.copy()
-    if detected == 0:
+        positions = _state.calibrated_positions.copy()
+    if not positions:
         _set_status("No devices detected - effect blocked")
         return
     color  = _get(name, "color",  (255, 255, 255, 255))
