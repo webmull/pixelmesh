@@ -107,6 +107,21 @@ def _build_id() -> str:
 
 BUILD_ID = _build_id()
 
+
+def _sim_build_id() -> str:
+    """Independent hash of sim.js so the simulator cache busts on its own
+    changes without triggering audience-client reloads."""
+    h = hashlib.md5()
+    try:
+        with open(os.path.join(os.path.dirname(__file__), "public", "sim.js"), "rb") as f:
+            h.update(f.read())
+    except OSError:
+        pass
+    return h.hexdigest()[:10]
+
+
+SIM_BUILD_ID = _sim_build_id()
+
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
 like_count: int    = 0
@@ -693,7 +708,11 @@ async def dashboard():
 
 @app.get("/internal/sim")
 async def sim():
-    return FileResponse("public/sim.html", headers=_NO_CACHE)
+    with open("public/sim.html", "r") as f:
+        html = f.read()
+    html = _APP_HTML_VERSION_RE.sub(SIM_BUILD_ID, html)
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html, headers=_NO_CACHE)
 
 
 @app.get("/internal/debug")

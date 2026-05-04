@@ -101,7 +101,7 @@ status_line() {
     echo ""
   fi
   echo "  ${DIM}local    → http://localhost:8000/internal/dashboard${RESET}"
-  echo "  ${DIM}public   → https://joinmesh.io${RESET}"
+  echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
   echo "  ${DIM}sim      → http://localhost:8000/internal/sim${RESET}"
   if [[ -n $term_url ]]; then
     echo "  ${C}terminal → $term_url${RESET}  ${DIM}(pixel / mesh)${RESET}"
@@ -146,7 +146,7 @@ start_all() {
   # Audience tunnel (reserved domain)
   ngrok http 8000 \
     --region eu \
-    --hostname joinmesh.io \
+    --hostname pixelmesh.show \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
   # Terminal tunnel (basic auth pixel:mesh, dynamic URL)
