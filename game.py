@@ -255,11 +255,19 @@ async def handle_tap(device_id: str, reaction_ms: float):
 # ------------------------------------------------------------------ #
 
 def start_bug_game():
-    if not _render_order:
+    with _state.lock:
+        positions = dict(_state.calibrated_positions)
+    if not positions:
         _set_status("No detected phones — run detection first")
         return
 
-    ordered = sorted(_render_order.keys(), key=lambda bid: _render_order[bid])
+    # Prefer the controller's existing render-order (left-to-right rank) when
+    # populated; fall back to sorting positions by u so we work regardless of
+    # whether _render_order has been rebuilt this session.
+    if _render_order:
+        ordered = sorted(_render_order.keys(), key=lambda bid: _render_order[bid])
+    else:
+        ordered = sorted(positions, key=lambda bid: positions[bid].get("u", 0.0))
 
     ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": game_slot_ms})
     if ok:
