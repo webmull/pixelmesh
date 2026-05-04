@@ -107,18 +107,18 @@ EFFECT_PARAMS = {
 }
 
 EFFECT_LABELS = {
-    "wave":         "1  Wave",
-    "gradient":     "2  Gradient",
-    "binary_wave":  "3  Binary Wave",
-    "pulse":        "4  Pulse",
-    "rainbow":      "5  Rainbow",
-    "colour_flood": "6  Colour Flood",
-    "aurora":       "7  Aurora",
-    "ripple":       "8  Ripple",
-    "snake":        "9  Snake",
-    "groups":       "0  Groups",
-    "sparkle":      "   Sparkle",
-    "sections":     "   Sections",
+    "wave":         "Wave",
+    "gradient":     "Gradient",
+    "binary_wave":  "Binary Wave",
+    "pulse":        "Pulse",
+    "rainbow":      "Rainbow",
+    "colour_flood": "Colour Flood",
+    "aurora":       "Aurora",
+    "ripple":       "Ripple",
+    "snake":        "Snake",
+    "groups":       "Groups",
+    "sparkle":      "Sparkle",
+    "sections":     "Sections",
 }
 
 

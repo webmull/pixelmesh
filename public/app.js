@@ -11,17 +11,17 @@ const PHASE_MS  = 300;
 const NUM_GUARD = 4;   // dark guard frames before Manchester data
 
 function encodeId(blinkId) {
-  // Structure: [6 dark guard] + Manchester("1" + id_bits + id_bits + "0")
+  // Structure: [NUM_GUARD dark phases] + Manchester("1" + id_bits + id_bits + "0")
   // Manchester: '1'→[1,0], '0'→[0,1]
   const bits = blinkId.toString(2).padStart(NUM_BITS, '0');
-  const binaryStr = '1' + bits + bits + '0';   // 2 + NUM_BITS*2 = 12 bits
+  const binaryStr = '1' + bits + bits + '0';   // 2 + NUM_BITS*2 = 20 bits
 
   const phases = new Array(NUM_GUARD).fill(0);   // dark guard
   for (const ch of binaryStr) {
     if (ch === '1') phases.push(1, 0);
     else            phases.push(0, 1);
   }
-  return phases;  // length: 6 + 24 = 30
+  return phases;  // length: NUM_GUARD + 40
 }
 
 // ------------------------------------------------------------------ //

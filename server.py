@@ -419,7 +419,7 @@ async def detect(payload: dict):
                 try:
                     await ws.send_json(msg)
                 except Exception:
-                    pass
+                    _drop_connection(device_id)
             else:
                 # Re-confirm position to any phone that may have drifted out of
                 # PS.FOUND (e.g. after a game round reset it to PS.WAITING).
@@ -427,7 +427,7 @@ async def detect(payload: dict):
                 try:
                     await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
                 except Exception:
-                    pass
+                    _drop_connection(device_id)
     else:
         # Phones that were detected: re-confirm their position so any phone
         # stuck in PS.BLINKING due to a lost update_position gets pushed to

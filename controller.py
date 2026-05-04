@@ -7,18 +7,19 @@ Dear PyGui controller with:
   - Live camera preview
   - Blink detection overlay (replaces AprilTag detection)
   - Device position mapping to u-space
-  - Effect triggers
+  - Effect triggers (sidebar buttons / MIDI only — no number-key hotkeys)
   - Client count polling
 
 Hotkeys:
   D       Toggle detection
   S       Toggle clock sync
-  1-7     Trigger effects
+  H       Toggle all overlays
+  O       Toggle ID overlays
+  P       Toggle overlay mode (IDs / render order)
   R       Reset server
   Tab     Toggle sidebar
   G       Debug capture
   V       Record video
-  O       ID overlays
   Q/Esc   Quit
 
 Dependencies:
@@ -479,19 +480,38 @@ def draw_roi_overlay(canvas: np.ndarray):
     if roi_bottom > 0: parts.append(f"bot {int(roi_bottom * 100)}%")
     if roi_left   > 0: parts.append(f"left {int(roi_left * 100)}%")
     if roi_right  > 0: parts.append(f"right {int(roi_right * 100)}%")
-    label = "ROI  " + "  ".join(parts)
-    (tw, th), _ = cv2.getTextSize(label, FONT, 0.4, 1)
+    label1 = "ROI  " + "  ".join(parts)
+
+    inner_frac = max(0.0, 1.0 - roi_top - roi_bottom) * \
+                 max(0.0, 1.0 - roi_left - roi_right)
+    saved_pct = (1.0 - inner_frac) * 100
+    saved_px  = int((1.0 - inner_frac) * CAM_WIDTH * CAM_HEIGHT)
+    if saved_px >= 1_000_000:
+        saved_str = f"{saved_px / 1_000_000:.1f}M px"
+    elif saved_px >= 1_000:
+        saved_str = f"{saved_px / 1_000:.0f}K px"
+    else:
+        saved_str = f"{saved_px} px"
+    label2 = f"saved {saved_str}  ({saved_pct:.0f}%)"
+
+    (tw1, th1), _ = cv2.getTextSize(label1, FONT, 0.4, 1)
+    (tw2, th2), _ = cv2.getTextSize(label2, FONT, 0.4, 1)
+    tw = max(tw1, tw2)
+    line_gap = 6
     pad_x, pad_y = 10, 7
     tx = x1 + 18
-    ty = y1 + 18 + th
+    ty1 = y1 + 18 + th1
+    ty2 = ty1 + line_gap + th2
     bg_x0 = tx - pad_x
-    bg_y0 = ty - th - pad_y
+    bg_y0 = ty1 - th1 - pad_y
     bg_x1 = tx + tw + pad_x
-    bg_y1 = ty + pad_y
+    bg_y1 = ty2 + pad_y
     cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), (8, 8, 10), -1)
     cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), color, 1)
-    cv2.putText(canvas, label, (tx, ty),
+    cv2.putText(canvas, label1, (tx, ty1),
                 FONT, 0.4, color, 1, cv2.LINE_AA)
+    cv2.putText(canvas, label2, (tx, ty2),
+                FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
 
 
 def draw_detect_border(canvas: np.ndarray):
@@ -702,11 +722,18 @@ def toggle_recording():
         set_status(f"Recording: {_os.path.basename(path)}")
 
 
+_SIDEBAR_WIDTH = 314
+
+
 def toggle_sidebar():
     with state.lock:
         state.sidebar_visible = not state.sidebar_visible
         vis = state.sidebar_visible
-    dpg.configure_item("sidebar_panel", show=vis)
+    # Width must collapse alongside show=False so the horizontal group
+    # actually reflows; otherwise the sidebar's slot stays reserved.
+    dpg.configure_item("sidebar_panel",
+                       show=vis,
+                       width=_SIDEBAR_WIDTH if vis else 0)
 
 
 def toggle_device_overlay():
@@ -865,35 +892,6 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_P:
         toggle_overlay_mode()
 
-    elif key == dpg.mvKey_1:
-        trigger_effect("wave")
-
-    elif key == dpg.mvKey_2:
-        trigger_effect("gradient")
-
-    elif key == dpg.mvKey_3:
-        trigger_effect("binary_wave")
-
-    elif key == dpg.mvKey_4:
-        trigger_effect("pulse")
-
-    elif key == dpg.mvKey_5:
-        trigger_effect("rainbow")
-
-    elif key == dpg.mvKey_6:
-        trigger_effect("colour_flood")
-
-    elif key == dpg.mvKey_7:
-        trigger_effect("aurora")
-
-    elif key == dpg.mvKey_8:
-        trigger_effect("ripple")
-
-    elif key == dpg.mvKey_9:
-        trigger_effect("snake")
-
-    elif key == dpg.mvKey_0:
-        trigger_effect("groups")
 
 
 
@@ -962,7 +960,7 @@ def setup_ui(holder: dict):
         with dpg.group(horizontal=True, horizontal_spacing=0):
 
             # ---- Sidebar ----
-            with dpg.child_window(width=314, height=-1, border=True,
+            with dpg.child_window(width=_SIDEBAR_WIDTH, height=-1, border=True,
                                   tag="sidebar_panel"):
 
                 dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
@@ -971,8 +969,8 @@ def setup_ui(holder: dict):
 
                 with dpg.tab_bar():
 
-                    # ---- CAMERA tab (default) ----
-                    with dpg.tab(label="CAMERA"):
+                    # ---- SCENE tab (default) ----
+                    with dpg.tab(label="SCENE"):
                         dpg.add_spacer(height=4)
                         dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
@@ -1016,6 +1014,15 @@ def setup_ui(holder: dict):
                                 dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
                                                    default_value=0, min_value=0, max_value=60,
                                                    callback=_set_roi, width=-1)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        dpg.add_text("", tag="status_text",  indent=_PAD)
+                        dpg.add_text("", tag="clients_text", indent=_PAD)
+                        dpg.add_text("", tag="detect_text",  indent=_PAD)
+                        dpg.add_text("[REC]", tag="rec_status_text",
+                                     color=(220, 60, 60), indent=_PAD, show=False)
 
                     # ---- RUN tab ----
                     with dpg.tab(label="RUN"):
@@ -1078,15 +1085,6 @@ def setup_ui(holder: dict):
                                   no_scrollbar=True, no_scroll_with_mouse=True):
                 dpg.add_image("camera_texture", tag="preview_image",
                               width=1, height=1)
-                dpg.add_separator()
-                dpg.add_text("", tag="status_text", indent=_PAD)
-                with dpg.group(horizontal=True, indent=_PAD):
-                    dpg.add_text("", tag="clients_text")
-                    dpg.add_spacer(width=24)
-                    dpg.add_text("", tag="detect_text")
-                    dpg.add_spacer(width=24)
-                    dpg.add_text("[REC]", tag="rec_status_text",
-                                 color=(220, 60, 60), show=False)
         dpg.bind_item_theme("preview_panel", "preview_panel_theme")
 
     # ---- Per-effect settings modals (hidden until ... is clicked) ----
@@ -1315,7 +1313,7 @@ def main():
                         dbg_cap.record_frame(canvas)
 
                     # MJPEG stream — write JPEG atomically so server.py
-                    # never reads a partial file.  Capped at 12fps.
+                    # never reads a partial file.  Capped at 30 fps.
                     global _last_stream_ts
                     _now = time.time()
                     if _now - _last_stream_ts >= _STREAM_INTERVAL:
@@ -1333,9 +1331,8 @@ def main():
             # main_window always fills the full window — subtract sidebar to get
             # the true available width without relying on viewport client dims.
             try:
-                _STATUS_H = 22   # separator + status_text + clients row
                 pw, ph = dpg.get_item_rect_size("preview_panel")
-                ph_img = max(1, ph - _STATUS_H)
+                ph_img = max(1, ph)
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
                     if pw / ph_img > aspect:
