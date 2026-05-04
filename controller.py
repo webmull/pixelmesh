@@ -1016,6 +1016,11 @@ def setup_ui(holder: dict):
                                                    callback=_set_roi, width=-1)
 
                         dpg.add_spacer(height=8)
+                        dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
+
+                        dpg.add_spacer(height=8)
                         dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
                         dpg.add_text("", tag="status_text",  indent=_PAD)
@@ -1035,7 +1040,6 @@ def setup_ui(holder: dict):
                         _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
                         _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
                         _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
-                        _chk("Record Video  [V]",  "chk_recording",    lambda: toggle_recording())
                         dpg.add_spacer(height=4)
                         dpg.add_button(label="Reset Server  [R]", callback=reset_server,
                                        indent=_PAD, width=-(_PAD + 1))
