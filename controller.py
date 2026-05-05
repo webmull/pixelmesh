@@ -773,10 +773,19 @@ def _set_roi():
     with state.lock:
         if state.detecting:
             return   # guard: ROI rebuild races with draw_overlay during detection
-    detector.cfg["roi_top_frac"]    = dpg.get_value("sld_roi_top")    / 100.0
-    detector.cfg["roi_bottom_frac"] = dpg.get_value("sld_roi_bottom") / 100.0
-    detector.cfg["roi_left_frac"]   = dpg.get_value("sld_roi_left")   / 100.0
-    detector.cfg["roi_right_frac"]  = dpg.get_value("sld_roi_right")  / 100.0
+    top    = dpg.get_value("sld_roi_top")    / 100.0
+    bottom = dpg.get_value("sld_roi_bottom") / 100.0
+    left   = dpg.get_value("sld_roi_left")   / 100.0
+    right  = dpg.get_value("sld_roi_right")  / 100.0
+    detector.cfg["roi_top_frac"]    = top
+    detector.cfg["roi_bottom_frac"] = bottom
+    detector.cfg["roi_left_frac"]   = left
+    detector.cfg["roi_right_frac"]  = right
+    # Auto-enable overlays when any ROI is active so the dimmed exclusion
+    # region and boundary line are visible while tuning.
+    if (top + bottom + left + right) > 0:
+        with state.lock:
+            state.show_overlays = True
 
 
 def _save_report():
@@ -1030,6 +1039,11 @@ def setup_ui(holder: dict):
                         dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
                         _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
+                        dpg.add_button(label="Sync Stats Panel",
+                                       callback=lambda: dpg.configure_item(
+                                           "sync_debug_window",
+                                           show=not dpg.is_item_shown("sync_debug_window"),
+                                       ), indent=_PAD, width=-(_PAD + 1))
 
                         dpg.add_spacer(height=8)
                         dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
@@ -1088,11 +1102,6 @@ def setup_ui(holder: dict):
                         dpg.add_button(label="Enable / Disable Likes",
                                        callback=heart_toggle,
                                        indent=_PAD, width=-(_PAD + 1))
-                        dpg.add_button(label="Sync Stats Panel",
-                                       callback=lambda: dpg.configure_item(
-                                           "sync_debug_window",
-                                           show=not dpg.is_item_shown("sync_debug_window"),
-                                       ), indent=_PAD, width=-(_PAD + 1))
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
@@ -1120,7 +1129,7 @@ def setup_ui(holder: dict):
         dpg.add_text("Blink ID  Device        RTT(ms)  Offset(ms)  Samples  Age(s)",
                      color=(180, 180, 180))
         dpg.add_separator()
-        dpg.add_text("No sync data — enable Clock Sync and wait for clients to report.",
+        dpg.add_text("No sync data - enable Clock Sync and wait for clients to report.",
                      tag="sync_no_data", color=(120, 120, 120))
         # Placeholder rows — up to 32 shown; extra rows hidden
         for i in range(32):
@@ -1415,8 +1424,8 @@ def main():
                         for i in range(32):
                             if i < len(rows):
                                 r = rows[i]
-                                rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "—"
-                                off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "—"
+                                rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "-"
+                                off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "-"
                                 line = (f"{str(r['blink_id']):>8}  "
                                         f"{r['device_id']:<12}  "
                                         f"{rtt:>7}  {off:>10}  "

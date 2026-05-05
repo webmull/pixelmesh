@@ -295,7 +295,7 @@ def start_bug_game():
     with _state.lock:
         positions = dict(_state.calibrated_positions)
     if not positions:
-        _set_status("No detected phones — run detection first")
+        _set_status("No detected phones - run detection first")
         return
 
     # Prefer the controller's existing render-order (left-to-right rank) when
@@ -311,7 +311,7 @@ def start_bug_game():
         with _state.lock:
             _state.current_effect = None
         set_game_btn_highlight(True)
-        _set_status(f"Bug game started — {len(ordered)} phones · {GAME_DURATION_MS // 1000}s round")
+        _set_status(f"Bug game started - {len(ordered)} phones / {GAME_DURATION_MS // 1000}s round")
         dpg.configure_item("game_leaderboard_window", show=True)
         _start_poll()
     else:
@@ -350,7 +350,7 @@ def _update_leaderboard(results, total, no_tap=None):
         rows.append(f"#{r['rank']}  Phone {r['blink_id'] + 1}   {r['reaction_ms']:.0f} ms")
     if no_tap:
         if rows:
-            rows.append("─" * 26)
+            rows.append("-" * 26)
         for bid in no_tap:
             rows.append(f"   Phone {bid + 1}   no tap")
     while len(rows) < 12:
@@ -385,7 +385,7 @@ def build_sidebar_buttons(indent: int, pad: int):
 
 def build_window():
     """Create the leaderboard floating window. Call after the main viewport is set up."""
-    with dpg.window(tag="game_leaderboard_window", label="Bug Game — Leaderboard",
+    with dpg.window(tag="game_leaderboard_window", label="Bug Game Leaderboard",
                     width=340, height=380, pos=(400, 100), show=False,
                     no_collapse=False):
         dpg.add_text("", tag="game_status_text", color=(160, 160, 160))
