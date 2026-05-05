@@ -601,6 +601,9 @@ def update_ui_from_state():
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
+    rec_path = getattr(vid_rec, "_path", "") if vid_rec.active else ""
+    safe_set("rec_filename_text", _os.path.basename(rec_path) if rec_path else "")
+    ui_queue.put(("_rec_filename_show", bool(rec_path)))
 
     safe_set("chk_detection",    detecting)
     safe_set("chk_sync",         state.syncing)
@@ -1039,11 +1042,11 @@ def setup_ui(holder: dict):
                         dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
                         dpg.add_separator()
                         _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
-                        dpg.add_button(label="Sync Stats Panel",
-                                       callback=lambda: dpg.configure_item(
-                                           "sync_debug_window",
-                                           show=not dpg.is_item_shown("sync_debug_window"),
-                                       ), indent=_PAD, width=-(_PAD + 1))
+                        dpg.add_text("[REC]", tag="rec_status_text",
+                                     color=(220, 60, 60), indent=_PAD, show=False)
+                        dpg.add_text("", tag="rec_filename_text",
+                                     color=(150, 150, 150), indent=_PAD, show=False,
+                                     wrap=300)
 
                         dpg.add_spacer(height=8)
                         dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
@@ -1051,8 +1054,21 @@ def setup_ui(holder: dict):
                         dpg.add_text("", tag="status_text",  indent=_PAD)
                         dpg.add_text("", tag="clients_text", indent=_PAD)
                         dpg.add_text("", tag="detect_text",  indent=_PAD)
-                        dpg.add_text("[REC]", tag="rec_status_text",
-                                     color=(220, 60, 60), indent=_PAD, show=False)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("SYNC STATS", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        dpg.add_text("", tag="sync_status_line",
+                                     color=(160, 160, 160), indent=_PAD)
+                        dpg.add_text("  #     RTT     Off    Smp",
+                                     color=(180, 180, 180), indent=_PAD)
+                        with dpg.child_window(tag="sync_stats_panel",
+                                              height=200, width=-(_PAD + 1),
+                                              indent=_PAD, border=False):
+                            dpg.add_text("No sync data - enable Clock Sync.",
+                                         tag="sync_no_data", color=(120, 120, 120))
+                            for i in range(32):
+                                dpg.add_text("", tag=f"sync_row_{i}", show=False)
 
                     # ---- RUN tab ----
                     with dpg.tab(label="RUN"):
@@ -1113,27 +1129,6 @@ def setup_ui(holder: dict):
 
     # ---- Per-effect settings modals (hidden until ... is clicked) ----
     effects.build_window()
-
-    # ---- Sync debug window (hidden by default) ----
-    with dpg.window(tag="sync_debug_window", label="Clock Sync Stats",
-                    width=640, height=340, pos=(340, 60), show=False,
-                    no_collapse=False):
-        dpg.add_text("", tag="sync_status_line", color=(160, 160, 160))
-        dpg.add_text(
-            "RTT = round-trip ping time (lower = better network).  "
-            "Offset = estimated clock difference vs server (ms); near 0 = well-synced.",
-            color=(120, 120, 120),
-            wrap=620,
-        )
-        dpg.add_spacer(height=4)
-        dpg.add_text("Blink ID  Device        RTT(ms)  Offset(ms)  Samples  Age(s)",
-                     color=(180, 180, 180))
-        dpg.add_separator()
-        dpg.add_text("No sync data - enable Clock Sync and wait for clients to report.",
-                     tag="sync_no_data", color=(120, 120, 120))
-        # Placeholder rows — up to 32 shown; extra rows hidden
-        for i in range(32):
-            dpg.add_text("", tag=f"sync_row_{i}", show=False)
 
     # ---- Bug game leaderboard window ----
     game.build_window()
@@ -1396,6 +1391,9 @@ def main():
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
                         continue
+                    if tag == "_rec_filename_show":
+                        dpg.configure_item("rec_filename_text", show=value)
+                        continue
                     if tag == "_roi_enabled":
                         for item in ("sld_roi_top", "sld_roi_bottom",
                                      "sld_roi_left", "sld_roi_right"):
@@ -1419,17 +1417,18 @@ def main():
                         rows = value
                         ts = time.strftime("%H:%M:%S")
                         dpg.set_value("sync_status_line",
-                                      f"Last updated: {ts}  |  {len(rows)} device(s)")
+                                      f"{len(rows)} dev  ({ts})")
                         dpg.configure_item("sync_no_data", show=(len(rows) == 0))
                         for i in range(32):
                             if i < len(rows):
                                 r = rows[i]
-                                rtt  = f"{r['rtt_ms']:.1f}"    if r["rtt_ms"]    is not None else "-"
-                                off  = f"{r['offset_ms']:.1f}" if r["offset_ms"] is not None else "-"
-                                line = (f"{str(r['blink_id']):>8}  "
-                                        f"{r['device_id']:<12}  "
-                                        f"{rtt:>7}  {off:>10}  "
-                                        f"{r['samples']:>7}  {r['age_s']:>6}")
+                                rtt  = f"{r['rtt_ms']:.0f}"    if r["rtt_ms"]    is not None else "-"
+                                off  = f"{r['offset_ms']:+.0f}" if r["offset_ms"] is not None else "-"
+                                bid_str = str(r['blink_id'])
+                                line = (f"{bid_str:>3}  "
+                                        f"{rtt:>5}  "
+                                        f"{off:>5}  "
+                                        f"{r['samples']:>4}")
                                 dpg.set_value(f"sync_row_{i}", line)
                                 dpg.configure_item(f"sync_row_{i}", show=True)
                             else:
