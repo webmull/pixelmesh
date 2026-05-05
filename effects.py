@@ -21,6 +21,7 @@ import numpy as np
 
 from network import post_json_async
 from log import log
+import game
 
 # Wired up by init()
 _state      = None
@@ -200,6 +201,7 @@ def trigger_effect(name: str):
         payload["groups"] = groups
     log.info(f"[effect] {payload}")
     post_json_async("/admin/effect/fire", payload)
+    game.clear_winner_highlight()
     with _state.lock:
         _state.current_effect = name
     _set_status(f"Effect: {name}")

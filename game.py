@@ -327,8 +327,25 @@ def set_game_btn_highlight(active: bool):
         pass
 
 
+_last_winner_id:  int | None = None   # most recent winner blink_id
+_last_winner_at:  float      = 0.0    # epoch seconds when the round ended
+
+
+def get_last_winner():
+    """Return (blink_id, epoch_seconds) of the last winner, or (None, 0)."""
+    return _last_winner_id, _last_winner_at
+
+
+def clear_winner_highlight():
+    """Drop the winner marker immediately (e.g. on reset or effect fire)."""
+    global _last_winner_id, _last_winner_at
+    _last_winner_id = None
+    _last_winner_at = 0.0
+
+
 def _start_poll():
     def _worker():
+        global _last_winner_id, _last_winner_at
         for _ in range(GAME_DURATION_MS // 1000 + 10):
             time.sleep(1)
             data = _fetch_json("/admin/game/results")
@@ -340,6 +357,9 @@ def _start_poll():
             _update_leaderboard(results, total, no_tap)
             if not data.get("active", True):
                 set_game_btn_highlight(False)
+                if results:
+                    _last_winner_id = results[0]["blink_id"]
+                    _last_winner_at = time.time()
                 break
     threading.Thread(target=_worker, daemon=True).start()
 

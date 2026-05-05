@@ -26,6 +26,7 @@ Dependencies:
   pip install dearpygui opencv-python numpy requests
 """
 
+import math
 import sys
 import os as _os
 import threading
@@ -525,6 +526,49 @@ def draw_roi_overlay(canvas: np.ndarray):
                 FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
 
 
+_WINNER_HIGHLIGHT_SECS = 6.0
+
+
+def draw_winner_highlight(canvas: np.ndarray):
+    """Pulsing gold ring + 'WINNER #N' label at the bug-game winner's
+    position, for ~6s after the round ends."""
+    bid, at = game.get_last_winner()
+    if bid is None:
+        return
+    age = time.time() - at
+    if age > _WINNER_HIGHLIGHT_SECS:
+        return
+    with state.lock:
+        positions = state.calibrated_positions.copy()
+        crop_x    = state.last_crop_x
+        crop_y    = getattr(state, "last_crop_y", 0)
+    pos = positions.get(bid)
+    if pos is None:
+        return
+    px = int(pos["u"] * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
+    py = int(pos["v"] * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
+    pulse  = 0.5 + 0.5 * math.sin(time.time() * 6.0)
+    base_r = 28
+    r      = int(base_r + 12 * pulse)
+    gold   = (50, 200, 250)   # BGR — warm gold
+    glow   = (80, 220, 255)
+    cv2.circle(canvas, (px, py), r + 8, glow, 3, cv2.LINE_AA)
+    cv2.circle(canvas, (px, py), r,     gold, 4, cv2.LINE_AA)
+    label = f"WINNER  #{bid + 1}"
+    font_scale = 0.8
+    thickness  = 2
+    (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+    lx = px - tw // 2
+    ly = py - r - 18
+    pad = 7
+    cv2.rectangle(canvas, (lx - pad, ly - th - pad),
+                  (lx + tw + pad, ly + pad), (8, 8, 12), -1)
+    cv2.rectangle(canvas, (lx - pad, ly - th - pad),
+                  (lx + tw + pad, ly + pad), gold, 1)
+    cv2.putText(canvas, label, (lx, ly),
+                FONT, font_scale, gold, thickness, cv2.LINE_AA)
+
+
 def draw_detect_border(canvas: np.ndarray):
     """Thick green inset border drawn on the canvas while detecting."""
     h, w = canvas.shape[:2]
@@ -832,6 +876,7 @@ def reset_server():
         state.last_detections = []
         state.last_detection_count = 0
     game.set_game_btn_highlight(False)
+    game.clear_winner_highlight()
     set_status("Reset")
 
 
@@ -1324,6 +1369,11 @@ def main():
 
                     if show_ov:
                         draw_device_overlay(canvas)
+
+                    try:
+                        draw_winner_highlight(canvas)
+                    except Exception as e:
+                        log.info(f"[winner] draw skipped: {e}")
 
                     if detecting:
                         draw_detect_border(canvas)
