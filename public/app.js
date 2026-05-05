@@ -943,15 +943,21 @@ function directedCoord(u, v) {
 }
 
 function shade(u, v, t) {
-  // When clock sync is off, scramble each phone's effective position so
-  // effects look visibly chaotic even for spatial patterns (wave, ripple,
-  // snake) that would otherwise stay aligned despite the per-phone time
-  // offset.  Jitter is seeded from blinkId so it's stable per phone.
+  // When clock sync is off, scramble each phone's effective position AND
+  // time so effects look chaotic — and stay chaotic.  The 8s time offset
+  // alone leaves spatial patterns aligned; jittering u/v fragments wave/
+  // ripple/snake; per-phone time-scale + direction makes phones drift
+  // apart continuously instead of all running the same animation late.
+  // All jitter is hash-seeded from blinkId, so it's stable per phone and
+  // snaps cleanly back to coordinated motion the moment sync engages.
   if (!synced && myBlinkId !== null) {
-    const jx = (_hashFloat(myBlinkId * 7  + 11) - 0.5) * 0.5;   // u +/- 0.25
-    const jy = (_hashFloat(myBlinkId * 13 + 17) - 0.5) * 0.5;
+    const jx = (_hashFloat(myBlinkId * 7  + 11) - 0.5) * 1.6;   // u +/- 0.8
+    const jy = (_hashFloat(myBlinkId * 13 + 17) - 0.5) * 1.6;
+    const jt = 0.4 + _hashFloat(myBlinkId * 23 +  5) * 1.4;     // 0.4x – 1.8x
+    const dir = _hashFloat(myBlinkId * 31 + 41) > 0.5 ? 1 : -1; // half reverse
     u = u + jx;
     v = v + jy;
+    t = t * jt * dir;
   }
   const d = directedCoord(u, v);
   const cr = effectR / 255, cg = effectG / 255, cb = effectB / 255;
