@@ -35,6 +35,7 @@ const likeBtn        = document.getElementById("likeBtn");
 const likeCount      = document.getElementById("likeCount");
 const positionCanvas = document.getElementById("positionCanvas");
 const _posCtx        = positionCanvas.getContext("2d");
+const locatedPhoneId = document.getElementById("locatedPhoneId");
 const knownPositions = {};   // blink_id → {u, v}
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
@@ -496,6 +497,7 @@ function handleMessage(msg) {
     blinkStartMs  = Date.now();
     if (calibrated) {
       knownPositions[myBlinkId] = {u: myU, v: myV};
+      locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
       _startPositionMapAnim();
       setView("located");
     } else {
@@ -538,6 +540,7 @@ function handleMessage(msg) {
     myV        = msg.v ?? myV;
     calibrated = true;
     if (myBlinkId !== null) knownPositions[myBlinkId] = {u: myU, v: myV};
+    if (myBlinkId !== null) locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
     _startPositionMapAnim();
     setView("located");
     setStatus(`ID ${myBlinkId + 1} – located ✓`);
@@ -940,6 +943,16 @@ function directedCoord(u, v) {
 }
 
 function shade(u, v, t) {
+  // When clock sync is off, scramble each phone's effective position so
+  // effects look visibly chaotic even for spatial patterns (wave, ripple,
+  // snake) that would otherwise stay aligned despite the per-phone time
+  // offset.  Jitter is seeded from blinkId so it's stable per phone.
+  if (!synced && myBlinkId !== null) {
+    const jx = (_hashFloat(myBlinkId * 7  + 11) - 0.5) * 0.5;   // u +/- 0.25
+    const jy = (_hashFloat(myBlinkId * 13 + 17) - 0.5) * 0.5;
+    u = u + jx;
+    v = v + jy;
+  }
   const d = directedCoord(u, v);
   const cr = effectR / 255, cg = effectG / 255, cb = effectB / 255;
 
