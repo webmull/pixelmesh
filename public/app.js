@@ -390,7 +390,14 @@ async function requestWakeLock() {
 }
 
 document.addEventListener("visibilitychange", async () => {
-  if (document.visibilityState === "visible") await requestWakeLock();
+  if (document.visibilityState !== "visible") return;
+  await requestWakeLock();
+  // Resync after a brief background: re-open the socket if it died, and
+  // restart the blink cycle anchor so we begin a clean guard-run from now
+  // rather than continuing mid-cycle. No-op for pages the OS killed
+  // outright — those reload from scratch and re-issue 'hello'.
+  if (!ws || ws.readyState !== WebSocket.OPEN) connect();
+  if (myBlinkPhases.length > 0) blinkStartMs = Date.now();
 });
 
 // ------------------------------------------------------------------ //

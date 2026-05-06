@@ -109,7 +109,13 @@ _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calib
 
 def _open_timing_log():
     global _timing_log_paths
+    # Cross-reference the active debug-capture run so the video and the
+    # per-blink-id timing log can always be paired up later.
+    debug_ref = ""
+    if dbg_cap.active and dbg_cap.run_dir:
+        debug_ref = f"debug_run     {_os.path.basename(dbg_cap.run_dir)}\n"
     header = (f"detection started {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+              f"{debug_ref}"
               f"{'blink_id':>10}  {'time_to_detect':>16}  {'confidence':>12}\n")
     paths = []
     # Always write to the master calibration_logs folder
@@ -128,6 +134,29 @@ def _log_timing(line: str):
     for p in _timing_log_paths:
         with open(p, "a") as f:
             f.write(line + "\n")
+
+
+def _log_detection_summary():
+    """One-line end-of-detection summary listing connected vs detected vs
+    missed blink_ids — written to both the controller log and the active
+    calibration log so post-show analysis can see what the detector failed
+    to find without needing to cross-reference /admin/blink_map snapshots."""
+    if not _detection_start_time:
+        return
+    connected = set(_valid_blink_ids)
+    detected  = set(_detected_ids)
+    missed    = sorted(connected - detected)
+    summary = (f"[detect] end  connected={len(connected)}  "
+               f"detected={len(detected)}  "
+               f"missed={missed}  "
+               f"elapsed={time.time() - _detection_start_time:.1f}s")
+    log.info(summary)
+    for p in _timing_log_paths:
+        try:
+            with open(p, "a") as f:
+                f.write(summary + "\n")
+        except Exception:
+            pass
 
 
 vid_rec = VideoRecorder()
@@ -750,6 +779,7 @@ def toggle_detection():
         _open_timing_log()
         set_status("Detection ON")
     else:
+        _log_detection_summary()
         post_json_async("/admin/detect", {"detecting": False})
         set_status("Detection OFF")
 
@@ -1279,6 +1309,7 @@ def main():
             # Camera just disappeared — stop detection cleanly
             if was_active and cap is None and was_detecting:
                 global _detected_ids, _detection_start_time
+                _log_detection_summary()
                 _detected_ids = set()
                 _detection_start_time = 0.0
                 detector.reset()
@@ -1608,6 +1639,7 @@ def _detection_worker():
                         was_on = state.detecting
                         state.detecting = False
                     if was_on:
+                        _log_detection_summary()
                         post_json_async("/admin/detect", {"detecting": False})
                         set_status("Detection OFF")
         finally:
