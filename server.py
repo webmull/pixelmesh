@@ -475,6 +475,11 @@ async def update_positions(payload: dict):
     """
     incoming = payload.get("positions", {})
 
+    # Per-device update_position goes only to the located phone; the global
+    # crowd-map fanout used to broadcast once per phone, which made N×M sends
+    # for big audiences. Collect and broadcast once at the end instead.
+    located_batch: dict[str, dict] = {}
+
     for bid_str, pos in incoming.items():
         blink_id = int(bid_str)
         device_id = blink_to_device(blink_id)
@@ -496,12 +501,12 @@ async def update_positions(payload: dict):
                 # rather than waiting for TCP keepalive to detect the loss.
                 _drop_connection(device_id)
 
-        # Tell all phones where this device is on the grid
+        located_batch[str(blink_id)] = {"u": pos["u"], "v": pos["v"]}
+
+    if located_batch:
         await broadcast({
-            "type":     "phone_located",
-            "blink_id": blink_id,
-            "u":        pos["u"],
-            "v":        pos["v"],
+            "type":      "phones_located",
+            "positions": located_batch,
         })
 
     return {"ok": True}

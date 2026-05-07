@@ -136,6 +136,18 @@ def _log_timing(line: str):
             f.write(line + "\n")
 
 
+def _stop_auto_debug_capture():
+    """Stop the debug capture only if WE auto-started it (so manual G
+    captures aren't killed by detection toggling off)."""
+    global _debug_auto_started
+    if _debug_auto_started and dbg_cap.active:
+        try:
+            dbg_cap.stop_run()
+        except Exception as e:
+            log.info(f"[debug] auto-stop failed: {e}")
+    _debug_auto_started = False
+
+
 def _log_detection_summary():
     """One-line end-of-detection summary listing connected vs detected vs
     missed blink_ids — written to both the controller log and the active
@@ -160,6 +172,13 @@ def _log_detection_summary():
 
 
 vid_rec = VideoRecorder()
+
+# Auto-start debug capture whenever detection runs, so we always have the
+# heatmap available when investigating "why didn't this phone get detected".
+# Tracked separately from the manual G toggle: only the auto-started runs
+# are auto-stopped on detection-off.
+_DEBUG_AUTO_ON_DETECT = True
+_debug_auto_started   = False
 
 
 # ------------------------------------------------------------------ #
@@ -635,6 +654,23 @@ def draw_hud(canvas: np.ndarray, fps: float):
     if detector.signal_range < 0.5:
         cv2.circle(canvas, (bx1 + PAD + 5, mid_y), 4, (0, 165, 255), -1)
 
+    # detected / connected counter — pill to the right of the fps pill
+    # while detecting, so the operator can see how many phones are
+    # outstanding without waiting for the post-run calibration log.
+    if detecting:
+        n_det  = len(_detected_ids)
+        n_conn = len(_valid_blink_ids)
+        count_label = f"{n_det} / {n_conn} found"
+        (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
+        cx = bx1 + 16 + (10 if detector.signal_range < 0.5 else 0)
+        cx2 = cx + PAD * 2 + cw
+        # Colour the box edge green when caught up, amber while still chasing.
+        edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
+        cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
+        cv2.rectangle(canvas, (cx, y), (cx2, by1), edge, 1)
+        cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
+                    FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
+
     # Bottom-right: show friendly debug run name when debug capture is active
     if dbg_cap.active and dbg_cap.run_dir:
         run_name = _os.path.basename(dbg_cap.run_dir)
@@ -763,6 +799,7 @@ def toggle_detection():
 
     if val:
         global _detection_start_time, _detected_ids, _render_order
+        global _debug_auto_started
         _detection_start_time = time.time()
         _detected_ids = set()
         _render_order.clear()
@@ -775,11 +812,22 @@ def toggle_detection():
         ever_active_before = len(detector._ever_active)
         detector.reset()
         log.info(f"[detect] detector reset on run start (cleared {ever_active_before} _ever_active points)")
+        # Auto-start debug capture so the heatmap + frames are always there
+        # for post-show diagnostics. Skipped if a manual G capture is already
+        # running (we don't want to interfere with intentional ones).
+        if _DEBUG_AUTO_ON_DETECT and not dbg_cap.active:
+            try:
+                dbg_cap.start_run()
+                _debug_auto_started = True
+            except Exception as e:
+                log.info(f"[debug] auto-start failed: {e}")
         post_json_async("/admin/detect", {"detecting": True})
         _open_timing_log()
         set_status("Detection ON")
     else:
         _log_detection_summary()
+        _save_report()
+        _stop_auto_debug_capture()
         post_json_async("/admin/detect", {"detecting": False})
         set_status("Detection OFF")
 
@@ -865,8 +913,11 @@ def _set_roi():
             state.show_overlays = True
 
 
-def _save_report():
-    """Generate and save a post-show report, then open it. Safe to call with no data."""
+def _save_report(auto_open: bool = False):
+    """Generate and save a post-show report. Safe to call with no data.
+    auto_open=True opens the file in the default text editor — only the
+    explicit reset path passes True; detection-stop calls leave the file
+    on disk silently so a report doesn't pop up mid-show."""
     global _detection_timings
     if not _detected_ids and not game.game_order:
         return   # nothing to report
@@ -881,8 +932,9 @@ def _save_report():
             game_results      = dict(game.game_results),
             game_order        = list(game.game_order),
         )
-        import subprocess
-        subprocess.Popen(["open", path])   # open in default text editor
+        if auto_open:
+            import subprocess
+            subprocess.Popen(["open", path])
         set_status(f"Report saved → {_os.path.basename(path)}")
         log.info(f"[report] saved → {path}")
     except Exception as e:
@@ -891,7 +943,7 @@ def _save_report():
 
 def reset_server():
     global _detected_ids, _detection_start_time, _render_order, _detection_timings
-    _save_report()
+    _save_report(auto_open=True)
     post_json_async("/admin/reset", {})
     detector.reset()
     _detected_ids = set()
@@ -1310,6 +1362,8 @@ def main():
             if was_active and cap is None and was_detecting:
                 global _detected_ids, _detection_start_time
                 _log_detection_summary()
+                _save_report()
+                _stop_auto_debug_capture()
                 _detected_ids = set()
                 _detection_start_time = 0.0
                 detector.reset()
@@ -1640,6 +1694,8 @@ def _detection_worker():
                         state.detecting = False
                     if was_on:
                         _log_detection_summary()
+                        _save_report()
+                        _stop_auto_debug_capture()
                         post_json_async("/admin/detect", {"detecting": False})
                         set_status("Detection OFF")
         finally:

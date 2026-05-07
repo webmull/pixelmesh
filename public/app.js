@@ -555,7 +555,17 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "phone_located") {
+    // Legacy single-phone variant — kept for backwards compat with older
+    // server versions; current server batches via "phones_located".
     knownPositions[msg.blink_id] = {u: msg.u, v: msg.v};
+    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
+    return;
+  }
+
+  if (msg.type === "phones_located") {
+    for (const [bid, pos] of Object.entries(msg.positions)) {
+      knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
+    }
     if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
