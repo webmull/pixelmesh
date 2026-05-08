@@ -302,7 +302,6 @@ let effectR2          = 255;
 let effectG2          = 0;
 let effectB2          = 0;
 let effectSplit       = 0.5;
-let effectPath        = [];   // snake: ordered blink_ids (nearest-neighbour path)
 let effectGroups      = {};   // groups: blink_id → group_index
 
 // ---- Bug game ----
@@ -626,7 +625,6 @@ function handleMessage(msg) {
     effectG2          = msg.color2_g ?? 0;
     effectB2          = msg.color2_b ?? 0;
     effectSplit       = msg.split ?? 0.5;
-    effectPath        = msg.path   ?? [];
     effectGroups      = msg.groups ?? {};
     setView("effects");
     return;
@@ -963,7 +961,7 @@ function shade(u, v, t) {
   // When clock sync is off, scramble each phone's effective position AND
   // time so effects look chaotic — and stay chaotic.  The 8s time offset
   // alone leaves spatial patterns aligned; jittering u/v fragments wave/
-  // ripple/snake; per-phone time-scale + direction makes phones drift
+  // ripple/etc; per-phone time-scale + direction makes phones drift
   // apart continuously instead of all running the same animation late.
   // All jitter is hash-seeded from blinkId, so it's stable per phone and
   // snaps cleanly back to coordinated motion the moment sync engages.
@@ -1023,20 +1021,6 @@ function shade(u, v, t) {
     const g = effectG + (effectG2 - effectG) * blend;
     const b = effectB + (effectB2 - effectB) * blend;
     return [r, g, b];
-  }
-
-  if (currentEffect === "snake") {
-    const total = effectPath.length;
-    if (total === 0) return [0, 0, 0];
-    const myIdx = effectPath.indexOf(myBlinkId);
-    if (myIdx === -1) return [0, 0, 0];
-    const head = (t * effectSpeed * total) % total;
-    // Circular distance from this phone to the head
-    let dist = Math.abs(myIdx - head);
-    if (dist > total / 2) dist = total - dist;
-    const tail = effectSpatialFreq;  // reuse spatial_freq slot as tail length
-    const i = Math.max(0, 1 - dist / tail);
-    return [i * effectR, i * effectG, i * effectB];
   }
 
   if (currentEffect === "ripple") {
