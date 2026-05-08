@@ -83,11 +83,6 @@ EFFECT_PARAMS = {
         ("speed",        "Speed",     "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
         ("spatial_freq", "Frequency", "slider_float", {"default_value": 3.0,  "min_value": 0.5,  "max_value": 10.0}),
     ],
-    "snake": [
-        ("color",       "Colour",      "color",        {"default_value": (0, 255, 80, 255)}),
-        ("speed",       "Speed",       "slider_float", {"default_value": 1.0,  "min_value": 0.1, "max_value": 8.0}),
-        ("spatial_freq","Tail Length", "slider_float", {"default_value": 4.0,  "min_value": 1.0, "max_value": 20.0, "format": "%.0f"}),
-    ],
     "groups": [
         ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
         ("color2",       "Colour B", "color",        {"default_value": (40,  40,  255, 255)}),
@@ -118,7 +113,6 @@ EFFECT_LABELS = {
     "colour_flood": "Colour Flood",
     "aurora":       "Aurora",
     "ripple":       "Ripple",
-    "snake":        "Snake",
     "groups":       "Groups",
     "sparkle":      "Sparkle",
     "sections":     "Sections",
@@ -145,25 +139,6 @@ def _get(effect: str, param: str, default):
 # Trigger                                                              #
 # ------------------------------------------------------------------ #
 
-def _nearest_neighbour_path(positions: dict) -> list[int]:
-    """Compute a nearest-neighbour traversal path through detected phones.
-    positions: {blink_id: {"u": float, "v": float}}
-    Returns ordered list of blink_ids starting from top-left phone."""
-    if not positions:
-        return []
-    pts = {bid: (pos["u"], pos["v"]) for bid, pos in positions.items()}
-    # Start from the phone closest to the top-left corner
-    start = min(pts, key=lambda b: pts[b][0] ** 2 + pts[b][1] ** 2)
-    path = [start]
-    remaining = set(pts) - {start}
-    while remaining:
-        lu, lv = pts[path[-1]]
-        nearest = min(remaining, key=lambda b: (pts[b][0] - lu) ** 2 + (pts[b][1] - lv) ** 2)
-        path.append(nearest)
-        remaining.remove(nearest)
-    return path
-
-
 def trigger_effect(name: str):
     with _state.lock:
         positions = _state.calibrated_positions.copy()
@@ -186,8 +161,6 @@ def trigger_effect(name: str):
         "color2_b":     int(color2[2]),
         "split":        _get(name, "split", 0.5),
     }
-    if name == "snake":
-        payload["path"] = _nearest_neighbour_path(positions)
     if name == "groups":
         # Sort phones left→right by u, divide into n equal-count groups.
         # Caps n to phone count so every group has at least one phone.
@@ -333,20 +306,6 @@ _PREV_US = [c / (_N_COLS - 1) for r in range(_N_ROWS) for c in range(_N_COLS)]
 _PREV_VS = [r / (_N_ROWS - 1) for r in range(_N_ROWS) for c in range(_N_COLS)]
 
 
-def _preview_nn_path():
-    start = min(range(len(_PREV_US)), key=lambda i: _PREV_US[i]**2 + _PREV_VS[i]**2)
-    path, remaining = [start], set(range(len(_PREV_US))) - {start}
-    while remaining:
-        lu, lv = _PREV_US[path[-1]], _PREV_VS[path[-1]]
-        nearest = min(remaining, key=lambda i: (_PREV_US[i]-lu)**2 + (_PREV_VS[i]-lv)**2)
-        path.append(nearest)
-        remaining.remove(nearest)
-    return path
-
-
-_PREV_SNAKE_PATH = _preview_nn_path()
-
-
 def _hash_float(n: int) -> float:
     """Wang integer hash → float in [0, 1). Used to seed per-phone randomness."""
     n = (n ^ 61) ^ (n >> 16)
@@ -423,20 +382,6 @@ def _shade_preview(effect, u, v, idx, t, params):
         ov = 0.5 + 0.5*math.sin(a_rad)
         dist = math.sqrt((u-ou)**2 + (v-ov)**2)
         i = 0.5 + 0.5*math.sin(2*math.pi*(dist*sf - t*sp))
-        return (i*r, i*g, i*b)
-
-    if effect == "snake":
-        path = _PREV_SNAKE_PATH
-        total = len(path)
-        my_idx = path.index(idx) if idx in path else -1
-        if my_idx == -1:
-            return (0, 0, 0)
-        head = (t * sp * total) % total
-        dist = abs(my_idx - head)
-        if dist > total / 2:
-            dist = total - dist
-        tail = sf
-        i = max(0, 1 - dist / tail)
         return (i*r, i*g, i*b)
 
     if effect == "groups":
@@ -557,9 +502,3 @@ def start_preview_thread():
 #   Params: speed, colour, ring_width, origin_u, origin_v.
 #   Client: dist = sqrt((u-ou)²+(v-ov)²); brightness = wave(dist - t*speed).
 #
-# snake — a bright head travels a continuous path across the room,
-#   leaving a fading tail.  Path is a row-by-row sweep (u 0→1, then
-#   next v row, alternating direction).
-#   Params: speed, colour, tail_length.
-#   Client: phone lit when head position is within tail_length of (u,v);
-#   brightness falls off with distance behind the head.

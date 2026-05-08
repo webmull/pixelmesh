@@ -121,7 +121,6 @@ Click the sidebar buttons to fire effects. Each effect has its own parameter dia
 | Colour Flood | Colour A, Colour B, Split, Speed, Direction |
 | Aurora | Speed |
 | Ripple | Colour, Origin angle, Speed, Frequency |
-| Snake | Colour, Speed, Tail length |
 
 The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect list previews the selected effect in real time.
 
