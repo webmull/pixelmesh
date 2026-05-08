@@ -1069,7 +1069,7 @@ def _chk(label: str, tag: str, callback, enabled: bool = True):
 
 
 def setup_ui(holder: dict):
-    effects.init(state, set_status)
+    effects.init(state, set_status, ui_queue=ui_queue)
     game.init(state, set_status, post_json, fetch_json, _render_order)
     dpg.create_context()
 
@@ -1522,6 +1522,20 @@ def main():
                                     dpg.bind_item_theme(btn, "fx_active_theme")
                                 else:
                                     dpg.bind_item_theme(btn, None)
+                        continue
+                    if tag == "_refire_effect":
+                        # Debounced re-fire from effects._on_settings_changed
+                        # — must run on main thread because trigger_effect
+                        # reads slider values via dpg.get_value, which isn't
+                        # thread-safe and previously deadlocked DPG under
+                        # rapid colour-picker drags.
+                        with state.lock:
+                            eff = state.current_effect
+                        if eff:
+                            try:
+                                effects.trigger_effect(eff)
+                            except Exception as e:
+                                log.warning(f"[effect] refire failed: {e}")
                         continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
