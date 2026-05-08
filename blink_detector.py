@@ -39,20 +39,18 @@ DEFAULTS = dict(
     brightness_pct  = 3,     # 3rd percentile: a phone covering ~3% of the patch (≥4 px wide
                              # in a 12×12 = 144 px patch) will shift this percentile.
                              # Lower than 5 to handle very small/distant phones.
-    sample_radius   = 2,     # px: radius around grid point to sample (4×4=16 px patch).
-                             # Reduced from r=4 after 05 May post-show analysis showed
-                             # that r=4 patches frequently span phone+dark-background for
-                             # back-row / partially-occluded phones, dragging the 3rd-
-                             # percentile sampling to background-dark in BOTH bright and
-                             # dark phases — std collapses below the 0.05 gate floor and
-                             # the phone is invisible to the detector despite blinking
-                             # cleanly on camera.  Empirical: at one missed phone the raw
-                             # pixel showed std=0.37 (full alternation), r=4 patch read
-                             # std=0.03 (below gate), r=2 patch read std=0.35 (well above).
-                             # The 4×4 patch fits entirely on most phones at audience
-                             # distance so the percentile sees the phone-only pixels in
-                             # both phases.  Cache: 25920×16 = 0.4 MB, even more L2/L3-
-                             # friendly than the previous r=4 / 1.66 MB.
+    sample_radius   = 4,     # px: radius around grid point to sample (8×8=64 px patch).
+                             # r=4 keeps the 25920×64 matrix at 1.66 MB — inside L2/L3
+                             # cache on M1.  r=6 (3.7 MB) spills to RAM, making partition
+                             # 10× slower purely due to cache pressure, not arithmetic.
+                             # NOTE: tried r=2 (4×4=16 patch) on 08 May to fix the
+                             # patch-percentile bias on edge-of-phone patches — caused a
+                             # ROI-mode regression because brightness_pct=3 with 16-pixel
+                             # patch gives k=int(16*3/100)=0 (absolute darkest pixel),
+                             # making bright-phase sampling hyper-sensitive to a single
+                             # stray dark pixel.  A correct fix needs to bump
+                             # brightness_pct to ~10 alongside r=2 to keep k=1 (2nd
+                             # darkest), matching the original noise robustness.
     roi_top_frac    = 0.00,  # fraction of frame height to skip from top (0 = full frame)
     roi_bottom_frac = 0.00,  # fraction of frame height to skip from bottom
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
