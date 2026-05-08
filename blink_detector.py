@@ -36,25 +36,31 @@ DEFAULTS = dict(
     min_history     = 150,   # unused — decode gate is now time-based (_MIN_HISTORY_SECS)
     min_recent_std  = 0.10,  # initial gate — overridden adaptively after warmup
     recent_n        = 24,    # samples in the recent window (~1.6s at 15fps)
-    brightness_pct  = 3,     # 3rd percentile: a phone covering ~3% of the patch (≥4 px wide
-                             # in a 12×12 = 144 px patch) will shift this percentile.
-                             # Lower than 5 to handle very small/distant phones.
-    sample_radius   = 4,     # px: radius around grid point to sample (8×8=64 px patch).
-                             # r=4 keeps the 25920×64 matrix at 1.66 MB — inside L2/L3
-                             # cache on M1.  r=6 (3.7 MB) spills to RAM, making partition
-                             # 10× slower purely due to cache pressure, not arithmetic.
-                             # NOTE — 08 May: tried r=2/p10 to fix the patch-percentile
-                             # bias on edge-of-phone patches (back-row phones with raw-
-                             # pixel std 0.37 were reading 0.03 with r=4 patches because
-                             # the 8×8 patch spans phone+dark-background and the low
-                             # percentile catches the always-dark background in both
-                             # phases).  r=2/p10 fixed that case in isolation but broke
-                             # ROI-mode detection — likely because _rebuild_grid (called
-                             # when ROI cfg changes) doesn't fully reset _ever_active /
-                             # _last_stds / rate-limit counters, so new grid points
-                             # around the phone can't enter _ever_active after the
-                             # rebuild.  Reverted r=4/p3 for safety; proper fix needs
-                             # to also clear that cached state in _rebuild_grid.
+    brightness_pct  = 10,    # percentile picked from the patch.  Tuned with
+                             # sample_radius so k = int(flat_size * pct/100) = 1
+                             # (i.e. always the 2nd-darkest pixel of the patch).
+                             # At r=4 (64 px) p3 also gave k=1; at r=2 (16 px) we
+                             # need p10 to keep k=1.  k=0 (which p3 gives at r=2)
+                             # reads the absolute darkest pixel and is hyper-
+                             # sensitive to single sub-pixel noise.
+    sample_radius   = 2,     # px: radius around grid point to sample (4×4=16 px patch).
+                             # Reduced from r=4 after 05 May post-show analysis: the
+                             # 8×8 patch frequently spans phone+dark-background for
+                             # back-row / partially-occluded phones, dragging the
+                             # percentile to background-dark in BOTH bright and dark
+                             # phases — std collapses below the 0.05 gate floor and
+                             # the phone is invisible to the detector despite blinking
+                             # cleanly on camera.  Empirical at one missed phone (raw
+                             # pixel std 0.37): r=4 patch read 0.03 (below gate),
+                             # r=2 patch read 0.35 (well above).  The 4×4 patch fits
+                             # entirely on most phones at audience distance so the
+                             # percentile sees only phone pixels in both phases.
+                             # MUST be paired with brightness_pct >= 10 so k stays >= 1.
+                             # Cache: 25920×16 = 0.4 MB, more L2/L3-friendly than r=4.
+                             # 08 May: r=2/p10 initially appeared to break ROI-mode
+                             # detection, but the actual cause was a separate
+                             # _rebuild_grid bug (stale index-keyed caches after grid
+                             # shrink); fixed in this commit.
     roi_top_frac    = 0.00,  # fraction of frame height to skip from top (0 = full frame)
     roi_bottom_frac = 0.00,  # fraction of frame height to skip from bottom
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
@@ -200,6 +206,29 @@ class BlinkDetector:
         shape = (roi_top, roi_bottom, roi_left, roi_right, len(ys), len(xs))
         if shape == self._grid_shape and self._points:
             return
+        # Capture the (px, py) of every index-keyed cached entry BEFORE we
+        # rebuild _points — indices change with the new grid layout, so any
+        # cache that stores raw integer indices into _points must be remapped
+        # by position or cleared.  Skipping this caused the 08 May ROI-mode
+        # regression: stale _ever_active indices pointing past the new
+        # _points list crashed draw_overlay every frame ("[overlay] skipped
+        # one frame after detector reset: list index out of range" spam in
+        # the controller log) and prevented new grid points around the
+        # phone from re-entering _ever_active under the rate limiter.
+        old_active_positions = {
+            (self._points[i].px, self._points[i].py)
+            for i in self._ever_active if 0 <= i < len(self._points)
+        }
+        old_diff_disc_positions = {
+            (self._points[i].px, self._points[i].py)
+            for i in self._diff_discovered if 0 <= i < len(self._points)
+        }
+        old_diff_centroids_by_pos = {
+            (self._points[i].px, self._points[i].py): self._diff_centroids[i]
+            for i in list(self._diff_centroids)
+            if 0 <= i < len(self._points)
+        }
+
         self._grid_shape = shape
         old_map = {(p.px, p.py): p for p in self._points}
         self._points = []
@@ -211,6 +240,28 @@ class BlinkDetector:
         self._py_arr = np.array([pt.py for pt in self._points], dtype=np.int32)
         self._patch_idx = None   # force recompute (radius may differ)
         self._gray_pad  = None   # reallocate on next frame (frame size changed)
+
+        # Remap index-keyed state from old (px, py) → new index
+        self._ever_active = {
+            i for i, pt in enumerate(self._points)
+            if (pt.px, pt.py) in old_active_positions
+        }
+        self._diff_discovered = {
+            i for i, pt in enumerate(self._points)
+            if (pt.px, pt.py) in old_diff_disc_positions
+        }
+        self._diff_centroids = {
+            i: old_diff_centroids_by_pos[(pt.px, pt.py)]
+            for i, pt in enumerate(self._points)
+            if (pt.px, pt.py) in old_diff_centroids_by_pos
+        }
+        # Stds / circular buffer were indexed by the OLD point ordering and
+        # cannot be remapped element-wise (they're flat arrays).  Drop them;
+        # the std_buf will refill in ~recent_n frames (<1s at 30+fps).
+        self._last_stds      = None
+        self._std_buf        = None
+        self._std_buf_pos    = 0
+        self._std_buf_count  = 0
         self._std_buf = None
         self._std_buf_pos = 0
         self._std_buf_count = 0
