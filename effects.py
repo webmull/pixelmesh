@@ -26,12 +26,14 @@ import game
 # Wired up by init()
 _state      = None
 _set_status = None
+_ui_queue   = None   # main-thread UI dispatch (controller's ui_queue)
 
 
-def init(state, set_status):
-    global _state, _set_status
+def init(state, set_status, ui_queue=None):
+    global _state, _set_status, _ui_queue
     _state      = state
     _set_status = set_status
+    _ui_queue   = ui_queue
 
 
 # ------------------------------------------------------------------ #
@@ -218,6 +220,11 @@ def _on_settings_changed(s, v, user_data):
     which would otherwise send 20+ broadcasts per second while the user drags.
     We cancel any pending timer and restart it so the broadcast only fires
     once the user stops moving.
+
+    The actual re-fire is dispatched onto the main thread via the controller's
+    ui_queue rather than called directly from this Timer thread — DPG's
+    get_value isn't thread-safe and rapid drag events can otherwise deadlock
+    against DPG's internal mutexes (cause of the silent freeze on 05 May).
     """
     global _settings_debounce_timer
     with _state.lock:
@@ -230,10 +237,10 @@ def _on_settings_changed(s, v, user_data):
             _settings_debounce_timer.cancel()
 
         def _fire():
-            with _state.lock:
-                eff = _state.current_effect
-            if eff:
-                trigger_effect(eff)
+            # Enqueue rather than call trigger_effect here: this runs on the
+            # Timer's background thread and trigger_effect calls dpg.get_value.
+            if _ui_queue is not None:
+                _ui_queue.put(("_refire_effect", None))
 
         _settings_debounce_timer = threading.Timer(0.15, _fire)
         _settings_debounce_timer.daemon = True
