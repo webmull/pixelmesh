@@ -650,10 +650,6 @@ def draw_hud(canvas: np.ndarray, fps: float):
     cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
                 FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
-    # Weak signal indicator — amber dot just right of the fps pill
-    if detector.signal_range < 0.5:
-        cv2.circle(canvas, (bx1 + PAD + 5, mid_y), 4, (0, 165, 255), -1)
-
     # detected / connected counter — pill to the right of the fps pill
     # while detecting, so the operator can see how many phones are
     # outstanding without waiting for the post-run calibration log.
@@ -662,7 +658,7 @@ def draw_hud(canvas: np.ndarray, fps: float):
         n_conn = len(_valid_blink_ids)
         count_label = f"{n_det} / {n_conn} found"
         (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
-        cx = bx1 + 16 + (10 if detector.signal_range < 0.5 else 0)
+        cx = bx1 + 16
         cx2 = cx + PAD * 2 + cw
         # Colour the box edge green when caught up, amber while still chasing.
         edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
