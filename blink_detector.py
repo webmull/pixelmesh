@@ -43,14 +43,18 @@ DEFAULTS = dict(
                              # r=4 keeps the 25920×64 matrix at 1.66 MB — inside L2/L3
                              # cache on M1.  r=6 (3.7 MB) spills to RAM, making partition
                              # 10× slower purely due to cache pressure, not arithmetic.
-                             # NOTE: tried r=2 (4×4=16 patch) on 08 May to fix the
-                             # patch-percentile bias on edge-of-phone patches — caused a
-                             # ROI-mode regression because brightness_pct=3 with 16-pixel
-                             # patch gives k=int(16*3/100)=0 (absolute darkest pixel),
-                             # making bright-phase sampling hyper-sensitive to a single
-                             # stray dark pixel.  A correct fix needs to bump
-                             # brightness_pct to ~10 alongside r=2 to keep k=1 (2nd
-                             # darkest), matching the original noise robustness.
+                             # NOTE — 08 May: tried r=2/p10 to fix the patch-percentile
+                             # bias on edge-of-phone patches (back-row phones with raw-
+                             # pixel std 0.37 were reading 0.03 with r=4 patches because
+                             # the 8×8 patch spans phone+dark-background and the low
+                             # percentile catches the always-dark background in both
+                             # phases).  r=2/p10 fixed that case in isolation but broke
+                             # ROI-mode detection — likely because _rebuild_grid (called
+                             # when ROI cfg changes) doesn't fully reset _ever_active /
+                             # _last_stds / rate-limit counters, so new grid points
+                             # around the phone can't enter _ever_active after the
+                             # rebuild.  Reverted r=4/p3 for safety; proper fix needs
+                             # to also clear that cached state in _rebuild_grid.
     roi_top_frac    = 0.00,  # fraction of frame height to skip from top (0 = full frame)
     roi_bottom_frac = 0.00,  # fraction of frame height to skip from bottom
     roi_left_frac   = 0.00,  # fraction of frame width to skip from left
