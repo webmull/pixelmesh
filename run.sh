@@ -143,10 +143,13 @@ start_all() {
     >> /tmp/pixelmesh-server.log 2>&1 &
 
   echo "${Y}→ Starting ngrok (audience + terminal)...${RESET}"
-  # Audience tunnel (reserved domain)
+  # Audience tunnel (reserved domain). --inspect=false disables the local
+  # ngrok web UI on 127.0.0.1:4040, removing the per-request capture
+  # overhead and the stray traffic-log surface between shows.
   ngrok http 8000 \
     --region eu \
     --hostname pixelmesh.show \
+    --inspect=false \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
   # Terminal tunnel (basic auth pixel:mesh, dynamic URL)
