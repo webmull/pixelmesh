@@ -2,6 +2,8 @@ debug/
 calibration_logs/
 recordings/
 *.log
+*.mp4
+Screenshot *.png
 .claude/
 .DS_Store
 __pycache__/
