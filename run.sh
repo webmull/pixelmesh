@@ -104,7 +104,7 @@ status_line() {
   echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
   echo "  ${DIM}sim      → http://localhost:8000/internal/sim${RESET}"
   if [[ -n $term_url ]]; then
-    echo "  ${C}terminal → $term_url${RESET}  ${DIM}(pixel / mesh)${RESET}"
+    echo "  ${C}terminal → $term_url${RESET}  ${DIM}(pixel / meshmesh)${RESET}"
   else
     echo "  ${DIM}terminal → starting...${RESET}"
   fi
@@ -143,18 +143,23 @@ start_all() {
     >> /tmp/pixelmesh-server.log 2>&1 &
 
   echo "${Y}→ Starting ngrok (audience + terminal)...${RESET}"
-  # Audience tunnel (reserved domain). --inspect=false disables the local
-  # ngrok web UI on 127.0.0.1:4040, removing the per-request capture
-  # overhead and the stray traffic-log surface between shows.
-  ngrok http 8000 \
+  # Both tunnels are defined in ngrok.pixelmesh.yml so the geo policy on the
+  # audience tunnel is actually applied (an inline `ngrok http` ignores
+  # config files and bypasses traffic_policy).
+  # ngrok v3 stops auto-loading the default auth-token config the moment any
+  # explicit --config is passed, so we have to pass it ourselves alongside
+  # our project-local tunnel definitions.  Default location on macOS is
+  # ~/Library/Application Support/ngrok/ngrok.yml (path contains a space).
+  NGROK_AUTH_CONFIG="$HOME/Library/Application Support/ngrok/ngrok.yml"
+  ngrok start audience \
     --region eu \
-    --hostname pixelmesh.show \
-    --inspect=false \
+    --config "$NGROK_AUTH_CONFIG" \
+    --config "$(pwd)/ngrok.pixelmesh.yml" \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
   # Terminal tunnel (basic auth pixel:mesh, dynamic URL)
   ngrok start terminal \
-    --config ~/.config/ngrok/ngrok.yml \
+    --config "$NGROK_AUTH_CONFIG" \
     --config "$(pwd)/ngrok.pixelmesh.yml" \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok-terminal.log 2>&1 &
