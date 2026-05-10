@@ -102,6 +102,7 @@ _detection_start_time: float = 0.0
 _detected_ids: set = set()                      # blink_ids seen this detection session
 _render_order: dict[int, int] = {}              # blink_id → left-to-right rank (1=leftmost)
 _detection_timings: dict[int, tuple] = {}       # blink_id → (elapsed_s, confidence)
+_report_saved_path: str | None = None            # set after first save this session; cleared on detect-start
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 
@@ -795,10 +796,11 @@ def toggle_detection():
 
     if val:
         global _detection_start_time, _detected_ids, _render_order
-        global _debug_auto_started
+        global _debug_auto_started, _report_saved_path
         _detection_start_time = time.time()
         _detected_ids = set()
         _render_order.clear()
+        _report_saved_path = None
         with state.lock:
             state.overlay_show_render = False
         # Reset detector internal state (_ever_active, history, diff accum) so
@@ -913,8 +915,18 @@ def _save_report(auto_open: bool = False):
     """Generate and save a post-show report. Safe to call with no data.
     auto_open=True opens the file in the default text editor — only the
     explicit reset path passes True; detection-stop calls leave the file
-    on disk silently so a report doesn't pop up mid-show."""
-    global _detection_timings
+    on disk silently so a report doesn't pop up mid-show.
+
+    Idempotent within a session: a show typically ends via auto-stop (silent
+    save) followed by the user hitting Reset (auto_open save), which would
+    otherwise write two identical files. Second+ calls re-open the original
+    instead of re-writing."""
+    global _detection_timings, _report_saved_path
+    if _report_saved_path is not None:
+        if auto_open:
+            import subprocess
+            subprocess.Popen(["open", _report_saved_path])
+        return
     if not _detected_ids and not game.game_order:
         return   # nothing to report
     try:
@@ -928,6 +940,7 @@ def _save_report(auto_open: bool = False):
             game_results      = dict(game.game_results),
             game_order        = list(game.game_order),
         )
+        _report_saved_path = path
         if auto_open:
             import subprocess
             subprocess.Popen(["open", path])
