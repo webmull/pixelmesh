@@ -1,19 +1,11 @@
 version: "3"
 tunnels:
   # Audience tunnel — public URL phones connect to.
-  # Geo policy scoped here (not top-level) so the operator can still reach
-  # the terminal tunnel from outside the UK if travelling.
   audience:
     proto: http
     addr: 8000
     hostname: pixelmesh.show
     inspect: false
-    traffic_policy:
-      on_http_request:
-        - expressions:
-            - "conn.geo.country_code != 'GB'"
-          actions:
-            - type: deny
 
   # Terminal tunnel — operator remote-admin via ttyd.  No geo restriction.
   terminal:
