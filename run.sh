@@ -9,12 +9,21 @@ cd "$(dirname "$0")"
 # ─────────────────────────────────────────────
 if [[ -z "$TMUX" && -z "$PIXELMESH_IN_TMUX" ]]; then
   export PIXELMESH_IN_TMUX=1
-  # Re-attach if session already exists, otherwise create it
+  # Re-attach if session already exists AND it still has pixelmesh processes
+  # running inside it.  A stale session (e.g. left over from days ago after
+  # the processes died) gets recycled rather than silently re-attached —
+  # otherwise the menu shows everything stopped with no clear cause.
   if tmux has-session -t pixelmesh 2>/dev/null; then
-    exec tmux attach-session -t pixelmesh
-  else
-    exec tmux new-session -s pixelmesh "$0" "$@"
+    if pgrep -f "uvicorn server:app" &>/dev/null \
+       || pgrep -f "controller.py" &>/dev/null \
+       || pgrep -f "ngrok.pixelmesh.yml" &>/dev/null; then
+      exec tmux attach-session -t pixelmesh
+    else
+      echo "Found stale pixelmesh tmux session with no live processes — recycling."
+      tmux kill-session -t pixelmesh 2>/dev/null || true
+    fi
   fi
+  exec tmux new-session -s pixelmesh "$0" "$@"
 fi
 
 # ─────────────────────────────────────────────
@@ -62,9 +71,12 @@ header() {
 # ─────────────────────────────────────────────
 #  Status helpers
 # ─────────────────────────────────────────────
-pid_of_server()     { pgrep -f "uvicorn server:app" | head -1; }
-pid_of_controller() { pgrep -f "controller.py"      | head -1; }
-pid_of_ngrok()      { pgrep -f "ngrok"               | head -1; }
+pid_of_server()     { pgrep -f "uvicorn server:app"   | head -1; }
+pid_of_controller() { pgrep -f "controller.py"        | head -1; }
+# Only match pixelmesh's own ngrok (via its config file), so unrelated
+# ngrok tunnels from other projects don't fool the status check or get
+# killed by [r]/[d].
+pid_of_ngrok()      { pgrep -f "ngrok.pixelmesh.yml"  | head -1; }
 
 status_line() {
   local srv=$(pid_of_server)
@@ -118,10 +130,11 @@ kill_all() {
   echo "${Y}→ Stopping all processes...${RESET}"
   lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
   lsof -ti tcp:7681 | xargs kill -9 2>/dev/null || true
-  pkill -9 -f "uvicorn"       2>/dev/null || true
-  pkill -9 -f "controller.py" 2>/dev/null || true
-  pkill -9 -f "ngrok"         2>/dev/null || true
-  pkill -9 -f "ttyd"          2>/dev/null || true
+  pkill -9 -f "uvicorn"            2>/dev/null || true
+  pkill -9 -f "controller.py"      2>/dev/null || true
+  # Scoped to pixelmesh's tunnels — leaves other projects' ngrok alone.
+  pkill -9 -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+  pkill -9 -f "ttyd"               2>/dev/null || true
 
   # Wait until port 8000 is actually free (up to 5s)
   local i=0
