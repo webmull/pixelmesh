@@ -160,7 +160,8 @@ sync_active = False
 # ------------------------------------------------------------------ #
 # State                                                                #
 # ------------------------------------------------------------------ #
-connections:       dict[str, WebSocket] = {}   # device_uuid → ws
+connections:       dict[str, WebSocket] = {}   # device_uuid → ws (phones)
+spectators:        dict[str, WebSocket] = {}   # device_uuid → ws (stage page, etc.)
 blink_assignments: dict[str, int]       = {}   # device_uuid → blink_id
 blink_reverse:     dict[int, str]       = {}   # blink_id    → device_uuid
 positions:         dict[str, dict]      = {}   # device_uuid → {"u", "v"}
@@ -194,6 +195,16 @@ async def broadcast(message: dict):
             dead.append(device_id)
     for device_id in dead:
         _drop_connection(device_id)
+    # Same payload goes to spectators (stage page, future read-only viewers).
+    # Failures just drop them — they reconnect on their own.
+    dead_specs = []
+    for sid, ws in spectators.items():
+        try:
+            await ws.send_json(message)
+        except Exception:
+            dead_specs.append(sid)
+    for sid in dead_specs:
+        spectators.pop(sid, None)
     # Guard against re-entry: broadcast_count → broadcast → broadcast_count
     # loops once if more sockets die mid-flight.  The flag lets a single
     # follow-up pass clean up, then bails so we never recurse indefinitely.
@@ -234,6 +245,7 @@ game.server_init(
     broadcast         = broadcast,
     enable_sync       = _enable_sync,
     stop_effects      = _stop_effects,
+    start_effect      = lambda name, params: start_effect(name, params),
 )
 
 
@@ -301,10 +313,29 @@ async def websocket_endpoint(ws: WebSocket):
     global like_count, _heart_dirty
     await ws.accept()
     device_id = None
+    is_spectator = False
 
     try:
         while True:
             data = await ws.receive_json()
+
+            # Spectator hello — stage page subscribes to broadcasts without
+            # being counted as a phone, getting a blink_id, or affecting any
+            # game state.  Stage just receives and renders.
+            if data.get("type") == "hello" and data.get("role") == "spectator":
+                device_id = data["device_id"]
+                spectators[device_id] = ws
+                is_spectator = True
+                await ws.send_json({
+                    "type":      "spectator_hello",
+                    "build_id":  BUILD_ID,
+                    "game": {
+                        "active":  game.game_active,
+                        "heights": game.rope_heights,
+                        "teams":   {str(b): t for b, t in game.rope_teams.items()},
+                    },
+                })
+                continue
 
             if data.get("type") == "hello":
                 device_id = data["device_id"]
@@ -404,7 +435,9 @@ async def websocket_endpoint(ws: WebSocket):
                     last_seen[device_id] = time.time()
 
     except WebSocketDisconnect:
-        if device_id:
+        if is_spectator and device_id:
+            spectators.pop(device_id, None)
+        elif device_id:
             _drop_connection(device_id)
             await broadcast_count()
 
@@ -635,6 +668,18 @@ async def effect_fire(payload: dict):
     return {"ok": True}
 
 
+@app.post("/admin/effect/stop")
+async def effect_stop():
+    """Clear any currently-broadcast effect.  Audience clients null out
+    currentEffect on receipt so phones go dark instead of rendering the
+    last frame indefinitely."""
+    global current_effect_state
+    current_effect_state = None
+    await set_mode(MODE_WAITING)
+    await broadcast({"type": "effect_stop"})
+    return {"ok": True}
+
+
 @app.post("/admin/proof/wave")
 async def wave():
     await start_effect("wave", {"speed": 0.4, "spatial_freq": 1.5})
@@ -739,6 +784,31 @@ async def sim():
     with open(os.path.join(_PUBLIC_DIR, "sim.html"), "r") as f:
         html = f.read()
     html = _APP_HTML_VERSION_RE.sub(SIM_BUILD_ID, html)
+    return HTMLResponse(content=html, headers=_NO_CACHE)
+
+
+def _stage_build_id() -> str:
+    """Hash of stage.js so projector reloads only when the stage page
+    changes, independent of audience-client app.js updates."""
+    h = hashlib.md5()
+    try:
+        with open(os.path.join(_PUBLIC_DIR, "stage.js"), "rb") as f:
+            h.update(f.read())
+    except OSError:
+        pass
+    return h.hexdigest()[:10]
+
+
+STAGE_BUILD_ID = _stage_build_id()
+
+
+@app.get("/stage")
+async def stage():
+    """Full-screen projector page — shows the rope climb characters.
+    Connects to /ws as a spectator (no blink_id assigned)."""
+    with open(os.path.join(_PUBLIC_DIR, "stage.html"), "r") as f:
+        html = f.read()
+    html = _APP_HTML_VERSION_RE.sub(STAGE_BUILD_ID, html)
     return HTMLResponse(content=html, headers=_NO_CACHE)
 
 

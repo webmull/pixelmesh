@@ -83,9 +83,10 @@ html, body {
   background: #000;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 0;
+  padding: max(20px, env(safe-area-inset-top)) 20px max(20px, env(safe-area-inset-bottom));
   touch-action: none;
 }
 
@@ -249,157 +250,221 @@ html, body {
   height: 100%;
 }
 
-/* ---- Game card ---- */
-#card-game { cursor: pointer; -webkit-tap-highlight-color: transparent; }
-
-/* Slot drain bar — full width strip at top of game card */
-#gameSlotBar {
-  position: absolute;
-  top: 0; left: 0;
-  height: 4px;
-  width: 100%;
-  background: rgba(255,255,255,0.85);
-  transform-origin: left center;
-  transform: scaleX(0);
-  border-radius: 0 0 2px 0;
-  pointer-events: none;
-}
-/* Game timer bar uses JS-driven transitions, no keyframe needed */
-
-#gameBugWrap {
-  padding: 24px;
-  pointer-events: none;
-}
-#gameBugWrap img {
-  width: clamp(140px, 38vmin, 220px);
-  height: auto;
-  pointer-events: none;
-  display: block;
-}
-#gamePrompt {
-  color: #fff;
-  font: 800 32px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
-  text-align: center;
-  width: 100%;
-  pointer-events: none;
-}
-@keyframes tap-pulse {
-  0%, 100% { opacity: 1;   transform: scale(1);    }
-  50%       { opacity: 0.5; transform: scale(1.12); }
-}
-#gamePrompt.pulsing { animation: tap-pulse 0.5s ease-in-out infinite; }
-@keyframes bug-bounce {
-  0%, 100% { transform: translateY(0); }
-  50%       { transform: translateY(-14px); }
-}
-#bugHappy img { animation: bug-bounce 0.6s ease-in-out infinite; }
-#bugScared { display: none; }
-
-#gameResult {
-  color: rgba(255,255,255,0.8);
-  font: 700 28px -apple-system, system-ui, sans-serif;
-}
-
-@keyframes cd-pop {
-  0%   { opacity: 0; transform: scale(1.6); }
-  15%  { opacity: 1; transform: scale(1);   }
-  80%  { opacity: 1; transform: scale(1);   }
-  100% { opacity: 0; transform: scale(0.7); }
-}
-#countdownText {
-  display: none;
-  font: 800 110px -apple-system, system-ui, sans-serif;
-  color: #fff;
-  letter-spacing: -4px;
-  pointer-events: none;
-}
-#countdownText.pop {
-  display: block;
-  animation: cd-pop 1s ease forwards;
-}
-
-#gameProgress {
+/* ---- Game card (rope climb) ---- */
+#card-game {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
   position: fixed;
-  top: max(16px, env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(255,255,255,0.12);
-  color: rgba(255,255,255,0.7);
-  font: 500 13px -apple-system, system-ui, sans-serif;
-  padding: 5px 14px;
-  border-radius: 20px;
+}
+#card-game.team-diana {
+  background: radial-gradient(ellipse at center 30%, #1f7d3d 0%, #08361b 50%, #000 100%);
+}
+#card-game.team-rosie {
+  background: radial-gradient(ellipse at center 30%, #b03660 0%, #401029 50%, #000 100%);
+}
+#card-game.team-neutral {
+  background: radial-gradient(ellipse at center 30%, #303030 0%, #111 50%, #000 100%);
+}
+/* Header block — pinned top, centred text */
+#ropeHeader {
+  flex: 0 0 auto;
+  text-align: center;
   pointer-events: none;
-  display: none;
-  z-index: 200;
-  white-space: nowrap;
 }
-
-#gameWinner {
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  background: radial-gradient(ellipse at center, rgba(255,180,0,0.12) 0%, transparent 70%);
-  border-radius: 24px;
-  padding: 28px 36px 20px;
+#ropeTeamName {
+  color: #fff;
+  font: 800 30px -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.3px;
+  text-shadow: 0 2px 16px rgba(0,0,0,0.45);
 }
-#gameWinnerLabel {
-  color: rgba(255,195,0,0.75);
-  font: 700 12px -apple-system, system-ui, sans-serif;
-  letter-spacing: 3px;
+#ropeTeamSub {
+  color: rgba(255,255,255,0.55);
+  font: 500 12px -apple-system, system-ui, sans-serif;
+  margin-top: 6px;
+  letter-spacing: 1.6px;
   text-transform: uppercase;
 }
-#gameWinnerPhone {
-  color: #ffd740;
-  font: 800 48px -apple-system, system-ui, sans-serif;
-  text-shadow: 0 0 32px rgba(255,200,0,0.45);
-}
-#gameWinnerTime {
-  color: rgba(255,210,80,0.7);
-  font: 600 20px -apple-system, system-ui, sans-serif;
-}
-@keyframes winner-pop {
-  0%   { transform: scale(0.6); opacity: 0; }
-  60%  { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(1);   opacity: 1; }
-}
-#gameWinner.show { animation: winner-pop 0.4s ease forwards; }
-
-/* Personal outcome banner — top of winner card */
-#gameMyBanner {
+/* Tap zone — takes the middle of the card, centred, with a big circular button */
+#ropeTapZone {
+  flex: 1 1 auto;
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 100%;
+  justify-content: center;
+  min-height: 0;        /* allow shrink on small screens */
 }
-#gameMyBannerLabel {
-  font: 800 36px -apple-system, system-ui, sans-serif;
-  letter-spacing: -0.5px;
-  text-align: center;
+#ropePrompt {
+  width: min(72vw, 320px);
+  height: min(72vw, 320px);
+  border-radius: 50%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 35% 30%,
+              rgba(255,255,255,0.20) 0%,
+              rgba(255,255,255,0.05) 55%,
+              rgba(255,255,255,0.0) 100%);
+  border: 2px solid rgba(255,255,255,0.16);
+  box-shadow:
+    inset 0 0 40px rgba(255,255,255,0.06),
+    0 0 80px rgba(255,255,255,0.08);
+  pointer-events: none;
+  transition: transform 90ms ease-out, opacity 90ms ease-out,
+              box-shadow 200ms ease-out;
+  animation: rope-breathe 2.4s ease-in-out infinite;
 }
-#gameMyBannerTime {
-  font: 500 18px -apple-system, system-ui, sans-serif;
+/* Tap-icon glyph (slice of climb.png) lives as a background inside the
+   round button — sized so the finger cleanly fills ~55% of the circle.  */
+#ropePrompt::before {
+  content: "";
+  position: absolute;
+  inset: 22%;
+  background: url("/public/assets/climb.png") no-repeat;
+  /* Sheet 1536×1024, tap_button slice (532, 836, 145, 145).
+     Display the slice scaled to fill ::before:
+       bg-size = sheet/slice × 100%
+       bg-position = slice_xy / (sheet - slice) × 100% */
+  background-size: 1059.31% 706.21%;
+  background-position: 38.25% 95.11%;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,0.4));
+  image-rendering: pixelated;
+}
+@keyframes rope-breathe {
+  0%, 100% { transform: scale(1.00); }
+  50%      { transform: scale(1.03); }
+}
+#card-game.tapping #ropePrompt {
+  transform: scale(0.93);
+  opacity: 0.92;
+  animation: none;
+  box-shadow:
+    inset 0 0 60px rgba(255,255,255,0.10),
+    0 0 100px rgba(255,255,255,0.20);
+}
+/* On every accepted tap, this halo expands outward and fades.  Driven
+   by an added/removed .pinging class from JS. */
+#ropePrompt::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.6);
+  opacity: 0;
+  pointer-events: none;
+}
+#card-game.pinging #ropePrompt::after {
+  animation: rope-ping 480ms ease-out;
+}
+@keyframes rope-ping {
+  0%   { transform: scale(1);    opacity: 0.55; border-width: 3px; }
+  100% { transform: scale(1.45); opacity: 0;    border-width: 1px; }
+}
+/* Spectator (uncalibrated) — replace the tap button with a quiet badge */
+#card-game.team-neutral #ropePrompt {
+  width: auto;
+  height: auto;
+  border: none;
+  background: none;
+  box-shadow: none;
+  animation: none;
+  font: 700 16px -apple-system, system-ui, sans-serif;
+  letter-spacing: 2px;
   color: rgba(255,255,255,0.45);
-  min-height: 22px;
+  text-transform: uppercase;
 }
+#card-game.team-neutral #ropePrompt::before,
+#card-game.team-neutral #ropePrompt::after { content: none; display: none; }
 
-/* Separator between personal result and winner info */
-.winner-sep {
-  width: 60px;
-  height: 1px;
-  background: rgba(255,255,255,0.12);
-  margin: 4px 0;
+/* Progress bars at the bottom of the card */
+#ropeBars {
+  flex: 0 0 auto;
+  width: min(86vw, 360px);
+  margin: 0 auto;
+  pointer-events: none;
 }
-
-/* Winner section at bottom */
-#gameWinnerSection {
+.rope-row {
   display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 10px 0;
+}
+.rope-row .rope-name {
+  width: 60px;
+  text-align: right;
+  font: 700 12px -apple-system, system-ui, sans-serif;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.rope-row .rope-name.diana { color: #6fdb96; }
+.rope-row .rope-name.rosie { color: #f88aaa; }
+.rope-bar {
+  flex: 1;
+  height: 14px;
+  border-radius: 7px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+}
+.rope-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 7px;
+  transition: width 220ms linear;
+}
+.rope-bar-fill.diana { background: linear-gradient(90deg, #2d9148, #6fdb96); }
+.rope-bar-fill.rosie { background: linear-gradient(90deg, #c34772, #f88aaa); }
+
+#ropeWinner {
+  position: absolute;
+  inset: 0;
+  display: none;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  width: 100%;
+  justify-content: center;
+  gap: 18px;
+  background: rgba(0,0,0,0.78);
+  z-index: 10;
+  pointer-events: none;
+}
+#ropeWinner.show { display: flex; }
+#ropeWinnerHeader {
+  color: rgba(255,255,255,0.45);
+  font: 700 12px -apple-system, system-ui, sans-serif;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+}
+/* WINNER scroll/banner sprite from climb.png */
+#ropeWinnerBanner {
+  width: min(78vw, 320px);
+  aspect-ratio: 480 / 188;
+  background: url("/public/assets/climb.png") no-repeat;
+  background-size: 320% 544.68%;
+  background-position: 65.44% 100%;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 8px 24px rgba(0,0,0,0.6));
+  animation: rope-banner-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@keyframes rope-banner-pop {
+  0%   { transform: scale(0.4) rotate(-6deg); opacity: 0; }
+  60%  { transform: scale(1.12) rotate(2deg); opacity: 1; }
+  100% { transform: scale(1)   rotate(0);     opacity: 1; }
+}
+#ropeWinnerName {
+  font: 900 36px -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  animation: rope-name-rise 0.5s ease-out 0.25s backwards;
+}
+@keyframes rope-name-rise {
+  0%   { transform: translateY(20px); opacity: 0; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+#ropeWinnerName.diana { color: #6fdb96; text-shadow: 0 0 30px rgba(110,219,150,0.55); }
+#ropeWinnerName.rosie { color: #f88aaa; text-shadow: 0 0 30px rgba(248,138,170,0.55); }
+#ropeWinnerName.draw  { color: #ffd740; text-shadow: 0 0 30px rgba(255,215,64,0.45); }
+#ropeWinnerSub {
+  color: rgba(255,255,255,0.55);
+  font: 500 16px -apple-system, system-ui, sans-serif;
+  animation: rope-name-rise 0.5s ease-out 0.45s backwards;
 }
 </style>
 </head>
@@ -449,37 +514,29 @@ html, body {
   <canvas id="effectCanvas"></canvas>
 </div>
 
-<!-- Game progress pill — floats above all cards -->
-<div id="gameProgress"></div>
-
-<!-- Game card: countdown / bug / winner -->
+<!-- Game card: rope climb -->
 <div id="card-game" style="display:none">
-  <div id="gameSlotBar"></div>
-  <div id="countdownText"></div>
-  <div id="gameBugWrap">
-    <div id="bugHappy">
-      <img src="/public/assets/bug_happy.svg" alt="" draggable="false">
-    </div>
-    <div id="bugScared">
-      <img src="/public/assets/bug_scared.svg" alt="" draggable="false">
-    </div>
-    <div id="gamePrompt">TAP!</div>
+  <div id="ropeHeader">
+    <div id="ropeTeamName">Team</div>
+    <div id="ropeTeamSub">Tap as fast as you can</div>
   </div>
-  <div id="gameResult"></div>
-  <div id="gameWinner">
-    <!-- Personal outcome — prominent, shown at top -->
-    <div id="gameMyBanner">
-      <div id="gameMyBannerLabel"></div>
-      <div id="gameMyBannerTime"></div>
+  <div id="ropeTapZone">
+    <div id="ropePrompt"></div>
+  </div>
+  <div id="ropeBars">
+    <div class="rope-row">
+      <span class="rope-name diana">Diana</span>
+      <div class="rope-bar"><div id="ropeBarDiana" class="rope-bar-fill diana"></div></div>
     </div>
-    <!-- Separator -->
-    <div class="winner-sep"></div>
-    <!-- Winner announcement -->
-    <div id="gameWinnerSection">
-      <div id="gameWinnerLabel">Winner</div>
-      <div id="gameWinnerPhone"></div>
-      <div id="gameWinnerTime"></div>
+    <div class="rope-row">
+      <span class="rope-name rosie">Rosie</span>
+      <div class="rope-bar"><div id="ropeBarRosie" class="rope-bar-fill rosie"></div></div>
     </div>
+  </div>
+  <div id="ropeWinner">
+    <div id="ropeWinnerBanner"></div>
+    <div id="ropeWinnerName"></div>
+    <div id="ropeWinnerSub"></div>
   </div>
 </div>
 

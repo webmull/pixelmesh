@@ -782,9 +782,9 @@ def update_ui_from_state():
     safe_set("status_text",    status)
     safe_set("clients_text",   f"Clients: {clients}")
     safe_set("detect_text",    f"Clients detected: {len(_detected_ids)}")
-    # Armed ripple takes priority over the currently-playing effect for the
-    # sidebar highlight; firing another effect already calls _set_ripple_armed(False).
-    ui_queue.put(("_active_effect", "ripple" if _ripple_armed else effect))
+    # state.current_effect now carries "ripple" while armed (set by
+    # _set_ripple_armed), so the highlight follows naturally.
+    ui_queue.put(("_active_effect", effect))
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
@@ -793,13 +793,13 @@ def update_ui_from_state():
     ui_queue.put(("_rec_filename_show", bool(rec_path)))
 
     safe_set("iso_hint_text",    _iso_hint)
-    safe_set("chk_detection",    detecting)
-    safe_set("chk_sync",         state.syncing)
-    safe_set("chk_overlays_all", state.show_overlays)
-    safe_set("chk_overlays",     state.show_device_overlay)
-    safe_set("chk_overlay_pos",  state.overlay_show_render)
-    safe_set("chk_debug",    dbg_cap.active)
-    safe_set("chk_recording", vid_rec.active)
+    _safe_set_chk("chk_detection",    detecting)
+    _safe_set_chk("chk_sync",         state.syncing)
+    _safe_set_chk("chk_overlays_all", state.show_overlays)
+    _safe_set_chk("chk_overlays",     state.show_device_overlay)
+    _safe_set_chk("chk_overlay_pos",  state.overlay_show_render)
+    _safe_set_chk("chk_debug",        dbg_cap.active)
+    _safe_set_chk("chk_recording",    vid_rec.active)
     ui_queue.put(("_roi_enabled", not detecting))
 
     _push_elgato_state()
@@ -813,7 +813,7 @@ def _push_elgato_state():
     connected = elgato.connected
     safe_set("elgato_status", "[ON]" if connected else "[OFF]")
     ui_queue.put(("elgato_color", connected))
-    safe_set("chk_ae",  elgato.ae_on)
+    _safe_set_chk("chk_ae", elgato.ae_on)
     safe_set("sld_iso", elgato.iso_gain)
     ui_queue.put(("_elgato_enabled", connected))
 
@@ -856,6 +856,18 @@ def toggle_sync():
         state.syncing = not state.syncing
         val = state.syncing
     post_json_async("/admin/sync", {"sync": val})
+
+
+def _auto_enable_sync():
+    """Turn clock sync ON when detection ends, so the moment phones are
+    located they're also rendering aligned animations.  No-op if sync was
+    already on."""
+    with state.lock:
+        already_on = state.syncing
+        state.syncing = True
+    if not already_on:
+        post_json_async("/admin/sync", {"sync": True})
+        log.info("[sync] auto-enabled after detection")
 
 
 def toggle_detection():
@@ -912,6 +924,7 @@ def toggle_detection():
         _save_report()
         _stop_auto_debug_capture()
         post_json_async("/admin/detect", {"detecting": False})
+        _auto_enable_sync()
         set_status("Detection OFF")
 
 
@@ -976,14 +989,32 @@ def toggle_all_overlays():
 
 
 def _set_ripple_armed(armed: bool):
-    """Internal: toggle armed state.  The button highlight is driven by
-    update_ui_from_state on the next tick (it overrides _active_effect
-    with 'ripple' when armed)."""
+    """Internal: toggle armed state.  Drives state.current_effect to
+    "ripple" while armed so both the sidebar button highlight AND the
+    effect preview pane reflect ripple immediately (previously the
+    preview kept showing the last fired effect — wave/pulse/etc — until
+    a click actually triggered the audience message).
+
+    On arm we also synchronously clear the audience to black so the
+    leftover colour from the previous effect doesn't sit on the phones
+    while the operator lines up a click.  Sync (not async) because the
+    next thing the user does is click the preview, which fires
+    trigger_ripple_at → /admin/effect/fire — async posts here would race
+    that fire through the network thread pool and the trailing stop
+    could clear a just-fired ripple.  Same bug class as the old
+    switch-effects race; sync makes the ordering deterministic."""
     global _ripple_armed
     if armed == _ripple_armed:
         return
     _ripple_armed = armed
-    if not armed:
+    with state.lock:
+        if armed:
+            state.current_effect = "ripple"
+        elif state.current_effect == "ripple":
+            state.current_effect = None
+    if armed:
+        post_json("/admin/effect/stop", {}, timeout=0.3)
+    else:
         _click_ripples.clear()
 
 
@@ -994,11 +1025,35 @@ def toggle_ripple_arm():
     set_status(f"Ripple {'armed' if _ripple_armed else 'disarmed'}")
 
 
+def stop_current_effect():
+    """Tell the audience to clear whatever effect they're rendering and
+    reset the controller's tracked current_effect so the sidebar highlight
+    drops."""
+    post_json_async("/admin/effect/stop", {})
+    with state.lock:
+        state.current_effect = None
+    set_status("Effect stopped")
+
+
 def fire_effect_and_disarm_ripple(name: str):
     """Sidebar effect-button callback for everything except Ripple itself.
-    Disarms ripple before firing so the highlight doesn't linger on Ripple
-    while a different effect is now playing."""
+    Click semantics: same effect as the active one → stop; different one
+    → just fire the new (each phone's WebSocket delivers the new effect
+    message after the old in-order, which already replaces all the per-
+    effect params on the audience).  Ripple arm-state is always cleared
+    so its highlight doesn't linger.
+
+    A previous version POSTed /admin/effect/stop before /admin/effect/fire
+    on a switch, but those two async calls raced through the network
+    executor's worker pool — when fire landed first you'd get the effect
+    set then immediately cleared by the trailing stop, so users had to
+    click twice to switch effects."""
     _set_ripple_armed(False)
+    with state.lock:
+        current = state.current_effect
+    if current == name:
+        stop_current_effect()
+        return
     effects.trigger_effect(name)
 
 
@@ -1033,29 +1088,51 @@ def _on_preview_click(sender, app_data):
         positions = state.calibrated_positions.copy()
         crop_x = state.last_crop_x
         crop_y = state.last_crop_y
-    theta_deg: float | None = None
-    if positions:
-        best_d2 = None
-        best_xy = None
-        for p in positions.values():
-            px = int(p["u"] * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
-            py = int(p["v"] * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
-            d2 = (px - cx) ** 2 + (py - cy) ** 2
-            if best_d2 is None or d2 < best_d2:
-                best_d2 = d2
-                best_xy = (px, py)
-        if best_xy is not None and best_d2 and best_d2 > 0:
-            theta_deg = math.degrees(math.atan2(best_xy[1] - cy, best_xy[0] - cx))
-
-    _click_ripples.append((cx, cy, time.time(), theta_deg))
-
     # Map canvas → u,v in the original camera frame (inverse of
     # draw_device_overlay's u→px transform).
     u = (cx + crop_x) / max(1, (PREVIEW_WIDTH  + 2 * crop_x))
     v = (cy + crop_y) / max(1, (PREVIEW_HEIGHT + 2 * crop_y))
     u = max(0.0, min(1.0, u))
     v = max(0.0, min(1.0, v))
-    effects.trigger_ripple_at(u, v)
+
+    # Find the nearest detected phone (in u,v space).  Used for three things:
+    # the local half-arch animation opens toward it, the wave_angle sent to
+    # the audience tells the ripple which direction to go super bright, and
+    # the click-to-nearest distance scales the wave's travel speed (close
+    # click → slow intimate wave; distant click → fast energetic wave).
+    theta_deg: float | None = None
+    wave_angle_deg: float | None = None
+    nearest_dist: float | None = None
+    if positions:
+        nearest = None
+        best_d2 = None
+        for p in positions.values():
+            d2 = (p["u"] - u) ** 2 + (p["v"] - v) ** 2
+            if best_d2 is None or d2 < best_d2:
+                best_d2 = d2
+                nearest = p
+        if nearest is not None and best_d2 and best_d2 > 1e-6:
+            nearest_dist = math.sqrt(best_d2)
+            wave_angle_deg = math.degrees(math.atan2(nearest["v"] - v,
+                                                     nearest["u"] - u))
+            # Local canvas-pixel angle for the half-arch drawing
+            px = int(nearest["u"] * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
+            py = int(nearest["v"] * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
+            theta_deg = math.degrees(math.atan2(py - cy, px - cx))
+
+    # Speed multiplier from cursor-to-nearest-phone distance.
+    # 0.0 (click right on a phone)  → 0.45× (slow, dramatic)
+    # 0.3 (typical near-cluster)    → 0.90×
+    # 0.7 (between clusters)        → 1.50×
+    # 1.0+ (corner click, far away) → 1.95×+ (whip-fast)
+    # No phones detected yet → use the slider value unchanged.
+    if nearest_dist is None:
+        speed_mult = 1.0
+    else:
+        speed_mult = 0.45 + nearest_dist * 1.5
+
+    _click_ripples.append((cx, cy, time.time(), theta_deg))
+    effects.trigger_ripple_at(u, v, wave_angle_deg, speed_mult)
 
 
 def draw_click_ripples(canvas: np.ndarray):
@@ -1269,19 +1346,34 @@ _PAD        = 8     # left/right padding for sidebar content
 _CHK_INDENT = 284   # checkbox x position
 _KEY_INDENT = 252   # hotkey label x position (flush left of checkbox)
 
+_CHK_LABEL_ON  = (240, 175, 60)    # active-orange — same family as fx_active_theme
+_CHK_LABEL_OFF = (210, 210, 210)
+
+
 def _chk(label: str, tag: str, callback, enabled: bool = True):
-    """Checkbox row: label left, hotkey right-aligned before checkbox."""
+    """Checkbox row: label left, hotkey right-aligned before checkbox.
+    The label gets a tag (lbl_{tag}) so update_ui_from_state can switch
+    its colour to the active-orange theme when the checkbox is on, giving
+    every checkbox the same 'selected' highlight as the Ripple button."""
     import re as _re
     m = _re.search(r'\s*(\[[^\]]+\])\s*$', label)
     base   = label[:m.start()] if m else label
     hotkey = m.group(1)        if m else ""
     with dpg.group(horizontal=True):
-        dpg.add_text(base, indent=_PAD)
+        dpg.add_text(base, indent=_PAD, tag=f"lbl_{tag}",
+                     color=_CHK_LABEL_OFF)
         if hotkey:
             dpg.add_text(hotkey, indent=_KEY_INDENT, color=(120, 120, 120))
         dpg.add_checkbox(label=f"##{tag}", tag=tag,
                          callback=callback, indent=_CHK_INDENT,
                          enabled=enabled)
+
+
+def _safe_set_chk(tag: str, value: bool):
+    """Set a checkbox value AND push the matching label-colour update so
+    the row visibly highlights when on."""
+    safe_set(tag, value)
+    ui_queue.put((f"_lbl_color_{tag}", bool(value)))
 
 
 def setup_ui(holder: dict):
@@ -1766,6 +1858,15 @@ def main():
                             except Exception as e:
                                 log.warning(f"[effect] refire failed: {e}")
                         continue
+                    if tag.startswith("_lbl_color_"):
+                        chk_tag = tag[len("_lbl_color_"):]
+                        lbl_tag = f"lbl_{chk_tag}"
+                        if dpg.does_item_exist(lbl_tag):
+                            dpg.configure_item(
+                                lbl_tag,
+                                color=_CHK_LABEL_ON if value else _CHK_LABEL_OFF,
+                            )
+                        continue
                     if tag == "_rec_status_show":
                         dpg.configure_item("rec_status_text", show=value)
                         continue
@@ -1952,6 +2053,7 @@ def _detection_worker():
                         _save_report()
                         _stop_auto_debug_capture()
                         post_json_async("/admin/detect", {"detecting": False})
+                        _auto_enable_sync()
                         set_status("Detection OFF")
         finally:
             _detect_queue.task_done()

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>pixelmesh — stage</title>
+<meta name="theme-color" content="#000">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+    font-family: -apple-system, system-ui, "Helvetica Neue", Arial, sans-serif;
+    color: #fff;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Stage canvas — fills viewport, image rendering keeps the pixel art crisp */
+  #stage {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    background: #000;
+    cursor: none;
+  }
+  /* Small unobtrusive connection indicator in the corner; visible only when disconnected */
+  #conn {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    font: 600 12px monospace;
+    color: rgba(255, 90, 90, 0.85);
+    background: rgba(0,0,0,0.4);
+    padding: 4px 10px;
+    border-radius: 12px;
+    display: none;
+    pointer-events: none;
+    z-index: 50;
+  }
+  #conn.show { display: block; }
+</style>
+</head>
+<body>
+  <canvas id="stage"></canvas>
+  <div id="conn">reconnecting…</div>
+  <script src="/public/stage.js?v=__CACHE_BUST__"></script>
+</body>
+</html>

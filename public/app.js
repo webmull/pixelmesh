@@ -296,6 +296,8 @@ let effectOriginU     = 0.5;
 let effectOriginV     = 0.5;
 let effectOriginExplicit = false;   // true → use origin_u/v as-is; false → derive from angle
 let effectRipplePulse  = false;     // true → single half-arch travelling pulse (controller click-fire)
+let effectWaveAngle    = 0;         // degrees in u,v space: bearing of the controller half-arch
+let effectWaveAngleExplicit = false; // false → omnidirectional (no directional boost)
 let effectAngle       = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
 let effectR           = 255;
 let effectG           = 255;
@@ -306,28 +308,19 @@ let effectB2          = 0;
 let effectSplit       = 0.5;
 let effectGroups      = {};   // groups: blink_id → group_index
 
-// ---- Bug game ----
-let gameShowAt      = 0;    // server-time ms when bug should appear for this phone
-let gameSlotMs      = 5000;
-let gameTapped      = false;
-let gameTimer          = null;
-let myReactionMs       = null;  // this phone's tap time, shown in winner overlay
-let countdownTimer     = null;
-let _gameRoundStartAt  = 0;     // server timestamp when the 20s round begins
-const gameBugWrap    = document.getElementById("gameBugWrap");
-const gameSlotBar    = document.getElementById("gameSlotBar");
-const gameProgress   = document.getElementById("gameProgress");
-const countdownText  = document.getElementById("countdownText");
-const bugHappy       = document.getElementById("bugHappy");
-const bugScared      = document.getElementById("bugScared");
-const gamePrompt     = document.getElementById("gamePrompt");
-const gameResult     = document.getElementById("gameResult");
-const gameWinner       = document.getElementById("gameWinner");
-const gameMyBanner     = document.getElementById("gameMyBanner");
-const gameMyBannerLabel = document.getElementById("gameMyBannerLabel");
-const gameMyBannerTime  = document.getElementById("gameMyBannerTime");
-const gameWinnerPhone  = document.getElementById("gameWinnerPhone");
-const gameWinnerTime   = document.getElementById("gameWinnerTime");
+// ---- Rope climb game ----
+let myTeam            = null;     // "diana" | "rosie" | null (uncalibrated / not assigned)
+let ropeActive        = false;
+let ropeTapHandlerOn  = false;
+let ropeWinnerTimer   = null;
+const ropeTeamName    = document.getElementById("ropeTeamName");
+const ropeTeamSub     = document.getElementById("ropeTeamSub");
+const ropePrompt      = document.getElementById("ropePrompt");
+const ropeBarDiana    = document.getElementById("ropeBarDiana");
+const ropeBarRosie    = document.getElementById("ropeBarRosie");
+const ropeWinner      = document.getElementById("ropeWinner");
+const ropeWinnerName  = document.getElementById("ropeWinnerName");
+const ropeWinnerSub   = document.getElementById("ropeWinnerSub");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -474,7 +467,6 @@ function goBlack() {
   calibrated    = false;
   myBlinkPhases = [];
   _cleanupGame();
-  gameProgress.style.display     = "none";
   CARDS.effects.style.background = "#000";
   setView("idle");
 }
@@ -611,7 +603,6 @@ function handleMessage(msg) {
 
   if (msg.type === "effect") {
     _cleanupGame();
-    gameProgress.style.display = "none";
     currentEffect     = msg.effect;
     effectStartTime   = msg.start_time;
     effectSpeed       = msg.speed ?? 0.3;
@@ -621,6 +612,8 @@ function handleMessage(msg) {
     effectOriginV     = msg.origin_v ?? 0.5;
     effectOriginExplicit = msg.origin_explicit ?? false;
     effectRipplePulse  = msg.ripple_pulse ?? false;
+    effectWaveAngle    = msg.wave_angle ?? 0;
+    effectWaveAngleExplicit = msg.wave_angle != null;
     effectAngle       = msg.angle ?? 0;
     effectR           = msg.color_r  ?? 255;
     effectG           = msg.color_g  ?? 255;
@@ -644,11 +637,15 @@ function handleMessage(msg) {
     return;
   }
 
+  if (msg.type === "effect_stop") {
+    currentEffect = null;
+    return;
+  }
+
   if (msg.type === "reset") {
     currentEffect = null;
     calibrated    = false;
     _cleanupGame();
-    gameProgress.style.display = "none";
     waitingId.textContent = myBlinkId !== null ? `You're phone #${myBlinkId + 1}` : "Connecting…";
     _startMsgTimer();
     requestWakeLock();
@@ -657,43 +654,25 @@ function handleMessage(msg) {
     return;
   }
 
-  if (msg.type === "game_countdown") {
-    myReactionMs      = null;
-    gameTapped        = false;
-    currentEffect     = null;
-    _gameRoundStartAt = msg.start_at + 3000;  // server time when game actually begins
-    _cleanupGame();
-    gameProgress.style.display = "none";
+  if (msg.type === "rope_start") {
+    currentEffect = null;
+    ropeActive    = true;
+    // Pull this phone's team out of the assignment map; null if uncalibrated.
+    const teams = msg.teams || {};
+    myTeam = teams[String(myBlinkId)] || null;
+    _resetRopeView();
     setView("game");
-    _startCountdown(msg.start_at);
     return;
   }
 
-  if (msg.type === "game_show") {
-    gameShowAt   = msg.show_at;
-    gameSlotMs   = msg.slot_ms;
-    gameTapped   = false;
-    myReactionMs = null;
-    _cleanupGame();
-    // Show the game card immediately (black background) so the waiting
-    // card is hidden during the pre-bug random delay before the bug appears.
-    bugHappy.style.display  = "none";
-    bugScared.style.display = "none";
-    gameResult.textContent  = "";
-    setView("game");
-    const delay = gameShowAt - serverNow();
-    gameTimer = setTimeout(_showHappyBug, Math.max(0, delay));
+  if (msg.type === "rope_progress") {
+    if (ropeBarDiana) ropeBarDiana.style.width = (msg.diana * 100).toFixed(1) + "%";
+    if (ropeBarRosie) ropeBarRosie.style.width = (msg.rosie * 100).toFixed(1) + "%";
     return;
   }
 
-  if (msg.type === "game_progress") {
-    gameProgress.textContent   = `${msg.tapped} / ${msg.total} tapped`;
-    gameProgress.style.display = "block";
-    return;
-  }
-
-  if (msg.type === "game_winner" || msg.type === "game_end") {
-    _showWinner(msg);
+  if (msg.type === "rope_end") {
+    _showRopeWinner(msg);
     return;
   }
 }
@@ -764,158 +743,130 @@ function _drawPositionMap() {
 // Bug game
 // ------------------------------------------------------------------ //
 
-function _startCountdown(startAt) {
-  _stopCountdown();
-  bugHappy.style.display  = "none";
-  bugScared.style.display = "none";
-  gameResult.textContent  = "";
-
-  function _tick() {
-    const elapsed    = serverNow() - startAt;
-    const remaining  = Math.ceil((3000 - elapsed) / 1000);
-    const label      = remaining > 0 ? String(remaining) : "GO!";
-    if (countdownText.textContent !== label) {
-      countdownText.classList.remove("pop");
-      void countdownText.offsetWidth;
-      countdownText.textContent = label;
-      countdownText.classList.add("pop");
-    }
-    if (elapsed >= 3800) {
-      _stopCountdown();
-      setView("game_wait");
-    }
+// Set up the rope view from scratch: team gradient, label, tap handler,
+// bars cleared, winner banner hidden.
+function _resetRopeView() {
+  // Card colour / labels
+  CARDS.game.classList.remove("team-diana", "team-rosie", "team-neutral");
+  if (myTeam === "diana") {
+    CARDS.game.classList.add("team-diana");
+    ropeTeamName.textContent = "Team Diana";
+    ropeTeamSub.textContent  = "Tap to lift Diana up the rope";
+    ropePrompt.textContent   = "";       // no label — icon glyph speaks for itself
+    ropePrompt.style.display = "flex";
+  } else if (myTeam === "rosie") {
+    CARDS.game.classList.add("team-rosie");
+    ropeTeamName.textContent = "Team Rosie";
+    ropeTeamSub.textContent  = "Tap to lift Rosie up the rope";
+    ropePrompt.textContent   = "";
+    ropePrompt.style.display = "flex";
+  } else {
+    CARDS.game.classList.add("team-neutral");
+    ropeTeamName.textContent = "Spectating";
+    ropeTeamSub.textContent  = "Your phone isn't on a team this round";
+    ropePrompt.textContent   = "";
+    ropePrompt.style.display = "none";
   }
+  CARDS.game.classList.remove("tapping");
 
-  _tick();
-  countdownTimer = setInterval(_tick, 100);
+  // Reset bars (server will fill these in via rope_progress almost immediately)
+  if (ropeBarDiana) ropeBarDiana.style.width = "0%";
+  if (ropeBarRosie) ropeBarRosie.style.width = "0%";
+
+  // Hide winner overlay
+  ropeWinner.classList.remove("show");
+  ropeWinnerName.classList.remove("diana", "rosie", "draw");
+
+  // Wire up the tap handler — only for assigned phones
+  if (!ropeTapHandlerOn && myTeam) {
+    CARDS.game.addEventListener("pointerdown", _onRopeTap);
+    ropeTapHandlerOn = true;
+  } else if (ropeTapHandlerOn && !myTeam) {
+    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
+    ropeTapHandlerOn = false;
+  }
 }
 
-function _stopCountdown() {
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-  countdownText.classList.remove("pop");
-  countdownText.textContent = "";
-}
-
-function _showHappyBug() {
-  _stopCountdown();
-  gameTapped = false;
-  bugHappy.style.display  = "block";
-  bugScared.style.display = "none";
-  gamePrompt.textContent  = "TAP!";
-  gamePrompt.classList.add("pulsing");
-  gameResult.textContent  = "";
-  // Full-card tap zone — better than a small image target on mobile
-  CARDS.game.addEventListener("pointerdown", _onGameTap);
-  // Game-time bar: set start position from server clock, then transition to 0
-  const elapsed   = Math.max(0, serverNow() - _gameRoundStartAt);
-  const remaining = Math.max(0, 20000 - elapsed);
-  gameSlotBar.style.transition = "none";
-  gameSlotBar.style.transform  = `scaleX(${remaining / 20000})`;
-  void gameSlotBar.offsetWidth;   // force reflow before starting transition
-  gameSlotBar.style.transition = `transform ${remaining}ms linear`;
-  gameSlotBar.style.transform  = "scaleX(0)";
-  gameTimer = setTimeout(_hideGame, gameSlotMs);
-}
-
-function _onGameTap(e) {
-  if (gameTapped) return;
-  gameTapped = true;
+function _onRopeTap(e) {
+  if (!ropeActive || !myTeam) return;
   e.preventDefault();
-  CARDS.game.removeEventListener("pointerdown", _onGameTap);
-  clearTimeout(gameTimer);
-  gameTimer = null;
-
-  myReactionMs = Math.round(serverNow() - gameShowAt);
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "game_tap", reaction_ms: myReactionMs }));
+    ws.send(JSON.stringify({ type: "game_tap" }));
   }
-
-  gameSlotBar.style.transition = "none";
-  gamePrompt.classList.remove("pulsing");
-  gamePrompt.textContent  = "";
-  bugHappy.style.display  = "none";
-  bugScared.style.display = "block";
-  gameResult.textContent  = `${myReactionMs} ms`;
-  // Stay on game card until winner is announced
+  // Press feedback — button squishes briefly
+  CARDS.game.classList.add("tapping");
+  setTimeout(() => CARDS.game.classList.remove("tapping"), 90);
+  // Ping halo — restart the CSS animation by removing+re-adding the class
+  // on the next frame so rapid taps still fire fresh rings.
+  CARDS.game.classList.remove("pinging");
+  void CARDS.game.offsetWidth;
+  CARDS.game.classList.add("pinging");
 }
 
-function _showWinner(msg) {
-  _cleanupGame();
-  gameProgress.style.display = "none";
+function _showRopeWinner(msg) {
+  ropeActive = false;
+  if (ropeTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
+    ropeTapHandlerOn = false;
+  }
 
-  // ---- Personal outcome (top, prominent) ----
-  const isDraw  = msg.draw === true;
-  const drawIds = msg.blink_ids || [];
-  const iWon    = !isDraw && msg.blink_id !== undefined && msg.blink_id === myBlinkId;
-  const iDrew   = isDraw && drawIds.includes(myBlinkId);
+  // Manual stop from the controller (no winner) — silently bow out.
+  // The server's default wave broadcast will swap us to the effects view
+  // moments later; until then stay put rather than flicking back to a
+  // "waiting for detection" screen.
+  if (!msg.winner) {
+    ropeWinner.classList.remove("show");
+    if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
+    return;
+  }
 
-  if (iWon) {
-    gameMyBannerLabel.textContent = "YOU WIN";
-    gameMyBannerLabel.style.color = "#ffd740";
-    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.5)";
-    gameMyBannerTime.textContent  = myReactionMs !== null ? `${myReactionMs} ms` : "";
-    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
-  } else if (iDrew) {
-    gameMyBannerLabel.textContent = "IT'S A DRAW";
-    gameMyBannerLabel.style.color = "#ffd740";
-    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.3)";
-    gameMyBannerTime.textContent  = myReactionMs !== null ? `${myReactionMs} ms` : "";
-    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
-  } else if (myReactionMs !== null) {
-    gameMyBannerLabel.textContent = "NOT THIS TIME";
-    gameMyBannerLabel.style.color = "rgba(255,255,255,0.75)";
-    gameMyBannerLabel.style.textShadow = "none";
-    gameMyBannerTime.textContent  = `Your time: ${myReactionMs} ms`;
-    gameMyBannerTime.style.color  = "rgba(255,255,255,0.35)";
+  // Final bar values for clarity
+  if (msg.diana != null && ropeBarDiana) {
+    ropeBarDiana.style.width = (msg.diana * 100).toFixed(1) + "%";
+  }
+  if (msg.rosie != null && ropeBarRosie) {
+    ropeBarRosie.style.width = (msg.rosie * 100).toFixed(1) + "%";
+  }
+  // Winner banner
+  ropeWinnerName.classList.remove("diana", "rosie", "draw");
+  if (msg.winner === "diana") {
+    ropeWinnerName.textContent = "DIANA";
+    ropeWinnerName.classList.add("diana");
+    ropeWinnerSub.textContent  = myTeam === "diana" ? "Your team wins!" : "Better luck next round";
+  } else if (msg.winner === "rosie") {
+    ropeWinnerName.textContent = "ROSIE";
+    ropeWinnerName.classList.add("rosie");
+    ropeWinnerSub.textContent  = myTeam === "rosie" ? "Your team wins!" : "Better luck next round";
   } else {
-    gameMyBannerLabel.textContent = "YOU MISSED IT";
-    gameMyBannerLabel.style.color = "rgba(255,80,80,0.85)";
-    gameMyBannerLabel.style.textShadow = "none";
-    gameMyBannerTime.textContent  = "";
+    ropeWinnerName.textContent = "DRAW";
+    ropeWinnerName.classList.add("draw");
+    ropeWinnerSub.textContent  = "No one made it to the top";
   }
-
-  // ---- Winner details (bottom) ----
-  if (isDraw) {
-    gameWinnerPhone.textContent = `Draw — ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
-    gameWinnerTime.textContent  = `${msg.reaction_ms} ms each`;
-  } else if (msg.blink_id !== undefined) {
-    gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
-    gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
-  } else {
-    gameWinnerPhone.textContent = "No taps recorded";
-    gameWinnerTime.textContent  = "";
-  }
-
-  bugHappy.style.display   = "none";
-  bugScared.style.display  = "none";
-  gamePrompt.textContent   = "";
-  gameResult.textContent   = "";
-  gameWinner.style.display = "flex";
-  gameWinner.classList.remove("show");
-  void gameWinner.offsetWidth;
-  gameWinner.classList.add("show");
-  setView("game");
+  ropeWinner.classList.add("show");
+  // Leave the winner banner up.  The server fires its default wave
+  // effect immediately after rope_end, and the effect handler cleans
+  // up the game card on receipt — that's the legitimate exit.  Don't
+  // ever bounce the phones back to a detection / waiting view from
+  // here; an isolated audience drop-off would otherwise re-show a
+  // "waiting for detection" screen in the middle of a finished round.
+  if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
 }
 
-// Called when the bug slot timer expires (phone missed the bug).
-// Swaps to the black blink card to wait for game_winner.
-function _hideGame() {
-  _cleanupGame();
-  setView("game_wait");
-}
-
-// Resets all game internals without touching the active card.
-// Use this when transitioning away from game for other reasons
-// (effect fires, reset, goBlack) so the caller controls the card.
+// Tear down rope game state — called from the reset handler.
 function _cleanupGame() {
-  if (gameTimer) { clearTimeout(gameTimer); gameTimer = null; }
-  _stopCountdown();
-  CARDS.game.removeEventListener("pointerdown", _onGameTap);
-  gameSlotBar.style.transition = "none";
-  gameSlotBar.style.transform  = "scaleX(0)";
-  gamePrompt.classList.remove("pulsing");
-  gameWinner.style.display = "none";
-  gameWinner.classList.remove("show");
+  ropeActive = false;
+  myTeam     = null;
+  if (ropeTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
+    ropeTapHandlerOn = false;
+  }
+  if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
+  ropeWinner.classList.remove("show");
+  CARDS.game.classList.remove(
+    "team-diana", "team-rosie", "team-neutral", "tapping", "pinging",
+  );
+  if (ropeBarDiana) ropeBarDiana.style.width = "0%";
+  if (ropeBarRosie) ropeBarRosie.style.width = "0%";
 }
 
 // ------------------------------------------------------------------ //
@@ -969,7 +920,12 @@ function shade(u, v, t) {
   // apart continuously instead of all running the same animation late.
   // All jitter is hash-seeded from blinkId, so it's stable per phone and
   // snaps cleanly back to coordinated motion the moment sync engages.
-  if (!synced && myBlinkId !== null) {
+  // Ripple is click-driven and depends on absolute u,v + origin distance;
+  // the unsynced jitter below would scramble u/v and (worse) flip t for
+  // half the phones, which makes the half-arch's delta <= 0 gate never
+  // open and the falloff push past 1.0.  Skip jitter for ripple so the
+  // wave still emanates spatially even without clock sync.
+  if (!synced && myBlinkId !== null && currentEffect !== "ripple") {
     const jx = (_hashFloat(myBlinkId * 7  + 11) - 0.5) * 1.6;   // u +/- 0.8
     const jy = (_hashFloat(myBlinkId * 13 + 17) - 0.5) * 1.6;
     const jt = 0.4 + _hashFloat(myBlinkId * 23 +  5) * 1.4;     // 0.4x – 1.8x
@@ -1029,37 +985,71 @@ function shade(u, v, t) {
 
   if (currentEffect === "ripple") {
     // Click-driven half-arch ripple: a single light-blue pulse travels
-    // outward from the click's (u,v), each phone lights up briefly as the
-    // wave front passes, then the whole effect fades out once the wave
-    // has crossed the room.
+    // outward from the click's (u,v).  Each phone gets a half-sine peak
+    // as the wave front passes, then a slow afterglow trail so the
+    // brightness drifts down rather than snapping off.
     const ou = effectOriginExplicit ? effectOriginU : 0.5;
     const ov = effectOriginExplicit ? effectOriginV : 0.5;
     const dist = Math.sqrt((u - ou) ** 2 + (v - ov) ** 2);
     const front = t * effectSpeed;
-    const width = 0.18;
+    const width = 0.55;    // pulse width — wider gives a slower, gentler fade
     const delta = dist - front;
 
-    // Half-arch (half-sine) profile centred just behind the wave front.
+    // Single smooth pulse: peaks at delta=0 (the moment the wave-front
+    // reaches this phone) and decays smoothly via a quarter-cosine over
+    // delta in [-width, 0].  Earlier code joined a half-sine arch to an
+    // afterglow tail, but the half-sine returned to 0 at delta=0 while
+    // the tail started at 0.30 — a discontinuity that read as a "bounce"
+    // a second pulse just after the wave passed.
     let i = 0;
     if (delta <= 0 && delta >= -width) {
-      i = Math.sin(Math.PI * (1 + delta / width));   // 0 at delta=-w → 1 → 0 at delta=0
+      const phase = -delta / width;          // 0 at front → 1 at trailing edge
+      i = Math.cos(phase * Math.PI / 2);     // 1 → 0, smooth and monotonic
     }
 
-    // Amplitude falls off with distance from the click — phones close to
-    // the impact peak bright, phones across the room peak dim. ^1.5 so
-    // the near-field stays visibly brighter than the far-field even
-    // before the wave fully fades.
-    const falloff = Math.pow(Math.max(0, 1 - dist), 1.5);
+    // Amplitude falls off smoothly with distance — Gaussian-ish tail so
+    // phones near the edge of the room still register a faint shimmer
+    // instead of cutting off hard.
+    const falloff = Math.exp(-dist * dist * 0.8);
     i *= falloff;
 
-    // Fade the whole effect out once the wave reaches the far corner.
-    const liveTime = 1.5 / Math.max(effectSpeed, 0.05);
+    // Directional boost: phones that lie in the direction the controller
+    // wave is travelling go super bright; phones perpendicular get a
+    // modest baseline; phones behind the wave fade out almost entirely.
+    // Only applied when the controller sent a wave_angle — without it
+    // the ripple is omnidirectional.
+    if (effectWaveAngleExplicit && dist > 0.001) {
+      const phoneAngle = Math.atan2(v - ov, u - ou);
+      const waveAngleRad = effectWaveAngle * Math.PI / 180;
+      const dirCos = Math.cos(phoneAngle - waveAngleRad);
+      // baseline 0.25 (perpendicular / behind) → 1.0 (in direction)
+      const dirMult = 0.25 + 0.75 * Math.pow(Math.max(0, dirCos), 0.7);
+      i *= dirMult;
+    } else {
+      // No direction info → keep the overall amplitude calm.
+      i *= 0.55;
+    }
+
+    // Fade the whole effect out gently once the wave-front (plus its
+    // decay window) clears the far corner of the room.  sqrt(2) ≈ 1.414
+    // is the max u,v distance to the corner.
+    const liveTime = (1.414 + width) / Math.max(effectSpeed, 0.05);
     const fadeOut = t > liveTime
-      ? Math.max(0, 1 - (t - liveTime) * 1.5)
+      ? Math.max(0, 1 - (t - liveTime) * 0.6)
       : 1;
     i *= fadeOut;
 
-    return [i * 140, i * 210, i * 255];   // light blue (RGB)
+    // Colour shifts from a bright cornflower-blue at the origin to a deep
+    // royal-blue as the wave fans out.  Earlier numbers had R and G both
+    // near 220-255 at the origin, which on a phone screen reads as
+    // pale-lavender / off-white rather than blue.  Pushed R and G down
+    // across the gradient so the blue channel actually dominates.
+    const tint = Math.min(1, dist * 1.2);
+    const colR = 100 - tint * (100 -  10);
+    const colG = 180 - tint * (180 -  60);
+    const colB = 255 - tint * (255 - 200);
+
+    return [i * colR, i * colG, i * colB];
   }
 
   if (currentEffect === "sparkle") {
@@ -1101,18 +1091,6 @@ function shade(u, v, t) {
     const norm = (((col / n) - t * effectSpeed) % 1 + 1) % 1;
     if (norm < 0.5) return [effectR,  effectG,  effectB];
     else            return [effectR2, effectG2, effectB2];
-  }
-
-  if (currentEffect === "aurora") {
-    const sp = effectSpeed;
-    // Horizontal curtain bands drifting across the room, rippled by v
-    const phase = u * 3.0 + Math.sin(v * 2.5 + t * sp * 0.5) * 0.5 - t * sp * 0.4;
-    // Brightness: power curve gives distinct bright ribbons against dark sky
-    const curtain = Math.pow(0.5 + 0.5 * Math.sin(phase * Math.PI), 2.5);
-    // Hue oscillates teal (150°) ↔ blue-purple (210°) as the bands evolve
-    const hue = (150 + Math.sin(phase * 0.8 - t * sp * 0.15) * 60 + 360) % 360;
-    const lum = 0.06 + curtain * 0.50;
-    return hslToRgb(hue / 360, 1.0, lum);
   }
 
   return [0, 0, 0];
