@@ -11,18 +11,34 @@ Differences from V1:
 - Adds /admin/detect     (controller signals detection on/off; server tells clients)
 """
 
-import bisect
-import os
-import time
-import hashlib
 import asyncio
+import bisect
+import hashlib
+import os
+import re
+import sys
+import time
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
-from starlette.responses import Response as StarletteResponse
+
 import game
 
+_BASE_DIR = os.path.dirname(__file__)
+_PUBLIC_DIR = os.path.join(_BASE_DIR, "public")
+
 _ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
+if not _ADMIN_TOKEN:
+    # Admin routes are otherwise unauthenticated on 0.0.0.0:8000.  run.sh
+    # always sets the token before launch; refuse to start without it so
+    # nobody accidentally exposes /admin/* by running uvicorn directly.
+    print("PIXELMESH_ADMIN_TOKEN is empty — refusing to start (run via run.sh)",
+          file=sys.stderr)
+    sys.exit(1)
 
 
 class NoCacheStaticFiles(StaticFiles):
@@ -39,8 +55,7 @@ class NoCacheStaticFiles(StaticFiles):
             response.headers["Pragma"]        = "no-cache"
             response.headers["Expires"]       = "0"
         return response
-from fastapi.responses import FileResponse, Response, StreamingResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+
 
 # Block patterns commonly probed by bots
 _BLOCKED = (
@@ -62,20 +77,28 @@ _ADMIN_PUBLIC = {"/admin/show_stats"}
 
 class AdminTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if (_ADMIN_TOKEN
-                and request.url.path.startswith("/admin/")
+        if (request.url.path.startswith("/admin/")
                 and request.url.path not in _ADMIN_PUBLIC):
             if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
                 return Response(status_code=403)
         return await call_next(request)
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(reap_dead_clients())
+    asyncio.create_task(heart_broadcast_loop())
+    yield
+    await broadcast({"type": "shutdown"})
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=500)
 app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
-app.mount("/public", NoCacheStaticFiles(directory="public"), name="public")
+app.mount("/public", NoCacheStaticFiles(directory=_PUBLIC_DIR), name="public")
 
-_DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
+_DEBUG_DIR = os.path.join(_BASE_DIR, "debug")
 if os.path.isdir(_DEBUG_DIR):
     # Serve debug run files (videos, frames) — range requests handled by StaticFiles
     app.mount("/debug-files", StaticFiles(directory=_DEBUG_DIR), name="debug_files")
@@ -95,11 +118,10 @@ mode = MODE_WAITING
 # Clients reload automatically when this differs from what they loaded with.
 def _build_id() -> str:
     h = hashlib.md5()
-    base = os.path.join(os.path.dirname(__file__), "public")
     # Only hash app.js — changing app.js bumps BUILD_ID, triggering client reloads
     for fname in ("app.js",):
         try:
-            with open(os.path.join(base, fname), "rb") as f:
+            with open(os.path.join(_PUBLIC_DIR, fname), "rb") as f:
                 h.update(f.read())
         except OSError:
             pass
@@ -113,7 +135,7 @@ def _sim_build_id() -> str:
     changes without triggering audience-client reloads."""
     h = hashlib.md5()
     try:
-        with open(os.path.join(os.path.dirname(__file__), "public", "sim.js"), "rb") as f:
+        with open(os.path.join(_PUBLIC_DIR, "sim.js"), "rb") as f:
             h.update(f.read())
     except OSError:
         pass
@@ -159,7 +181,11 @@ def blink_to_device(blink_id: int) -> str | None:
     return blink_reverse.get(blink_id)
 
 
+_broadcasting_count = False
+
+
 async def broadcast(message: dict):
+    global _broadcasting_count
     dead = []
     for device_id, ws in connections.items():
         try:
@@ -168,8 +194,15 @@ async def broadcast(message: dict):
             dead.append(device_id)
     for device_id in dead:
         _drop_connection(device_id)
-    if dead:
-        await broadcast_count()
+    # Guard against re-entry: broadcast_count → broadcast → broadcast_count
+    # loops once if more sockets die mid-flight.  The flag lets a single
+    # follow-up pass clean up, then bails so we never recurse indefinitely.
+    if dead and not _broadcasting_count:
+        _broadcasting_count = True
+        try:
+            await broadcast_count()
+        finally:
+            _broadcasting_count = False
 
 
 async def set_mode(new_mode: str):
@@ -257,17 +290,6 @@ async def reap_dead_clients():
         for device_id in dead:
             print(f"[reaper] removing stale device {device_id[:8]}")
             await cleanup_device(device_id)
-
-
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(reap_dead_clients())
-    asyncio.create_task(heart_broadcast_loop())
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    await broadcast({"type": "shutdown"})
 
 
 # ------------------------------------------------------------------ #
@@ -367,6 +389,8 @@ async def websocket_endpoint(ws: WebSocket):
                     }
 
             elif data.get("type") == "like_tap":
+                if device_id:
+                    last_seen[device_id] = time.time()
                 if like_enabled:
                     like_count += 1
                     _heart_dirty = True
@@ -686,13 +710,12 @@ async def health():
     return {"ok": True}
 
 
-_APP_HTML_VERSION_RE = __import__("re").compile(r'(?:__CACHE_BUST__|[a-f0-9]{32})')
+_APP_HTML_VERSION_RE = re.compile(r'(?:__CACHE_BUST__|[a-f0-9]{32})')
 
 def _serve_app_html():
-    with open("public/app.html", "r") as f:
+    with open(os.path.join(_PUBLIC_DIR, "app.html"), "r") as f:
         html = f.read()
     html = _APP_HTML_VERSION_RE.sub(BUILD_ID, html)
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html, headers=_NO_CACHE)
 
 
@@ -713,17 +736,15 @@ async def dashboard():
 
 @app.get("/internal/sim")
 async def sim():
-    with open("public/sim.html", "r") as f:
+    with open(os.path.join(_PUBLIC_DIR, "sim.html"), "r") as f:
         html = f.read()
     html = _APP_HTML_VERSION_RE.sub(SIM_BUILD_ID, html)
-    from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html, headers=_NO_CACHE)
 
 
 @app.get("/internal/debug")
 async def debug_runs_page():
     import json
-    from fastapi.responses import HTMLResponse
 
     runs = []
     if os.path.isdir(_DEBUG_DIR):

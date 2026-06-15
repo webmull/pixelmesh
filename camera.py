@@ -17,8 +17,3 @@ def apply_gamma(image):
 
 def apply_contrast(image, alpha=1.08, beta=0):
     return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
-
-
-def apply_sharpen(image, strength=0.4):
-    blur = cv2.GaussianBlur(image, (0, 0), 3)
-    return cv2.addWeighted(image, 1 + strength, blur, -strength, 0)
