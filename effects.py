@@ -74,13 +74,10 @@ EFFECT_PARAMS = {
         ("angle",  "Angle",    "slider_float", {"default_value": 45.0, "min_value": 0.0, "max_value": 360.0, "format": "%.0f°"}),
         ("split",  "Split",    "slider_float", {"default_value": 0.5,  "min_value": 0.0, "max_value": 1.0,   "format": "%.2f"}),
     ],
-    "aurora": [
-        ("speed", "Speed", "slider_float", {"default_value": 0.4, "min_value": 0.05, "max_value": 4.0}),
-    ],
     "ripple": [
         # Click-driven half-arch ripple — origin comes from the controller
         # cursor, colour is fixed light-blue, only Speed is user-tunable.
-        ("speed", "Speed", "slider_float", {"default_value": 0.5, "min_value": 0.1, "max_value": 4.0}),
+        ("speed", "Speed", "slider_float", {"default_value": 0.25, "min_value": 0.05, "max_value": 1.5}),
     ],
     "groups": [
         ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
@@ -110,7 +107,6 @@ EFFECT_LABELS = {
     "pulse":        "Pulse",
     "rainbow":      "Rainbow",
     "colour_flood": "Colour Flood",
-    "aurora":       "Aurora",
     "ripple":       "Ripple",
     "groups":       "Groups",
     "sparkle":      "Sparkle",
@@ -183,14 +179,18 @@ def trigger_effect(name: str, extra: dict | None = None):
     _set_status(f"Effect: {name}")
 
 
-def trigger_ripple_at(u: float, v: float):
+def trigger_ripple_at(u: float, v: float, wave_angle_deg: float | None = None,
+                      speed_mult: float = 1.0):
     """Fire a single half-arch light-blue ripple from a specific (u,v) on
-    the room.  Colour is fixed (per design); only Speed comes from the
-    sidebar slider.  Does NOT update state.current_effect — armed ripple
-    drives the sidebar highlight; firing here would override it."""
+    the room.  Colour is fixed (per design); the sidebar slider provides
+    the baseline speed.  speed_mult scales that baseline based on how far
+    the click landed from the nearest phone, computed by the controller —
+    close clicks produce slow intimate waves, far clicks produce fast
+    energetic ones."""
+    base_speed = _get("ripple", "speed", 0.25)
     payload = {
         "name":             "ripple",
-        "speed":            _get("ripple", "speed", 0.5),
+        "speed":            base_speed * speed_mult,
         "color_r":          140,
         "color_g":          210,
         "color_b":          255,
@@ -199,7 +199,10 @@ def trigger_ripple_at(u: float, v: float):
         "origin_explicit":  True,
         "ripple_pulse":     True,
     }
-    log.info(f"[effect] ripple_pulse at ({u:.3f}, {v:.3f})")
+    if wave_angle_deg is not None:
+        payload["wave_angle"] = float(wave_angle_deg)
+    log.info(f"[effect] ripple_pulse at ({u:.3f}, {v:.3f}) "
+             f"wave_angle={wave_angle_deg} speed_mult={speed_mult:.2f}")
     post_json_async("/admin/effect/fire", payload)
 
 
@@ -395,29 +398,30 @@ def _shade_preview(effect, u, v, idx, t, params):
         blend = max(0, min(1, (dn - split) / 0.08 + 0.5))
         return (r + (r2-r)*blend, g + (g2-g)*blend, b + (b2-b)*blend)
 
-    if effect == "aurora":
-        phase = u*3.0 + math.sin(v*2.5 + t*sp*0.5)*0.5 - t*sp*0.4
-        curtain = (0.5 + 0.5*math.sin(phase*math.pi)) ** 2.5
-        hue = (150 + math.sin(phase*0.8 - t*sp*0.15)*60 + 360) % 360
-        lum = 0.06 + curtain*0.50
-        return _hsl_to_rgb(hue/360, 1.0, lum)
-
     if effect == "ripple":
         # Click-driven half-arch ripple — preview shows it emanating from
-        # the centre as a single travelling pulse, looping so the user can
-        # see the wave shape and speed without needing to "click" anything.
+        # the centre as a single smooth pulse that peaks at the wave-front
+        # and decays cleanly, looping so the user can see the shape/speed
+        # without needing to "click" anything.
         ou, ov = 0.5, 0.5
         dist = math.sqrt((u-ou)**2 + (v-ov)**2)
-        cycle = 2.0   # seconds — pulse repeat in preview
+        cycle = 3.5
         phase = (t * sp / cycle) % 1.0
-        front = phase * 1.0   # max distance ≈ corner of square
-        width = 0.18
+        front = phase * 1.0
+        width = 0.55
         delta = dist - front
         if -width <= delta <= 0:
-            iv = math.sin(math.pi * (1 + delta / width))   # 0 → 1 → 0
+            ph = -delta / width                 # 0 → 1
+            iv = math.cos(ph * math.pi / 2)     # 1 → 0, monotonic
         else:
             iv = 0.0
-        return (iv * 140, iv * 210, iv * 255)
+        falloff = math.exp(-dist * dist * 0.8)
+        iv *= falloff * 0.55
+        tint = min(1.0, dist * 1.2)
+        cr = 100 - tint * (100 -  10)
+        cg = 180 - tint * (180 -  60)
+        cb = 255 - tint * (255 - 200)
+        return (iv * cr, iv * cg, iv * cb)
 
     if effect == "groups":
         n    = max(2, round(sf))

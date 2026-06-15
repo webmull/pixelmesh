@@ -1,22 +1,25 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Bug Game
+PixelMesh V2 — Rope Climb game
 
-Owns game state, FastAPI routes, and controller UI for the bug-tap reaction game.
+Replaces the bug-tap game.  Audience phones split into two teams (Diana and
+Rosie) by detected u-position, and each tap nudges that team's character up
+the rope.  A gentle decay pulls the heights back down so sustained tapping
+is required to win.  First to height 1.0 wins.
 
 Server side:
-    game.server_init(blink_to_device, connections, positions, blink_assignments)
+    game.server_init(blink_to_device, connections, positions, blink_assignments,
+                     broadcast, enable_sync, stop_effects)
     app.include_router(game.router)
-    # In the WS handler, call game.handle_tap(device_id, reaction_ms)
+    # In the WS handler, call game.handle_tap(device_id, ...)
 
 Controller side:
-    game.init(state, set_status, post_json, fetch_json, detection_order)
+    game.init(state, set_status, post_json, fetch_json, render_order)
     # In setup_ui(), call game.build_sidebar_buttons(indent, pad)
     #                     game.build_window()
 """
 
 import asyncio
-import random
 import threading
 import time
 
@@ -26,26 +29,29 @@ from fastapi import APIRouter
 router = APIRouter()
 
 # ------------------------------------------------------------------ #
-# Wired up by server_init() / init()                                  #
+# Wiring                                                              #
 # ------------------------------------------------------------------ #
 
-_blink_to_device   = None   # callable: blink_id → device_uuid | None
-_connections       = None   # dict: device_uuid → WebSocket
-_positions         = None   # dict: device_uuid → {"u", "v"}
-_blink_assignments = None   # dict: device_uuid → blink_id
-_broadcast         = None   # coroutine: broadcast(msg) to all phones
-_enable_sync       = None   # coroutine: ensure clock sync is active
-_stop_effects      = None   # coroutine: clear effect state and go to WAITING
+_blink_to_device   = None
+_connections       = None
+_positions         = None
+_blink_assignments = None
+_broadcast         = None
+_enable_sync       = None
+_stop_effects      = None
+_start_effect      = None
 
 _state            = None
 _set_status       = None
 _post_json        = None
 _fetch_json       = None
-_render_order     = None   # ref to controller's _render_order dict (left-to-right rank)
+_render_order     = None
 
 
-def server_init(blink_to_device, connections, positions, blink_assignments, broadcast, enable_sync, stop_effects):
-    global _blink_to_device, _connections, _positions, _blink_assignments, _broadcast, _enable_sync, _stop_effects
+def server_init(blink_to_device, connections, positions, blink_assignments,
+                broadcast, enable_sync, stop_effects, start_effect=None):
+    global _blink_to_device, _connections, _positions, _blink_assignments
+    global _broadcast, _enable_sync, _stop_effects, _start_effect
     _blink_to_device   = blink_to_device
     _connections       = connections
     _positions         = positions
@@ -53,6 +59,7 @@ def server_init(blink_to_device, connections, positions, blink_assignments, broa
     _broadcast         = broadcast
     _enable_sync       = enable_sync
     _stop_effects      = stop_effects
+    _start_effect      = start_effect
 
 
 def init(state, set_status, post_json, fetch_json, render_order):
@@ -65,142 +72,59 @@ def init(state, set_status, post_json, fetch_json, render_order):
 
 
 # ------------------------------------------------------------------ #
-# Game state                                                           #
+# Tunables                                                            #
 # ------------------------------------------------------------------ #
 
-GAME_DURATION_MS = 20_000   # total round length — game always ends after this
+# Per-tap climb is computed PER TEAM at round start so a team of two
+# isn't fighting decay forever while a team of twenty races to the top in
+# seconds.  Target ~50 taps per player to reach 1.0 regardless of team
+# size — solo player can do it in ~25s, team of 20 finishes in similar
+# time without any single player having to spam-tap.
+CLIMB_TAPS_PER_PLAYER  = 50
+# Hard floor + ceiling on per-tap value so a wildly unbalanced split (1 vs 30)
+# still feels playable.
+CLIMB_PER_TAP_MIN      = 0.0015
+CLIMB_PER_TAP_MAX      = 0.035
+# Per-second decay so progress requires sustained tapping (and dramatic
+# tug-of-war when the room slacks off).
+CLIMB_DECAY            = 0.010
+# Min interval between accepted taps from the same phone (anti-spam).
+PER_PHONE_TAP_INTERVAL = 0.18      # ~5 taps/s max per phone
+# Broadcast cadence.
+PROGRESS_INTERVAL      = 0.20      # 5 Hz
 
+
+def _climb_per_tap_for(team: str) -> float:
+    """How much a single tap raises this team's height.  Inversely
+    proportional to team size so per-player effort stays roughly constant
+    across crowd sizes."""
+    size = sum(1 for t in rope_teams.values() if t == team)
+    if size <= 0:
+        return CLIMB_PER_TAP_MAX
+    raw = 1.0 / (CLIMB_TAPS_PER_PLAYER * size)
+    return max(CLIMB_PER_TAP_MIN, min(CLIMB_PER_TAP_MAX, raw))
+
+# ------------------------------------------------------------------ #
+# State                                                                #
+# ------------------------------------------------------------------ #
+
+# Kept (as empty defaults) for backward compatibility with report.py and
+# controller code that still references game.game_active / game_results /
+# game_order.  The rope game doesn't populate the bug-game-shaped fields.
 game_active:  bool             = False
+game_results: dict[int, float] = {}
 game_order:   list[int]        = []
-game_results: dict[int, float] = {}   # blink_id → reaction_ms
-game_slot_ms: int              = 1400  # window for each phone to tap once bug appears
 
-_shown_set:     set            = set()  # blink_ids whose bug has been sent
-_missed_set:    set            = set()  # blink_ids whose slot expired without a tap
-_phone_tasks:   list           = []     # per-phone delay + slot-expiry tasks
-_end_task                      = None   # wall-clock game-end task
-_countdown_task                = None   # pre-game countdown task
+# Rope-climb state
+rope_teams:      dict[int, str]   = {}                       # blink_id → "diana" | "rosie"
+rope_heights:    dict[str, float] = {"diana": 0.0, "rosie": 0.0}
+rope_taps_total: dict[str, int]   = {"diana": 0,   "rosie": 0}
+rope_winner:     str | None       = None
+rope_start_at:   float            = 0.0
+rope_end_at:     float            = 0.0
 
-
-# ------------------------------------------------------------------ #
-# Server — internal helpers                                            #
-# ------------------------------------------------------------------ #
-
-async def _show_bug(blink_id: int, delay_ms: int):
-    """Wait delay_ms then send game_show to this phone."""
-    await asyncio.sleep(delay_ms / 1000)
-    if not game_active:
-        return
-    device_id = _blink_to_device(int(blink_id))
-    if not device_id or device_id not in _connections:
-        # Phone is gone — count it as missed so the round can finish early.
-        _missed_set.add(blink_id)
-        await _check_finish_early()
-        return
-    show_at = int(time.time() * 1000)
-    ws = _connections[device_id]
-    try:
-        await ws.send_json({
-            "type":    "game_show",
-            "show_at": show_at,
-            "slot_ms": game_slot_ms,
-        })
-        _shown_set.add(blink_id)
-    except Exception:
-        _missed_set.add(blink_id)
-        await _check_finish_early()
-        return
-    # Slot-expiry watchdog — if no tap arrives within game_slot_ms, mark missed.
-    _phone_tasks.append(asyncio.create_task(_slot_expiry(blink_id)))
-
-
-async def _slot_expiry(blink_id: int):
-    """Wait one slot; if the phone hasn't tapped, count it as missed."""
-    await asyncio.sleep(game_slot_ms / 1000)
-    if not game_active:
-        return
-    if blink_id in game_results:
-        return
-    _missed_set.add(blink_id)
-    await _check_finish_early()
-
-
-async def _check_finish_early():
-    """End the round as soon as every phone has either tapped or missed."""
-    global game_active, _end_task
-    if not game_active:
-        return
-    total = len(game_order)
-    if total == 0:
-        return
-    if len(game_results) + len(_missed_set) < total:
-        return
-    game_active = False
-    if _end_task and not _end_task.done():
-        _end_task.cancel()
-    await _broadcast_winner()
-
-
-async def _game_end_timer():
-    """Wall-clock fallback — ends the round after GAME_DURATION_MS."""
-    await asyncio.sleep(GAME_DURATION_MS / 1000)
-    global game_active
-    if game_active:
-        game_active = False
-        await _broadcast_winner()
-
-
-async def _start_parallel_game():
-    """Schedule each phone's bug at a random time within the game window."""
-    global _phone_tasks, _end_task, _shown_set, _missed_set
-    _shown_set    = set()
-    _missed_set   = set()
-    _phone_tasks  = []
-
-    # Each phone gets a random delay so their bug appears at an unpredictable moment.
-    # Leave at least slot_ms of window after the bug appears so every phone gets a
-    # fair chance to tap before the 20-second round ends.
-    max_delay_ms = max(0, GAME_DURATION_MS - game_slot_ms - 500)
-
-    for blink_id in game_order:
-        delay_ms = random.randint(0, max_delay_ms)
-        task = asyncio.create_task(_show_bug(blink_id, delay_ms))
-        # Append immediately so game_start_endpoint's cancel loop covers tasks
-        # created before a rapid restart cancels this coroutine mid-loop.
-        _phone_tasks.append(task)
-
-    _end_task = asyncio.create_task(_game_end_timer())
-    await _broadcast_progress()
-
-
-async def _broadcast_progress():
-    if _broadcast is None:
-        return
-    tapped = len(game_results)
-    total  = len(game_order)
-    await _broadcast({"type": "game_progress", "tapped": tapped, "total": total})
-
-
-async def _broadcast_winner():
-    if _broadcast is None or not game_results:
-        if _broadcast:
-            await _broadcast({"type": "game_end"})
-        return
-    min_ms  = round(min(game_results.values()))
-    winners = [bid for bid, ms in game_results.items() if round(ms) == min_ms]
-    if len(winners) > 1:
-        await _broadcast({
-            "type":        "game_winner",
-            "draw":        True,
-            "blink_ids":   winners,
-            "reaction_ms": min_ms,
-        })
-    else:
-        await _broadcast({
-            "type":        "game_winner",
-            "blink_id":    winners[0],
-            "reaction_ms": min_ms,
-        })
+_last_tap_at:    dict[str, float] = {}   # device_id → epoch
+_progress_task:  asyncio.Task | None = None
 
 
 # ------------------------------------------------------------------ #
@@ -208,115 +132,239 @@ async def _broadcast_winner():
 # ------------------------------------------------------------------ #
 
 @router.post("/admin/game/start")
-async def game_start_endpoint(payload: dict):
-    global game_active, game_order, game_results, game_slot_ms, _countdown_task
-    # Cancel any in-progress game/countdown
-    if _countdown_task and not _countdown_task.done():
-        _countdown_task.cancel()
-    for t in _phone_tasks:
-        if not t.done(): t.cancel()
-    if _end_task and not _end_task.done():
-        _end_task.cancel()
+async def game_start(payload: dict):
+    """Start a rope-climb round.
 
-    game_order   = payload.get("order", [])
-    game_slot_ms = int(payload.get("slot_ms", 1400))
-    game_active  = True
-    game_results = {}
-    _countdown_task = asyncio.create_task(_countdown_then_start())
-    return {"ok": True}
+    payload: {
+        "teams": { "<blink_id>": "diana" | "rosie", ... }
+    }
 
+    The controller computes team assignments from the median u of detected
+    phones; uncalibrated phones reach this endpoint with no team in the map
+    and stay neutral (their taps are ignored)."""
+    global game_active, rope_teams, rope_heights, rope_taps_total
+    global rope_winner, rope_start_at, rope_end_at
+    global _progress_task, _last_tap_at
 
-async def _countdown_then_start():
+    # Reset round state
+    rope_teams      = {int(bid): str(team)
+                       for bid, team in payload.get("teams", {}).items()}
+    rope_heights    = {"diana": 0.0, "rosie": 0.0}
+    rope_taps_total = {"diana": 0,   "rosie": 0}
+    rope_winner     = None
+    rope_start_at   = time.time()
+    rope_end_at     = 0.0
+    _last_tap_at    = {}
+    game_active     = True
+
+    # Cancel any prior progress loop before starting a fresh one.
+    if _progress_task and not _progress_task.done():
+        _progress_task.cancel()
+
+    # Effects clash with the game view on phones — clear before starting.
     if _stop_effects:
         await _stop_effects()
+    # Sync isn't strictly required (rope game isn't time-precision sensitive),
+    # but enabling it keeps countdown/UI animations aligned across phones.
     if _enable_sync:
         await _enable_sync()
+
     if _broadcast:
         await _broadcast({
-            "type":     "game_countdown",
-            "start_at": int(time.time() * 1000),
+            "type":     "rope_start",
+            "teams":    {str(bid): team for bid, team in rope_teams.items()},
+            "start_at": int(rope_start_at * 1000),
         })
-    await asyncio.sleep(3)
-    if game_active:
-        await _start_parallel_game()
 
-
-@router.get("/admin/game/results")
-async def game_results_endpoint():
-    rows = sorted(
-        [{"blink_id": bid, "reaction_ms": ms} for bid, ms in game_results.items()],
-        key=lambda r: r["reaction_ms"],
-    )
-    for i, r in enumerate(rows):
-        r["rank"] = i + 1
-    no_tap = [bid for bid in game_order if bid not in game_results]
-    return {"results": rows, "no_tap": no_tap, "active": game_active, "total": len(game_order)}
+    _progress_task = asyncio.create_task(_rope_progress_loop())
+    return {"ok": True}
 
 
 @router.post("/admin/game/stop")
 async def game_stop():
-    global game_active, _countdown_task, _end_task
+    """Abort the current round with no winner."""
+    global game_active, _progress_task
+    if not game_active and _progress_task is None:
+        return {"ok": True}
     game_active = False
-    if _countdown_task and not _countdown_task.done():
-        _countdown_task.cancel()
-    _countdown_task = None
-    for t in _phone_tasks:
-        if not t.done(): t.cancel()
-    _phone_tasks.clear()
-    if _end_task and not _end_task.done():
-        _end_task.cancel()
-    _end_task = None
+    if _progress_task and not _progress_task.done():
+        _progress_task.cancel()
+    _progress_task = None
     if _broadcast:
-        await _broadcast({"type": "game_end"})
+        await _broadcast({
+            "type":   "rope_end",
+            "winner": None,
+            "diana":  rope_heights["diana"],
+            "rosie":  rope_heights["rosie"],
+        })
+    await _start_default_wave()
     return {"ok": True}
 
 
-async def handle_tap(device_id: str, reaction_ms: float):
-    """Called (awaited) from the WS handler when a game_tap message arrives."""
+async def _start_default_wave():
+    """After a rope round ends, fire a calm wave so audience phones aren't
+    stuck on the game card with no animation.  Goes through the server's
+    own start_effect so current_effect_state is updated for reconnects."""
+    if _start_effect is None:
+        return
+    await _start_effect("wave", {
+        "speed":        0.25,
+        "spatial_freq": 1.5,
+        "angle":        0.0,
+        "bpm":          100.0,
+        "split":        0.5,
+        "color_r":      180,
+        "color_g":      210,
+        "color_b":      240,
+        "color2_r":     255,
+        "color2_g":     255,
+        "color2_b":     255,
+    })
+
+
+@router.get("/admin/game/state")
+async def game_state():
+    """Snapshot used by the controller's poll loop."""
+    return {
+        "active":  game_active,
+        "heights": rope_heights,
+        "taps":    rope_taps_total,
+        "winner":  rope_winner,
+        "teams":   {
+            "diana": sum(1 for t in rope_teams.values() if t == "diana"),
+            "rosie": sum(1 for t in rope_teams.values() if t == "rosie"),
+        },
+    }
+
+
+# ------------------------------------------------------------------ #
+# Server — tap handler + loop                                          #
+# ------------------------------------------------------------------ #
+
+async def handle_tap(device_id: str, reaction_ms: float = 0.0):
+    """Called (awaited) from the WS handler when a game_tap message arrives.
+    `reaction_ms` is kept in the signature for backward compatibility with the
+    old bug-game wire format; the rope game ignores it."""
     if not game_active:
         return
     blink_id = _blink_assignments.get(device_id)
     if blink_id is None:
         return
-    # Only accept taps from phones whose bug has actually appeared
-    if blink_id not in _shown_set:
+    team = rope_teams.get(blink_id)
+    if team is None:
+        return   # neutral / uncalibrated phone — tap is ignored
+
+    now = time.time()
+    last = _last_tap_at.get(device_id, 0.0)
+    if now - last < PER_PHONE_TAP_INTERVAL:
+        return   # rate-limited
+    _last_tap_at[device_id] = now
+
+    rope_heights[team]    = min(1.0, rope_heights[team] + _climb_per_tap_for(team))
+    rope_taps_total[team] += 1
+
+    if rope_heights[team] >= 1.0 and rope_winner is None:
+        await _rope_finish(team)
+
+
+async def _rope_progress_loop():
+    """Periodic decay + broadcast.  Decay drains heights down toward zero so
+    teams have to keep up a steady tap rate to make progress."""
+    last_t = time.time()
+    try:
+        while game_active:
+            await asyncio.sleep(PROGRESS_INTERVAL)
+            now = time.time()
+            dt = now - last_t
+            last_t = now
+            if rope_winner is None:
+                for team in rope_heights:
+                    if rope_heights[team] < 1.0:
+                        rope_heights[team] = max(
+                            0.0, rope_heights[team] - CLIMB_DECAY * dt
+                        )
+            if _broadcast:
+                await _broadcast({
+                    "type":  "rope_progress",
+                    "diana": round(rope_heights["diana"], 4),
+                    "rosie": round(rope_heights["rosie"], 4),
+                })
+    except asyncio.CancelledError:
+        pass
+
+
+async def _rope_finish(winner: str):
+    global game_active, rope_winner, rope_end_at, _progress_task
+    rope_winner = winner
+    rope_end_at = time.time()
+    game_active = False
+    if _progress_task and not _progress_task.done():
+        _progress_task.cancel()
+    _progress_task = None
+    if _broadcast:
+        await _broadcast({
+            "type":   "rope_end",
+            "winner": winner,
+            "diana":  rope_heights["diana"],
+            "rosie":  rope_heights["rosie"],
+        })
+    # Give phones (and the stage page) enough time to celebrate the winner
+    # before swapping everyone over to the calm default wave.  Without this
+    # the wave message landed almost instantly after rope_end and the
+    # audience flicked off the winner banner before they could read it.
+    asyncio.create_task(_delayed_default_wave(5.0))
+
+
+async def _delayed_default_wave(delay: float):
+    try:
+        await asyncio.sleep(delay)
+    except asyncio.CancelledError:
         return
-    if blink_id in game_results:
-        return
-    game_results[blink_id] = float(reaction_ms)
-    await _broadcast_progress()
-    await _check_finish_early()
+    await _start_default_wave()
 
 
 # ------------------------------------------------------------------ #
-# Controller — start / poll / leaderboard                             #
+# Controller — start / stop / poll                                     #
 # ------------------------------------------------------------------ #
 
-def start_bug_game():
+def _assign_teams(positions: dict[int, dict]) -> dict[int, str]:
+    """Split phones into Diana/Rosie by median u.  Below-median → Diana
+    (left of stage); at-or-above → Rosie.  Returns blink_id → team."""
+    if not positions:
+        return {}
+    us = sorted(p["u"] for p in positions.values())
+    median_u = us[len(us) // 2]
+    return {
+        bid: ("diana" if p["u"] < median_u else "rosie")
+        for bid, p in positions.items()
+    }
+
+
+def start_rope_game():
     with _state.lock:
         positions = dict(_state.calibrated_positions)
     if not positions:
-        _set_status("No detected phones - run detection first")
+        _set_status("No detected phones — run detection first")
         return
+    teams = _assign_teams(positions)
+    payload = {"teams": {str(b): t for b, t in teams.items()}}
+    ok = _post_json("/admin/game/start", payload)
+    if not ok:
+        _set_status("Rope start failed")
+        return
+    with _state.lock:
+        _state.current_effect = None
+    set_game_btn_highlight(True)
+    diana_n = sum(1 for t in teams.values() if t == "diana")
+    rosie_n = sum(1 for t in teams.values() if t == "rosie")
+    _set_status(f"Rope climb — Diana {diana_n}  vs  Rosie {rosie_n}")
+    _start_poll()
 
-    # Prefer the controller's existing render-order (left-to-right rank) when
-    # populated; fall back to sorting positions by u so we work regardless of
-    # whether _render_order has been rebuilt this session.
-    if _render_order:
-        ordered = sorted(_render_order.keys(), key=lambda bid: _render_order[bid])
-    else:
-        ordered = sorted(positions, key=lambda bid: positions[bid].get("u", 0.0))
 
-    ok = _post_json("/admin/game/start", {"order": ordered, "slot_ms": game_slot_ms})
-    if ok:
-        with _state.lock:
-            _state.current_effect = None
-        set_game_btn_highlight(True)
-        _set_status(f"Bug game started - {len(ordered)} phones / {GAME_DURATION_MS // 1000}s round")
-        dpg.configure_item("game_leaderboard_window", show=True)
-        _start_poll()
-    else:
-        _set_status("Game start failed")
+def stop_rope_game():
+    _post_json("/admin/game/stop", {})
+    set_game_btn_highlight(False)
+    _set_status("Rope climb stopped")
 
 
 def set_game_btn_highlight(active: bool):
@@ -328,59 +376,45 @@ def set_game_btn_highlight(active: bool):
         pass
 
 
-_last_winner_id:  int | None = None   # most recent winner blink_id
-_last_winner_at:  float      = 0.0    # epoch seconds when the round ended
-
+# Winner-highlight API kept for controller.py's draw_winner_highlight call.
+# The rope game has no per-phone winner so this stays empty.
 
 def get_last_winner():
-    """Return (blink_id, epoch_seconds) of the last winner, or (None, 0)."""
-    return _last_winner_id, _last_winner_at
+    return None, 0.0
 
 
 def clear_winner_highlight():
-    """Drop the winner marker immediately (e.g. on reset or effect fire)."""
-    global _last_winner_id, _last_winner_at
-    _last_winner_id = None
-    _last_winner_at = 0.0
+    pass
 
 
 def _start_poll():
+    """Background poll: refresh sidebar height readout, drop highlight on end."""
     def _worker():
-        global _last_winner_id, _last_winner_at
-        for _ in range(GAME_DURATION_MS // 1000 + 10):
-            time.sleep(1)
-            data = _fetch_json("/admin/game/results")
+        while True:
+            time.sleep(0.4)
+            data = _fetch_json("/admin/game/state")
             if data is None:
                 continue
-            results = data.get("results", [])
-            total   = data.get("total", 0)
-            no_tap  = data.get("no_tap", [])
-            _update_leaderboard(results, total, no_tap)
-            if not data.get("active", True):
+            heights = data.get("heights", {})
+            taps    = data.get("taps", {})
+            try:
+                dpg.set_value(
+                    "rope_status_text",
+                    f"Diana {heights.get('diana', 0):>3.0%}  ({taps.get('diana', 0)})\n"
+                    f"Rosie {heights.get('rosie', 0):>3.0%}  ({taps.get('rosie', 0)})"
+                )
+            except Exception:
+                pass
+            if not data.get("active"):
                 set_game_btn_highlight(False)
-                if results:
-                    _last_winner_id = results[0]["blink_id"]
-                    _last_winner_at = time.time()
+                winner = data.get("winner")
+                if winner:
+                    try:
+                        _set_status(f"🏆 {winner.title()} wins!")
+                    except Exception:
+                        pass
                 break
     threading.Thread(target=_worker, daemon=True).start()
-
-
-def _update_leaderboard(results, total, no_tap=None):
-    rows = []
-    for r in results:
-        rows.append(f"#{r['rank']}  Phone {r['blink_id'] + 1}   {r['reaction_ms']:.0f} ms")
-    if no_tap:
-        if rows:
-            rows.append("-" * 26)
-        for bid in no_tap:
-            rows.append(f"   Phone {bid + 1}   no tap")
-    while len(rows) < 12:
-        rows.append("")
-    try:
-        dpg.set_value("game_result_text",  "\n".join(rows[:12]))
-        dpg.set_value("game_status_text",  f"{len(results)}/{total} tapped")
-    except Exception:
-        pass
 
 
 # ------------------------------------------------------------------ #
@@ -388,27 +422,25 @@ def _update_leaderboard(results, total, no_tap=None):
 # ------------------------------------------------------------------ #
 
 def build_sidebar_buttons(indent: int, pad: int):
-    """Add the BUG GAME section to the sidebar. Call inside a dpg layout block."""
+    """Add the ROPE CLIMB section to the sidebar."""
     dpg.add_spacer(height=4)
-    dpg.add_text("BUG GAME", color=(160, 160, 160), indent=indent)
+    dpg.add_text("ROPE CLIMB", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
-    dpg.add_button(label="Start Bug Game",
+    dpg.add_button(label="Start Rope Climb",
                    tag="game_start_btn",
-                   callback=start_bug_game,
+                   callback=start_rope_game,
                    indent=indent, width=-(pad + 1))
-    dpg.add_button(label="Leaderboard",
-                   callback=lambda: dpg.configure_item(
-                       "game_leaderboard_window",
-                       show=not dpg.is_item_shown("game_leaderboard_window"),
-                   ),
+    dpg.add_button(label="Stop",
+                   callback=stop_rope_game,
                    indent=indent, width=-(pad + 1))
+    dpg.add_spacer(height=4)
+    dpg.add_text("",
+                 tag="rope_status_text",
+                 color=(200, 200, 200),
+                 indent=indent)
 
 
 def build_window():
-    """Create the leaderboard floating window. Call after the main viewport is set up."""
-    with dpg.window(tag="game_leaderboard_window", label="Bug Game Leaderboard",
-                    width=340, height=380, pos=(400, 100), show=False,
-                    no_collapse=False):
-        dpg.add_text("", tag="game_status_text", color=(160, 160, 160))
-        dpg.add_separator()
-        dpg.add_text("", tag="game_result_text", color=(220, 220, 220))
+    """Old bug-game leaderboard window removed.  Kept as a no-op so the
+    controller setup_ui() call site doesn't change."""
+    return

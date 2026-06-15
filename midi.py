@@ -51,7 +51,6 @@ PAD_NOTE_MAP: dict[int, str] = {
     39: "pulse",
     40: "rainbow",
     41: "color_flood",
-    42: "aurora",
 }
 NOTE_PAD_TOGGLE = 43
 
