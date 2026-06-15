@@ -294,6 +294,8 @@ let effectSpatialFreq = 1.5;
 let effectBpm         = 100;
 let effectOriginU     = 0.5;
 let effectOriginV     = 0.5;
+let effectOriginExplicit = false;   // true → use origin_u/v as-is; false → derive from angle
+let effectRipplePulse  = false;     // true → single half-arch travelling pulse (controller click-fire)
 let effectAngle       = 0;      // degrees: 0=L→R, 90=T→B, 180=R→L, 270=B→T
 let effectR           = 255;
 let effectG           = 255;
@@ -617,6 +619,8 @@ function handleMessage(msg) {
     effectBpm         = msg.bpm ?? 100;
     effectOriginU     = msg.origin_u ?? 0.5;
     effectOriginV     = msg.origin_v ?? 0.5;
+    effectOriginExplicit = msg.origin_explicit ?? false;
+    effectRipplePulse  = msg.ripple_pulse ?? false;
     effectAngle       = msg.angle ?? 0;
     effectR           = msg.color_r  ?? 255;
     effectG           = msg.color_g  ?? 255;
@@ -1024,14 +1028,38 @@ function shade(u, v, t) {
   }
 
   if (currentEffect === "ripple") {
-    // Origin sits on the edge of the u,v space at the given angle
-    const a = effectAngle * Math.PI / 180;
-    const ou = 0.5 + 0.5 * Math.cos(a);
-    const ov = 0.5 + 0.5 * Math.sin(a);
+    // Click-driven half-arch ripple: a single light-blue pulse travels
+    // outward from the click's (u,v), each phone lights up briefly as the
+    // wave front passes, then the whole effect fades out once the wave
+    // has crossed the room.
+    const ou = effectOriginExplicit ? effectOriginU : 0.5;
+    const ov = effectOriginExplicit ? effectOriginV : 0.5;
     const dist = Math.sqrt((u - ou) ** 2 + (v - ov) ** 2);
-    const phase = 2 * Math.PI * (dist * effectSpatialFreq - t * effectSpeed);
-    const i = 0.5 + 0.5 * Math.sin(phase);
-    return [i * effectR, i * effectG, i * effectB];
+    const front = t * effectSpeed;
+    const width = 0.18;
+    const delta = dist - front;
+
+    // Half-arch (half-sine) profile centred just behind the wave front.
+    let i = 0;
+    if (delta <= 0 && delta >= -width) {
+      i = Math.sin(Math.PI * (1 + delta / width));   // 0 at delta=-w → 1 → 0 at delta=0
+    }
+
+    // Amplitude falls off with distance from the click — phones close to
+    // the impact peak bright, phones across the room peak dim. ^1.5 so
+    // the near-field stays visibly brighter than the far-field even
+    // before the wave fully fades.
+    const falloff = Math.pow(Math.max(0, 1 - dist), 1.5);
+    i *= falloff;
+
+    // Fade the whole effect out once the wave reaches the far corner.
+    const liveTime = 1.5 / Math.max(effectSpeed, 0.05);
+    const fadeOut = t > liveTime
+      ? Math.max(0, 1 - (t - liveTime) * 1.5)
+      : 1;
+    i *= fadeOut;
+
+    return [i * 140, i * 210, i * 255];   // light blue (RGB)
   }
 
   if (currentEffect === "sparkle") {

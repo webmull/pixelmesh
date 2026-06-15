@@ -107,6 +107,26 @@ _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (e
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 _timing_log_handles: list = []      # open file handles paired with _timing_log_paths
 
+# Per-phone blink amplitude (max-min brightness over the grid point's history),
+# captured at decode time.  Used at detection end to suggest an ISO adjustment.
+_detection_amplitudes: list[float] = []
+_iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
+
+# Click-to-ripple state.  Toggled by clicking the Ripple button in the sidebar
+# (which highlights when armed); the button no longer fires the audience effect
+# itself.  While armed, left-clicks on the camera preview send a single half-arch
+# light-blue ripple from the click's u,v and draw a matching water animation on
+# the controller canvas.  Firing any other sidebar effect disarms ripple.
+_ripple_armed: bool = False
+# List of (canvas_x, canvas_y, t_started, theta_deg) for in-flight click ripples.
+# theta_deg points toward the nearest detected phone (None if no detections yet);
+# the local animation draws a half-arch opening in that direction.
+_click_ripples: list[tuple[int, int, float, float | None]] = []
+_CLICK_RIPPLE_LIFETIME = 1.2     # seconds — local water animation duration
+_CLICK_RIPPLE_MAX_RADIUS = 160   # pixels in canvas-space
+# Light blue (BGR) for both local water rings and the audience ripple.
+_RIPPLE_BGR = (255, 210, 140)
+
 # Guards compound mutations of the detection-session globals
 # (_detected_ids / _render_order / _detection_timings / _detection_start_time /
 # _report_saved_path) so a reset can't be observed mid-rebind by the detection
@@ -173,6 +193,40 @@ def _stop_auto_debug_capture():
     _debug_auto_started = False
 
 
+def _compute_iso_hint():
+    """After detection ends, look at the median blink amplitude across all
+    decoded phones and suggest an ISO change if it's outside the comfort
+    band.  Sets _iso_hint for the sidebar; never moves the slider itself —
+    the user can always overrule.
+
+    Target amplitude band 0.6–0.9: above 0.55 keeps recent_std well above
+    the gate's 0.05 floor; below 0.95 leaves headroom for noise without
+    clipping.  Outside that band we suggest a ±20-25% ISO nudge — the
+    actual gain→amplitude curve is roughly linear in this regime, but the
+    suggestion is deliberately coarse because mixed-lighting rooms can
+    push individual phones away from the median.
+    """
+    global _iso_hint
+    if len(_detection_amplitudes) < 3:
+        return
+    if not elgato.connected:
+        return
+    import statistics
+    median_amp = statistics.median(_detection_amplitudes)
+    current = elgato.iso_gain
+    if median_amp < 0.55 and current < 160:
+        delta = max(10, int(current * 0.25))
+        suggested = min(160, current + delta)
+        _iso_hint = f"low signal {median_amp:.2f} — try ISO ~{suggested}"
+    elif median_amp > 0.95 and current > 30:
+        delta = max(10, int(current * 0.20))
+        suggested = max(0, current - delta)
+        _iso_hint = f"strong signal {median_amp:.2f} — could try ISO ~{suggested}"
+    else:
+        _iso_hint = f"signal OK ({median_amp:.2f}, n={len(_detection_amplitudes)})"
+    log.info(f"[iso] {_iso_hint}")
+
+
 def _log_detection_summary():
     """One-line end-of-detection summary listing connected vs detected vs
     missed blink_ids — written to both the controller log and the active
@@ -194,6 +248,7 @@ def _log_detection_summary():
         except Exception as e:
             log.info(f"[detect] summary write failed: {e}")
     _close_timing_log()
+    _compute_iso_hint()
 
 
 vid_rec = VideoRecorder()
@@ -727,7 +782,9 @@ def update_ui_from_state():
     safe_set("status_text",    status)
     safe_set("clients_text",   f"Clients: {clients}")
     safe_set("detect_text",    f"Clients detected: {len(_detected_ids)}")
-    ui_queue.put(("_active_effect", effect))
+    # Armed ripple takes priority over the currently-playing effect for the
+    # sidebar highlight; firing another effect already calls _set_ripple_armed(False).
+    ui_queue.put(("_active_effect", "ripple" if _ripple_armed else effect))
 
     safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
     ui_queue.put(("_rec_status_show", vid_rec.active))
@@ -735,6 +792,7 @@ def update_ui_from_state():
     safe_set("rec_filename_text", _os.path.basename(rec_path) if rec_path else "")
     ui_queue.put(("_rec_filename_show", bool(rec_path)))
 
+    safe_set("iso_hint_text",    _iso_hint)
     safe_set("chk_detection",    detecting)
     safe_set("chk_sync",         state.syncing)
     safe_set("chk_overlays_all", state.show_overlays)
@@ -820,12 +878,14 @@ def toggle_detection():
 
     if val:
         global _detection_start_time, _detected_ids, _render_order
-        global _debug_auto_started, _report_saved_path
+        global _debug_auto_started, _report_saved_path, _iso_hint
         with _det_lock:
             _detection_start_time = time.time()
             _detected_ids = set()
             _render_order.clear()
             _report_saved_path = None
+            _detection_amplitudes.clear()
+            _iso_hint = ""
         with state.lock:
             state.overlay_show_render = False
         # Reset detector internal state (_ever_active, history, diff accum) so
@@ -915,6 +975,125 @@ def toggle_all_overlays():
     set_status(f"Overlays {'ON' if val else 'OFF'}")
 
 
+def _set_ripple_armed(armed: bool):
+    """Internal: toggle armed state.  The button highlight is driven by
+    update_ui_from_state on the next tick (it overrides _active_effect
+    with 'ripple' when armed)."""
+    global _ripple_armed
+    if armed == _ripple_armed:
+        return
+    _ripple_armed = armed
+    if not armed:
+        _click_ripples.clear()
+
+
+def toggle_ripple_arm():
+    """Click on the sidebar 'Ripple' button: arm/disarm click-to-ripple mode.
+    Does NOT fire the audience effect — that only happens on a preview click."""
+    _set_ripple_armed(not _ripple_armed)
+    set_status(f"Ripple {'armed' if _ripple_armed else 'disarmed'}")
+
+
+def fire_effect_and_disarm_ripple(name: str):
+    """Sidebar effect-button callback for everything except Ripple itself.
+    Disarms ripple before firing so the highlight doesn't linger on Ripple
+    while a different effect is now playing."""
+    _set_ripple_armed(False)
+    effects.trigger_effect(name)
+
+
+def _on_preview_click(sender, app_data):
+    """Map a left-click on the preview image to a u,v in the room, fire the
+    audience ripple from there, and spawn a local water animation at the
+    click point.  No-op when ripple is disarmed or the click was outside
+    the preview widget."""
+    if not _ripple_armed:
+        return
+    if not dpg.does_item_exist("preview_image"):
+        return
+    if not dpg.is_item_hovered("preview_image"):
+        return
+    mouse = dpg.get_mouse_pos(local=False)
+    img_min  = dpg.get_item_rect_min("preview_image")
+    img_size = dpg.get_item_rect_size("preview_image")
+    if img_size[0] <= 0 or img_size[1] <= 0:
+        return
+    disp_x = mouse[0] - img_min[0]
+    disp_y = mouse[1] - img_min[1]
+    if disp_x < 0 or disp_y < 0 or disp_x >= img_size[0] or disp_y >= img_size[1]:
+        return
+    # Map display pixels → canvas pixels (preview is aspect-fitted)
+    cx = int(disp_x * PREVIEW_WIDTH  / img_size[0])
+    cy = int(disp_y * PREVIEW_HEIGHT / img_size[1])
+
+    # Look up the nearest detected phone (in canvas-pixel space) so the local
+    # half-arch can open toward it.  No detections yet → leave theta None and
+    # the draw falls back to a full ring.
+    with state.lock:
+        positions = state.calibrated_positions.copy()
+        crop_x = state.last_crop_x
+        crop_y = state.last_crop_y
+    theta_deg: float | None = None
+    if positions:
+        best_d2 = None
+        best_xy = None
+        for p in positions.values():
+            px = int(p["u"] * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
+            py = int(p["v"] * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
+            d2 = (px - cx) ** 2 + (py - cy) ** 2
+            if best_d2 is None or d2 < best_d2:
+                best_d2 = d2
+                best_xy = (px, py)
+        if best_xy is not None and best_d2 and best_d2 > 0:
+            theta_deg = math.degrees(math.atan2(best_xy[1] - cy, best_xy[0] - cx))
+
+    _click_ripples.append((cx, cy, time.time(), theta_deg))
+
+    # Map canvas → u,v in the original camera frame (inverse of
+    # draw_device_overlay's u→px transform).
+    u = (cx + crop_x) / max(1, (PREVIEW_WIDTH  + 2 * crop_x))
+    v = (cy + crop_y) / max(1, (PREVIEW_HEIGHT + 2 * crop_y))
+    u = max(0.0, min(1.0, u))
+    v = max(0.0, min(1.0, v))
+    effects.trigger_ripple_at(u, v)
+
+
+def draw_click_ripples(canvas: np.ndarray):
+    """Render in-flight click ripples on top of the canvas as concentric
+    half-arches that open toward the nearest detected phone — cosmetic
+    feedback for the operator; not visible to the audience.  Falls back
+    to full rings when no phone has been located yet (no direction to
+    aim at)."""
+    if not _click_ripples:
+        return
+    now = time.time()
+    alive: list[tuple[int, int, float, float | None]] = []
+    for cx, cy, t0, theta in _click_ripples:
+        age = now - t0
+        if age >= _CLICK_RIPPLE_LIFETIME:
+            continue
+        alive.append((cx, cy, t0, theta))
+        prog = age / _CLICK_RIPPLE_LIFETIME
+        # Draw three rings spaced in time so the effect feels like water.
+        for ring in range(3):
+            ring_prog = prog - ring * 0.18
+            if ring_prog <= 0 or ring_prog >= 1:
+                continue
+            radius = int(ring_prog * _CLICK_RIPPLE_MAX_RADIUS)
+            alpha  = (1 - ring_prog) ** 1.5
+            color = tuple(int(c * alpha) for c in _RIPPLE_BGR)
+            thickness = max(1, int(3 * alpha))
+            if theta is None:
+                cv2.circle(canvas, (cx, cy), radius, color, thickness, cv2.LINE_AA)
+            else:
+                # 180° arc facing theta (image y is down, so atan2 already
+                # matches OpenCV's clockwise-from-+x convention).
+                cv2.ellipse(canvas, (cx, cy), (radius, radius), 0,
+                            theta - 90, theta + 90,
+                            color, thickness, cv2.LINE_AA)
+    _click_ripples[:] = alive
+
+
 def _set_roi():
     if _ui_syncing:
         return
@@ -976,7 +1155,7 @@ def _save_report(auto_open: bool = False):
 
 
 def reset_server():
-    global _detected_ids, _detection_start_time, _render_order, _detection_timings
+    global _detected_ids, _detection_start_time, _render_order, _detection_timings, _iso_hint
     _save_report(auto_open=True)
     post_json_async("/admin/reset", {})
     detector.reset()
@@ -985,6 +1164,8 @@ def reset_server():
         _render_order.clear()
         _detection_timings = {}
         _detection_start_time = 0.0
+        _detection_amplitudes.clear()
+        _iso_hint = ""
     with state.lock:
         state.detecting = False
         state.syncing = False
@@ -1137,6 +1318,10 @@ def setup_ui(holder: dict):
         dpg.add_key_press_handler(
             callback=lambda s, a: on_key_press(a, holder)
         )
+        dpg.add_mouse_click_handler(
+            button=dpg.mvMouseButton_Left,
+            callback=_on_preview_click,
+        )
 
     with dpg.window(tag="main_window", label=WINDOW_TITLE,
                     no_resize=True, no_move=True, no_collapse=True,
@@ -1171,6 +1356,9 @@ def setup_ui(holder: dict):
                                            callback=_set_iso,
                                            indent=_PAD, width=-(_PAD + 1),
                                            enabled=False)
+                        dpg.add_text("", tag="iso_hint_text",
+                                     color=(220, 180, 80), indent=_PAD,
+                                     wrap=300)
 
                         dpg.add_spacer(height=8)
                         dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
@@ -1251,11 +1439,15 @@ def setup_ui(holder: dict):
                         effects.build_preview_widget(indent=_PAD)
                         dpg.add_spacer(height=4)
                         for _ename, _elabel in effects.EFFECT_LABELS.items():
+                            if _ename == "ripple":
+                                _btn_cb = lambda s, a, u: toggle_ripple_arm()
+                            else:
+                                _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
                             with dpg.group(horizontal=True, indent=_PAD):
                                 dpg.add_button(
                                     label=_elabel,
                                     tag=f"fx_btn_{_ename}",
-                                    callback=lambda s, a, u: effects.trigger_effect(u),
+                                    callback=_btn_cb,
                                     user_data=_ename,
                                     width=262,
                                 )
@@ -1495,6 +1687,8 @@ def main():
                     except Exception as e:
                         log.info(f"[winner] draw skipped: {e}")
 
+                    draw_click_ripples(canvas)
+
                     if detecting:
                         draw_detect_border(canvas)
 
@@ -1716,6 +1910,17 @@ def _detection_worker():
                             _render_order[bid] = rank
                         elapsed = time.time() - _detection_start_time
                         _detection_timings[det.blink_id] = (elapsed, det.confidence)
+                        # Capture this phone's blink amplitude from the matching
+                        # grid point's history.  Used at detection end to suggest
+                        # an ISO change if the median across phones is too low.
+                        try:
+                            for pt in detector.get_blobs():
+                                if pt.decoded_id == det.blink_id and pt.history:
+                                    vals = [b for _, b in pt.history]
+                                    _detection_amplitudes.append(max(vals) - min(vals))
+                                    break
+                        except Exception:
+                            pass
                     _log_timing(
                         f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
                         f"{det.confidence:>12.3f}"

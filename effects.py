@@ -78,10 +78,9 @@ EFFECT_PARAMS = {
         ("speed", "Speed", "slider_float", {"default_value": 0.4, "min_value": 0.05, "max_value": 4.0}),
     ],
     "ripple": [
-        ("color",        "Colour",    "color",        {"default_value": (255, 255, 255, 255)}),
-        ("angle",        "Origin",    "slider_float", {"default_value": 0.0,  "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
-        ("speed",        "Speed",     "slider_float", {"default_value": 0.5,  "min_value": 0.05, "max_value": 4.0}),
-        ("spatial_freq", "Frequency", "slider_float", {"default_value": 3.0,  "min_value": 0.5,  "max_value": 10.0}),
+        # Click-driven half-arch ripple — origin comes from the controller
+        # cursor, colour is fixed light-blue, only Speed is user-tunable.
+        ("speed", "Speed", "slider_float", {"default_value": 0.5, "min_value": 0.1, "max_value": 4.0}),
     ],
     "groups": [
         ("color",        "Colour A", "color",        {"default_value": (255, 40,  40,  255)}),
@@ -139,7 +138,7 @@ def _get(effect: str, param: str, default):
 # Trigger                                                              #
 # ------------------------------------------------------------------ #
 
-def trigger_effect(name: str):
+def trigger_effect(name: str, extra: dict | None = None):
     with _state.lock:
         positions = _state.calibrated_positions.copy()
     if not positions:
@@ -161,6 +160,8 @@ def trigger_effect(name: str):
         "color2_b":     int(color2[2]),
         "split":        _get(name, "split", 0.5),
     }
+    if extra:
+        payload.update(extra)
     if name == "groups":
         # Sort phones left→right by u, divide into n equal-count groups.
         # Caps n to phone count so every group has at least one phone.
@@ -180,6 +181,26 @@ def trigger_effect(name: str):
     with _state.lock:
         _state.current_effect = name
     _set_status(f"Effect: {name}")
+
+
+def trigger_ripple_at(u: float, v: float):
+    """Fire a single half-arch light-blue ripple from a specific (u,v) on
+    the room.  Colour is fixed (per design); only Speed comes from the
+    sidebar slider.  Does NOT update state.current_effect — armed ripple
+    drives the sidebar highlight; firing here would override it."""
+    payload = {
+        "name":             "ripple",
+        "speed":            _get("ripple", "speed", 0.5),
+        "color_r":          140,
+        "color_g":          210,
+        "color_b":          255,
+        "origin_u":         float(u),
+        "origin_v":         float(v),
+        "origin_explicit":  True,
+        "ripple_pulse":     True,
+    }
+    log.info(f"[effect] ripple_pulse at ({u:.3f}, {v:.3f})")
+    post_json_async("/admin/effect/fire", payload)
 
 
 _settings_debounce_timer: threading.Timer | None = None
@@ -203,6 +224,10 @@ def _on_settings_changed(s, v, user_data):
     with _state.lock:
         current = _state.current_effect
     if not current:
+        return
+    if current == "ripple":
+        # Ripple is click-driven — Speed updates take effect on the next click,
+        # but don't re-fire a phantom ripple from the slider drag itself.
         return
 
     with _settings_debounce_lock:
@@ -378,11 +403,21 @@ def _shade_preview(effect, u, v, idx, t, params):
         return _hsl_to_rgb(hue/360, 1.0, lum)
 
     if effect == "ripple":
-        ou = 0.5 + 0.5*math.cos(a_rad)
-        ov = 0.5 + 0.5*math.sin(a_rad)
+        # Click-driven half-arch ripple — preview shows it emanating from
+        # the centre as a single travelling pulse, looping so the user can
+        # see the wave shape and speed without needing to "click" anything.
+        ou, ov = 0.5, 0.5
         dist = math.sqrt((u-ou)**2 + (v-ov)**2)
-        i = 0.5 + 0.5*math.sin(2*math.pi*(dist*sf - t*sp))
-        return (i*r, i*g, i*b)
+        cycle = 2.0   # seconds — pulse repeat in preview
+        phase = (t * sp / cycle) % 1.0
+        front = phase * 1.0   # max distance ≈ corner of square
+        width = 0.18
+        delta = dist - front
+        if -width <= delta <= 0:
+            iv = math.sin(math.pi * (1 + delta / width))   # 0 → 1 → 0
+        else:
+            iv = 0.0
+        return (iv * 140, iv * 210, iv * 255)
 
     if effect == "groups":
         n    = max(2, round(sf))
