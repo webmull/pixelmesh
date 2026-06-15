@@ -16,6 +16,9 @@ import random
 import time
 import shutil
 import subprocess
+import threading
+from queue import Queue, Full
+
 import cv2
 import numpy as np
 from log import log
@@ -35,11 +38,24 @@ _NOUNS = [
 
 DEBUG_DIR = os.path.join(os.path.dirname(__file__), "debug")
 
-_FFMPEG = (
-    shutil.which("ffmpeg")
-    or "/opt/homebrew/bin/ffmpeg"
-    or "/usr/local/bin/ffmpeg"
-)
+# Max number of debug-run subfolders kept under DEBUG_DIR.  Older runs are
+# pruned on each start_run().
+_MAX_RUNS = 15
+
+# Subfolders inside DEBUG_DIR that are NOT debug runs and must never be pruned.
+_PRESERVED_DIRS = {"calibration_logs", "recordings", "reports"}
+
+
+def _find_ffmpeg() -> str | None:
+    for p in (shutil.which("ffmpeg"),
+              "/opt/homebrew/bin/ffmpeg",
+              "/usr/local/bin/ffmpeg"):
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+_FFMPEG = _find_ffmpeg()
 
 
 class DebugCapture:
@@ -50,6 +66,11 @@ class DebugCapture:
         self.active     = False
         self._manifest  = []
         self._ffmpeg_proc: subprocess.Popen | None = None
+        # Writer thread + bounded queue so record_frame never blocks the
+        # camera loop on ffmpeg's stdin.  Maxsize=2 keeps memory tiny and
+        # drops the oldest pending frame if ffmpeg falls behind.
+        self._write_q:  Queue | None = None
+        self._writer:   threading.Thread | None = None
 
     # ---------------------------------------------------------------- #
 
@@ -60,7 +81,26 @@ class DebugCapture:
         num  = random.randint(10, 99)
         return f"{adj}-{noun}-{num}"
 
+    @staticmethod
+    def _prune_old_runs():
+        """Delete debug-run subfolders past the _MAX_RUNS most recent."""
+        try:
+            entries = []
+            for name in os.listdir(DEBUG_DIR):
+                if name in _PRESERVED_DIRS or name.startswith("."):
+                    continue
+                full = os.path.join(DEBUG_DIR, name)
+                if os.path.isdir(full):
+                    entries.append((os.path.getmtime(full), full))
+            entries.sort(reverse=True)
+            for _, path in entries[_MAX_RUNS:]:
+                shutil.rmtree(path, ignore_errors=True)
+                log.info(f"[debug] pruned old run → {os.path.basename(path)}")
+        except Exception as e:
+            log.warning(f"[debug] prune failed: {e}")
+
     def start_run(self) -> str:
+        self._prune_old_runs()
         name            = self._friendly_name()
         self.run_dir    = os.path.join(DEBUG_DIR, name)
         self.frames_dir = os.path.join(self.run_dir, "frames")
@@ -68,6 +108,11 @@ class DebugCapture:
         self._manifest  = []
         self.active     = True
         self._ffmpeg_proc = None   # opened lazily on first record_frame
+        self._write_q   = Queue(maxsize=2)
+        self._writer    = threading.Thread(
+            target=self._writer_loop, daemon=True, name="dbg-write",
+        )
+        self._writer.start()
         os.makedirs(self.frames_dir, exist_ok=True)
         log.info(f"[debug] run started → {name}")
         return self.run_dir
@@ -76,6 +121,17 @@ class DebugCapture:
         if not self.active:
             return
         self.active = False
+        # Sentinel tells the writer to flush + exit; join briefly so the
+        # ffmpeg close below sees no further writes.
+        if self._write_q is not None:
+            try:
+                self._write_q.put_nowait(None)
+            except Full:
+                pass
+        if self._writer is not None:
+            self._writer.join(timeout=5)
+            self._writer = None
+        self._write_q = None
         if self._ffmpeg_proc is not None:
             try:
                 self._ffmpeg_proc.stdin.close()
@@ -98,34 +154,58 @@ class DebugCapture:
     # ---------------------------------------------------------------- #
 
     def record_frame(self, overlay: np.ndarray):
-        """Pipe one overlay frame to ffmpeg → run.mp4 (every frame, not throttled)."""
-        if not self.active:
+        """Hand one overlay frame to the writer thread; never blocks the camera loop."""
+        if not self.active or self._write_q is None:
             return
-        if self._ffmpeg_proc is None:
-            if not os.path.isfile(_FFMPEG):
-                return
-            h, w = overlay.shape[:2]
-            mp4_path = os.path.join(self.run_dir, "run.mp4")
-            self._ffmpeg_proc = subprocess.Popen(
-                [
-                    _FFMPEG, "-y",
-                    "-f", "rawvideo", "-vcodec", "rawvideo",
-                    "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", "30",
-                    "-i", "pipe:0",
-                    "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                    "-movflags", "+faststart",
-                    mp4_path,
-                ],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            log.info(f"[debug] ffmpeg pipe opened → {mp4_path} ({w}×{h})")
         try:
-            self._ffmpeg_proc.stdin.write(overlay.tobytes())
-        except BrokenPipeError:
-            log.warning("[debug] ffmpeg pipe broken")
-            self._ffmpeg_proc = None
+            self._write_q.put_nowait(overlay)
+        except Full:
+            # ffmpeg fell behind — drop the oldest queued frame and replace it.
+            try:
+                self._write_q.get_nowait()
+            except Exception:
+                pass
+            try:
+                self._write_q.put_nowait(overlay)
+            except Full:
+                pass
+
+    def _writer_loop(self):
+        """Drain the queue, lazily opening ffmpeg on the first real frame."""
+        while True:
+            frame = self._write_q.get()
+            if frame is None:
+                return
+            if self._ffmpeg_proc is None:
+                if not _FFMPEG:
+                    return
+                h, w = frame.shape[:2]
+                mp4_path = os.path.join(self.run_dir, "run.mp4")
+                # use_wallclock_as_timestamps: stamp each piped frame at
+                # arrival time so playback matches real-world duration
+                # regardless of variable camera fps.
+                self._ffmpeg_proc = subprocess.Popen(
+                    [
+                        _FFMPEG, "-y",
+                        "-f", "rawvideo", "-vcodec", "rawvideo",
+                        "-s", f"{w}x{h}", "-pix_fmt", "bgr24",
+                        "-use_wallclock_as_timestamps", "1",
+                        "-i", "pipe:0",
+                        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                        "-movflags", "+faststart",
+                        mp4_path,
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                log.info(f"[debug] ffmpeg pipe opened → {mp4_path} ({w}×{h})")
+            try:
+                self._ffmpeg_proc.stdin.write(frame.tobytes())
+            except BrokenPipeError:
+                log.warning("[debug] ffmpeg pipe broken")
+                self._ffmpeg_proc = None
+                return
 
     # ---------------------------------------------------------------- #
 

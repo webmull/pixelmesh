@@ -183,7 +183,8 @@ async def _broadcast_progress():
 
 async def _broadcast_winner():
     if _broadcast is None or not game_results:
-        await _broadcast({"type": "game_end"}) if _broadcast else None
+        if _broadcast:
+            await _broadcast({"type": "game_end"})
         return
     min_ms  = round(min(game_results.values()))
     winners = [bid for bid, ms in game_results.items() if round(ms) == min_ms]

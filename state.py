@@ -9,7 +9,7 @@ PREVIEW_HEIGHT = 720
 
 class AppState:
     def __init__(self):
-        self.lock = threading.RLock()
+        self.lock = threading.Lock()
 
         self.running          = True
         self.status_text      = "Ready"
@@ -38,12 +38,8 @@ class AppState:
         self.last_render_scale = 1.0
         self.last_crop_x      = 0
         self.last_crop_y      = 0
-        self.last_x_offset    = 0
-        self.last_available_w = PREVIEW_WIDTH
-        self.last_available_h = PREVIEW_HEIGHT
 
         self.latest_frame     = None
-        self.display_frame    = None
         self.preview_frame    = np.zeros(
             (PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8
         )

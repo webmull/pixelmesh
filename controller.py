@@ -43,7 +43,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 
 from state import AppState, PREVIEW_WIDTH, PREVIEW_HEIGHT
-from camera import apply_gamma, apply_contrast, apply_sharpen
+from camera import apply_gamma, apply_contrast
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
@@ -105,11 +105,30 @@ _detection_timings: dict[int, tuple] = {}       # blink_id → (elapsed_s, confi
 _report_saved_path: str | None = None            # set after first save this session; cleared on detect-start
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
+_timing_log_handles: list = []      # open file handles paired with _timing_log_paths
+
+# Guards compound mutations of the detection-session globals
+# (_detected_ids / _render_order / _detection_timings / _detection_start_time /
+# _report_saved_path) so a reset can't be observed mid-rebind by the detection
+# thread.  Held only for the few microseconds of the reset itself.
+_det_lock = threading.Lock()
 
 _CALIBRATION_LOG_DIR = _os.path.join(_os.path.dirname(__file__), "debug", "calibration_logs")
 
+def _close_timing_log():
+    global _timing_log_handles, _timing_log_paths
+    for f in _timing_log_handles:
+        try:
+            f.close()
+        except Exception:
+            pass
+    _timing_log_handles = []
+    _timing_log_paths   = []
+
+
 def _open_timing_log():
-    global _timing_log_paths
+    global _timing_log_paths, _timing_log_handles
+    _close_timing_log()
     # Cross-reference the active debug-capture run so the video and the
     # per-blink-id timing log can always be paired up later.
     debug_ref = ""
@@ -126,15 +145,20 @@ def _open_timing_log():
     # Also duplicate into the active debug run folder if one is in progress
     if dbg_cap.active and dbg_cap.run_dir:
         paths.append(_os.path.join(dbg_cap.run_dir, "calibration.log"))
+    handles = []
     for p in paths:
-        with open(p, "w") as f:
-            f.write(header)
-    _timing_log_paths = paths
+        f = open(p, "w", buffering=1)   # line-buffered for live tailing
+        f.write(header)
+        handles.append(f)
+    _timing_log_paths   = paths
+    _timing_log_handles = handles
 
 def _log_timing(line: str):
-    for p in _timing_log_paths:
-        with open(p, "a") as f:
+    for f in _timing_log_handles:
+        try:
             f.write(line + "\n")
+        except Exception:
+            pass
 
 
 def _stop_auto_debug_capture():
@@ -164,12 +188,12 @@ def _log_detection_summary():
                f"missed={missed}  "
                f"elapsed={time.time() - _detection_start_time:.1f}s")
     log.info(summary)
-    for p in _timing_log_paths:
+    for f in _timing_log_handles:
         try:
-            with open(p, "a") as f:
-                f.write(summary + "\n")
-        except Exception:
-            pass
+            f.write(summary + "\n")
+        except Exception as e:
+            log.info(f"[detect] summary write failed: {e}")
+    _close_timing_log()
 
 
 vid_rec = VideoRecorder()
@@ -797,10 +821,11 @@ def toggle_detection():
     if val:
         global _detection_start_time, _detected_ids, _render_order
         global _debug_auto_started, _report_saved_path
-        _detection_start_time = time.time()
-        _detected_ids = set()
-        _render_order.clear()
-        _report_saved_path = None
+        with _det_lock:
+            _detection_start_time = time.time()
+            _detected_ids = set()
+            _render_order.clear()
+            _report_saved_path = None
         with state.lock:
             state.overlay_show_render = False
         # Reset detector internal state (_ever_active, history, diff accum) so
@@ -955,10 +980,11 @@ def reset_server():
     _save_report(auto_open=True)
     post_json_async("/admin/reset", {})
     detector.reset()
-    _detected_ids = set()
-    _render_order.clear()
-    _detection_timings = {}
-    _detection_start_time = 0.0
+    with _det_lock:
+        _detected_ids = set()
+        _render_order.clear()
+        _detection_timings = {}
+        _detection_start_time = 0.0
     with state.lock:
         state.detecting = False
         state.syncing = False
@@ -1667,28 +1693,29 @@ def _detection_worker():
                         continue
                     # Freeze position at first detection — centroid drifts as
                     # noise points accumulate the same decoded ID over time.
-                    if det.blink_id in _detected_ids:
-                        continue
-                    u = det.cx_px / w_raw
-                    v = det.cy_px / h_raw
-                    positions[str(det.blink_id)] = {
-                        "u": round(u, 4),
-                        "v": round(v, 4),
-                        "confidence": round(det.confidence, 3),
-                    }
-                    with state.lock:
-                        state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
-                    _detected_ids.add(det.blink_id)
-                    # Recompute render order (left-to-right by u) after each new detection.
-                    with state.lock:
-                        all_pos = dict(state.calibrated_positions)
-                    _render_order.clear()
-                    for rank, bid in enumerate(
-                        sorted(all_pos, key=lambda b: all_pos[b]["u"]), 1
-                    ):
-                        _render_order[bid] = rank
-                    elapsed = time.time() - _detection_start_time
-                    _detection_timings[det.blink_id] = (elapsed, det.confidence)
+                    with _det_lock:
+                        if det.blink_id in _detected_ids:
+                            continue
+                        u = det.cx_px / w_raw
+                        v = det.cy_px / h_raw
+                        positions[str(det.blink_id)] = {
+                            "u": round(u, 4),
+                            "v": round(v, 4),
+                            "confidence": round(det.confidence, 3),
+                        }
+                        with state.lock:
+                            state.calibrated_positions[det.blink_id] = {"u": u, "v": v}
+                        _detected_ids.add(det.blink_id)
+                        # Recompute render order (left-to-right by u) after each new detection.
+                        with state.lock:
+                            all_pos = dict(state.calibrated_positions)
+                        _render_order.clear()
+                        for rank, bid in enumerate(
+                            sorted(all_pos, key=lambda b: all_pos[b]["u"]), 1
+                        ):
+                            _render_order[bid] = rank
+                        elapsed = time.time() - _detection_start_time
+                        _detection_timings[det.blink_id] = (elapsed, det.confidence)
                     _log_timing(
                         f"{det.blink_id:>10}  {elapsed:>14.2f}s  "
                         f"{det.confidence:>12.3f}"

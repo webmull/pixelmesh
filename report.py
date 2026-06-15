@@ -129,7 +129,7 @@ def _build(*, detected_ids, detection_timings, detection_start,
                 names = ", ".join(f"Phone {b + 1}" for b in winners)
                 lines.append(f"  Winner:         Draw — {names}"
                               f"  —  {min_ms:.0f}ms")
-            median_r = statistics.median(sorted(game_results.values()))
+            median_r = statistics.median(game_results.values())
             lines.append(f"  Median react:   {median_r:.0f}ms")
 
         if no_tap:

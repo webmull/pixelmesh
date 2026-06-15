@@ -37,6 +37,11 @@ iso_gain:   int  = _DEFAULT_GAIN
 on_state_change = None       # callable() or None
 
 _lock    = threading.Lock()
+# Separate lock guarding the full send+recv cycle so concurrent set_property
+# calls from UI / MIDI / watchdog threads don't interleave bytes on the socket
+# or cross-read responses.
+_rpc_lock = threading.Lock()
+_rpc_id   = 0      # monotonically increasing JSON-RPC id
 _sock    = None
 _device  = None
 
@@ -105,12 +110,18 @@ def _ws_recv(s: socket.socket) -> dict | None:
 
 
 def _rpc(s: socket.socket, method: str, params: dict = {}) -> dict | None:
-    msg = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}).encode()
-    try:
-        _ws_send(s, msg)
-        return _ws_recv(s)
-    except Exception:
-        return None
+    global _rpc_id
+    with _rpc_lock:
+        _rpc_id += 1
+        msg = json.dumps({
+            "jsonrpc": "2.0", "id": _rpc_id,
+            "method": method, "params": params,
+        }).encode()
+        try:
+            _ws_send(s, msg)
+            return _ws_recv(s)
+        except Exception:
+            return None
 
 
 # ------------------------------------------------------------------ #

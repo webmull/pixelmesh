@@ -164,7 +164,7 @@ def trigger_effect(name: str):
     if name == "groups":
         # Sort phones left→right by u, divide into n equal-count groups.
         # Caps n to phone count so every group has at least one phone.
-        n = max(2, round(_get(name, "spatial_freq", 6)))
+        n = max(2, round(_get(name, "spatial_freq", 2)))
         sorted_bids = sorted(positions, key=lambda bid: positions[bid].get("u", 0))
         total = len(sorted_bids)
         n = min(n, total)   # can't have more groups than phones

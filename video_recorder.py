@@ -10,11 +10,17 @@ from log import log
 
 _REC_DIR = os.path.join(os.path.dirname(__file__), "debug", "recordings")
 
-_FFMPEG = (
-    shutil.which("ffmpeg")
-    or "/opt/homebrew/bin/ffmpeg"
-    or "/usr/local/bin/ffmpeg"
-)
+
+def _find_ffmpeg() -> str | None:
+    for p in (shutil.which("ffmpeg"),
+              "/opt/homebrew/bin/ffmpeg",
+              "/usr/local/bin/ffmpeg"):
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+_FFMPEG = _find_ffmpeg()
 
 
 class VideoRecorder:
@@ -39,16 +45,20 @@ class VideoRecorder:
             return
         h, w = canvas.shape[:2]
         if self._proc is None:
-            if not os.path.isfile(_FFMPEG):
+            if not _FFMPEG:
                 log.warning("[rec] ffmpeg not found — cannot record")
                 self.active = False
                 return
             self._size = (w, h)
+            # use_wallclock_as_timestamps timestamps each piped raw frame at
+            # arrival time, so playback matches real-world duration regardless
+            # of camera fps (varies 14–60 in our setup).
             self._proc = subprocess.Popen(
                 [
                     _FFMPEG, "-y",
                     "-f", "rawvideo", "-vcodec", "rawvideo",
-                    "-s", f"{w}x{h}", "-pix_fmt", "bgr24", "-r", "30",
+                    "-s", f"{w}x{h}", "-pix_fmt", "bgr24",
+                    "-use_wallclock_as_timestamps", "1",
                     "-i", "pipe:0",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                     "-movflags", "+faststart",
