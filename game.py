@@ -606,13 +606,22 @@ def start_bug_game():
 
 def start_race_game():
     """Avatar race: every calibrated phone gets a generated avatar on
-    stage and races left→right by tapping.  First to 100% wins."""
+    stage and races left→right by tapping.  First to 100% wins.
+
+    Lanes are assigned by each phone's calibrated u-position so the on-
+    stage layout mirrors the room — audience-left sees their avatar at
+    the top of the projection, audience-right at the bottom.  Falls
+    back to render-order then blink_id for any phones missing a u.
+    """
     with _state.lock:
         positions = dict(_state.calibrated_positions)
     if not positions:
         _set_status("No detected phones — run detection first")
         return
-    blink_ids = sorted(positions.keys())
+    blink_ids = sorted(
+        positions.keys(),
+        key=lambda bid: (positions[bid].get("u", 0.5), bid),
+    )
     payload = {
         "mode":      GAME_MODE_RACE,
         "blink_ids": blink_ids,

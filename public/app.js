@@ -961,13 +961,20 @@ function _showRaceWinner(msg) {
   if (msg.winner == null) return;
   const winnerBid = msg.winner;
   const wonByMe   = winnerBid === myBlinkId;
+  if (raceWinner) {
+    raceWinner.classList.toggle("you-won", wonByMe);
+  }
   if (raceWinnerWho) raceWinnerWho.textContent = wonByMe
-    ? "You!"
-    : `Phone #${winnerBid + 1}`;
+    ? "YOU WIN!"
+    : `#${winnerBid + 1}`;
   if (raceWinnerSub) raceWinnerSub.textContent = wonByMe
     ? "First across the line"
-    : "Better luck next round";
+    : `Phone ${winnerBid + 1} took it — better luck next round`;
   if (raceWinner) raceWinner.classList.add("show");
+  // Haptic punch on the winning phone so they feel the result, not just see it.
+  if (wonByMe && navigator.vibrate) {
+    try { navigator.vibrate([60, 40, 120, 40, 200]); } catch (e) {}
+  }
 }
 
 // Tear down both games' state — called from reset, effect, and goBlack.
@@ -979,7 +986,7 @@ function _cleanupGame() {
     CARDS.game.removeEventListener("pointerdown", _onRaceTap);
     raceTapHandlerOn = false;
   }
-  if (raceWinner)    raceWinner.classList.remove("show");
+  if (raceWinner)    raceWinner.classList.remove("show", "you-won");
   if (raceBarMine)   raceBarMine.style.width   = "0%";
   if (raceBarLeader) raceBarLeader.style.width = "0%";
   // Bug teardown
