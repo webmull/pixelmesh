@@ -557,7 +557,11 @@ def no_camera_canvas() -> np.ndarray:
 # Detection overlay helpers
 # ------------------------------------------------------------------ #
 
-def draw_device_overlay(canvas: np.ndarray):
+def draw_device_overlay(canvas: np.ndarray, flipped: bool = False):
+    """Draw the per-phone ID badge.  When `flipped`, the canvas has
+    already been mirrored, so we invert x to land each badge over the
+    correct phone and the text reads upright (cv2.putText paints
+    horizontally onto the post-flip pixels)."""
     if not _overlays_on():
         return
     with state.lock:
@@ -584,6 +588,8 @@ def draw_device_overlay(canvas: np.ndarray):
         u, v = pos["u"], pos["v"]
         px = int(u * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
         py = int(v * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
+        if flipped:
+            px = PREVIEW_WIDTH - 1 - px
         label = str(render_map[blink_id]) if show_render else str(blink_id + 1)
         font_scale = 0.55
         (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
@@ -601,14 +607,19 @@ def _overlays_on() -> bool:
         return state.show_overlays
 
 
-def draw_roi_overlay(canvas: np.ndarray):
-    """Dim the excluded ROI regions and draw boundary lines."""
+def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
+    """Dim the excluded ROI regions and draw boundary lines.  When
+    `flipped`, swap left↔right inputs so the dimmed band reflects the
+    real-world ROI on the mirrored canvas, and the corner label lands
+    inside the displayed inner ROI rather than off-screen."""
     if not _overlays_on():
         return
     roi_top    = detector.cfg.get("roi_top_frac",    0.0)
     roi_bottom = detector.cfg.get("roi_bottom_frac", 0.0)
     roi_left   = detector.cfg.get("roi_left_frac",   0.0)
     roi_right  = detector.cfg.get("roi_right_frac",  0.0)
+    if flipped:
+        roi_left, roi_right = roi_right, roi_left
     if roi_top == 0.0 and roi_bottom == 0.0 and roi_left == 0.0 and roi_right == 0.0:
         return
     with state.lock:
@@ -675,7 +686,7 @@ def draw_roi_overlay(canvas: np.ndarray):
 _WINNER_HIGHLIGHT_SECS = 6.0
 
 
-def draw_winner_highlight(canvas: np.ndarray):
+def draw_winner_highlight(canvas: np.ndarray, flipped: bool = False):
     """Pulsing gold ring + 'WINNER #N' label at the bug-game winner's
     position, for ~6s after the round ends."""
     bid, at = game.get_last_winner()
@@ -693,6 +704,8 @@ def draw_winner_highlight(canvas: np.ndarray):
         return
     px = int(pos["u"] * (PREVIEW_WIDTH  + 2 * crop_x) - crop_x)
     py = int(pos["v"] * (PREVIEW_HEIGHT + 2 * crop_y) - crop_y)
+    if flipped:
+        px = PREVIEW_WIDTH - 1 - px
     pulse  = 0.5 + 0.5 * math.sin(time.time() * 6.0)
     base_r = 28
     r      = int(base_r + 12 * pulse)
@@ -1295,12 +1308,12 @@ def _on_preview_click(sender, app_data):
     effects.trigger_ripple_at(u, v, wave_angle_deg, speed_mult)
 
 
-def draw_click_ripples(canvas: np.ndarray):
+def draw_click_ripples(canvas: np.ndarray, flipped: bool = False):
     """Render in-flight click ripples on top of the canvas as concentric
-    half-arches that open toward the nearest detected phone — cosmetic
-    feedback for the operator; not visible to the audience.  Falls back
-    to full rings when no phone has been located yet (no direction to
-    aim at)."""
+    half-arches that open toward the nearest detected phone.  When
+    `flipped`, the stored cx (room-frame canvas pixel) is mirrored to
+    the display frame, and theta is reflected around the y-axis so the
+    arc still points at the nearest phone in the mirrored view."""
     if not _click_ripples:
         return
     now = time.time()
@@ -1311,6 +1324,8 @@ def draw_click_ripples(canvas: np.ndarray):
             continue
         alive.append((cx, cy, t0, theta))
         prog = age / _CLICK_RIPPLE_LIFETIME
+        draw_cx    = (PREVIEW_WIDTH - 1 - cx) if flipped else cx
+        draw_theta = (180 - theta) if (flipped and theta is not None) else theta
         # Draw three rings spaced in time so the effect feels like water.
         for ring in range(3):
             ring_prog = prog - ring * 0.18
@@ -1320,13 +1335,13 @@ def draw_click_ripples(canvas: np.ndarray):
             alpha  = (1 - ring_prog) ** 1.5
             color = tuple(int(c * alpha) for c in _RIPPLE_BGR)
             thickness = max(1, int(3 * alpha))
-            if theta is None:
-                cv2.circle(canvas, (cx, cy), radius, color, thickness, cv2.LINE_AA)
+            if draw_theta is None:
+                cv2.circle(canvas, (draw_cx, cy), radius, color, thickness, cv2.LINE_AA)
             else:
                 # 180° arc facing theta (image y is down, so atan2 already
                 # matches OpenCV's clockwise-from-+x convention).
-                cv2.ellipse(canvas, (cx, cy), (radius, radius), 0,
-                            theta - 90, theta + 90,
+                cv2.ellipse(canvas, (draw_cx, cy), (radius, radius), 0,
+                            draw_theta - 90, draw_theta + 90,
                             color, thickness, cv2.LINE_AA)
     _click_ripples[:] = alive
 
@@ -1988,38 +2003,40 @@ def main():
                                         detections=results_snap,
                                     )
 
-                    draw_roi_overlay(canvas)
+                    # Scene → Flip Projection: mirror the canvas BEFORE
+                    # the user-facing overlays so ROI/device/winner/HUD
+                    # text and click ripples all render upright on the
+                    # display.  Detector debug overlays drawn earlier
+                    # (frozen code) end up mirrored, which is fine —
+                    # they're for offline debugging, not show-time.  The
+                    # raw camera frame queued for detection is untouched,
+                    # and _on_preview_click inverts x so the click → u
+                    # conversion still maps to the real room position.
+                    flipped = state.flip_projection
+                    display_canvas = cv2.flip(canvas, 1) if flipped else canvas
+
+                    draw_roi_overlay(display_canvas, flipped=flipped)
 
                     if show_ov:
-                        draw_device_overlay(canvas)
+                        draw_device_overlay(display_canvas, flipped=flipped)
 
                     try:
-                        draw_winner_highlight(canvas)
+                        draw_winner_highlight(display_canvas, flipped=flipped)
                     except Exception as e:
                         log.info(f"[winner] draw skipped: {e}")
 
-                    draw_click_ripples(canvas)
+                    draw_click_ripples(display_canvas, flipped=flipped)
 
                     if detecting:
-                        draw_detect_border(canvas)
+                        draw_detect_border(display_canvas)
 
+                    # Record the audience-facing view so the post-show
+                    # video matches what was actually on the projector.
                     if vid_rec.active:
-                        vid_rec.record(canvas)
+                        vid_rec.record(display_canvas)
 
                     if dbg_cap.active:
                         dbg_cap.record_frame(canvas)
-
-                    # Scene → Flip Projection: mirror the whole canvas
-                    # BEFORE drawing the HUD so HUD text stays readable
-                    # (mirrored detection overlays and ripples are
-                    # correct — those need to land on the visible phone
-                    # positions in the flipped projection).  The raw
-                    # camera frame queued for detection is untouched, and
-                    # _on_preview_click inverts x to recover the real
-                    # room position when computing u.
-                    display_canvas = (
-                        cv2.flip(canvas, 1) if state.flip_projection else canvas
-                    )
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
