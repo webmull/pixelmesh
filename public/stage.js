@@ -2,8 +2,9 @@
 // PixelMesh V2 — Stage page renderer
 //
 // Standalone full-screen projected display.  Subscribes to /ws as a
-// spectator and renders Diana & Rosie climbing ropes side-by-side using
-// hand-drawn sprites packed in /public/assets/climb.png.
+// spectator and renders the Avatar Race — one procedurally-generated
+// character per phone, sprinting along a horizontal track toward a
+// chequered finish line.
 
 // ------------------------------------------------------------------ //
 // WebSocket
@@ -33,111 +34,67 @@ connect();
 
 const game = {
   active:     false,
-  diana:      0,
-  rosie:      0,
-  dianaDraw:  0,
-  rosieDraw:  0,
-  dianaRate:  0,        // height change per sec (smoothed) — used to pick climb frame
-  rosieRate:  0,
-  winner:     null,     // "diana" | "rosie" | "draw" | null
-  winnerAt:   0,
-  confetti:   [],       // array of {x, y, vx, vy, color, life, maxLife}
+  race: {
+    runners:   [],          // [{ blink_id, pos, draw }] kept sorted by current pos
+    winner:    null,        // blink_id | null
+    winnerAt:  0,
+  },
+  confetti:   [],
 };
 
-let lastDiana = 0, lastRosie = 0, lastUpdateT = performance.now();
+function _raceEnsureRunner(bid) {
+  let r = game.race.runners.find(r => r.blink_id === bid);
+  if (!r) {
+    r = { blink_id: bid, pos: 0, draw: 0 };
+    game.race.runners.push(r);
+  }
+  return r;
+}
 
-function handleMessage(msg) {
-  if (msg.type === "spectator_hello") {
-    if (msg.game && msg.game.active) {
-      game.active = true;
-      game.diana  = (msg.game.heights || {}).diana || 0;
-      game.rosie  = (msg.game.heights || {}).rosie || 0;
-      lastDiana = game.diana; lastRosie = game.rosie;
-    }
-    return;
-  }
-  if (msg.type === "rope_start") {
-    game.active = true;
-    game.diana  = 0; game.rosie  = 0;
-    game.dianaDraw = 0; game.rosieDraw = 0;
-    game.dianaRate = 0; game.rosieRate = 0;
-    game.winner = null;
-    game.confetti = [];
-    _confettiEmitAccum = 0;
-    return;
-  }
-  if (msg.type === "rope_progress") {
-    const now = performance.now();
-    const dt  = Math.max(0.001, (now - lastUpdateT) / 1000);
-    lastUpdateT = now;
-    if (msg.diana != null) {
-      game.dianaRate = ((msg.diana - lastDiana) / dt) * 0.4 + game.dianaRate * 0.6;
-      lastDiana = msg.diana;
-      game.diana = msg.diana;
-    }
-    if (msg.rosie != null) {
-      game.rosieRate = ((msg.rosie - lastRosie) / dt) * 0.4 + game.rosieRate * 0.6;
-      lastRosie = msg.rosie;
-      game.rosie = msg.rosie;
-    }
-    return;
-  }
-  if (msg.type === "rope_end") {
-    game.active = false;
-    game.winner = msg.winner ?? "draw";
-    game.winnerAt = performance.now();
-    if (msg.diana != null) game.diana = msg.diana;
-    if (msg.rosie != null) game.rosie = msg.rosie;
-    game.confetti = [];
-    _confettiEmitAccum = 0;
-    _spawnConfetti(game.winner, 90, true);   // initial burst
-    return;
+function _raceApplyPositions(positions) {
+  for (const [bidStr, pos] of Object.entries(positions || {})) {
+    const r = _raceEnsureRunner(parseInt(bidStr, 10));
+    r.pos = pos;
   }
 }
 
-// ------------------------------------------------------------------ //
-// Sprite sheet
-// ------------------------------------------------------------------ //
-
-const SHEET = new Image();
-let sheetReady = false;
-SHEET.onload  = () => { sheetReady = true; };
-SHEET.onerror = () => { sheetReady = false; };
-SHEET.src = "/public/assets/climb.png?v=1";
-
-const SPRITES = {
-  diana_portrait:  { x: 416, y:   0, w: 286, h: 335 },
-  rosie_portrait:  { x: 824, y:  53, w: 296, h: 287 },
-  diana_climb_a:   { x: 326, y: 367, w: 180, h: 443 },
-  diana_climb_b:   { x: 505, y: 367, w: 175, h: 443 },
-  rosie_climb_a:   { x: 850, y: 367, w: 165, h: 443 },
-  rosie_climb_b:   { x:1010, y: 367, w: 170, h: 443 },
-  tap_button:      { x: 532, y: 836, w: 145, h: 145 },
-  winner_banner:   { x: 691, y: 836, w: 480, h: 188 },
-};
-
-// Horizontal centre of the rope WITHIN each climb sprite, as a fraction of
-// the sprite's width.  Measured from the amber-rope pixels in climb.png so
-// each climber's hands actually land on the stage rope when we draw at the
-// rope's X position (rather than the sprite's centre, which left every
-// climber visibly offset to one side).
-const ROPE_ANCHOR_X = {
-  diana_climb_a: 0.722,
-  diana_climb_b: 0.663,
-  rosie_climb_a: 0.400,
-  rosie_climb_b: 0.329,
-};
-
-function drawSprite(ctx, name, dx, dy, dw, dh) {
-  if (!sheetReady) return;
-  const s = SPRITES[name];
-  if (!s) return;
-  // round to integer canvas pixels so pixel art stays crisp
-  ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(
-    SHEET, s.x, s.y, s.w, s.h,
-    Math.round(dx), Math.round(dy), Math.round(dw), Math.round(dh),
-  );
+function handleMessage(msg) {
+  if (msg.type === "spectator_hello") {
+    const g = msg.game || {};
+    if (g.active) {
+      game.active = true;
+      game.race.runners = [];
+      _raceApplyPositions(g.positions);
+      for (const r of game.race.runners) r.draw = r.pos;
+    }
+    return;
+  }
+  if (msg.type === "race_start") {
+    game.active  = true;
+    game.race.runners = (msg.blink_ids || []).map(bid => ({
+      blink_id: bid, pos: 0, draw: 0,
+    }));
+    game.race.winner   = null;
+    game.race.winnerAt = 0;
+    game.confetti = [];
+    _confettiEmitAccum = 0;
+    return;
+  }
+  if (msg.type === "race_progress") {
+    _raceApplyPositions(msg.positions);
+    return;
+  }
+  if (msg.type === "race_end") {
+    game.active = false;
+    game.race.winner   = msg.winner ?? null;
+    game.race.winnerAt = performance.now();
+    _raceApplyPositions(msg.positions);
+    game.confetti = [];
+    _confettiEmitAccum = 0;
+    // No celebration on a manual stop (winner == null) — just clear state.
+    if (game.race.winner != null) _spawnConfetti("race", 90, true);
+    return;
+  }
 }
 
 // ------------------------------------------------------------------ //
@@ -206,114 +163,7 @@ function drawBackground(t) {
 }
 
 // ------------------------------------------------------------------ //
-// Rope rendering — drawn only outside the sprite region so the sprite's
-// own rope shows where the character actually grips it.
-// ------------------------------------------------------------------ //
-
-function drawRopeFrame(centerXScene, accentColor, t) {
-  // Anchor beam at top
-  const beamY = SCENE_H * 0.08;
-  const beamH = 5;
-  const beamW = 38;
-  ctx.fillStyle = "#6b4d28";
-  ctx.fillRect(sx(centerXScene - beamW / 2), sy(beamY), ss(beamW), ss(beamH));
-  ctx.fillStyle = "#3a2a16";
-  ctx.fillRect(sx(centerXScene - beamW / 2), sy(beamY + beamH - 1), ss(beamW), ss(1));
-
-  // Continuous rope strand from the beam down to the floor.  The
-  // character sprites carry their own rope graphics, but those only
-  // cover the local stretch around the climber — without this strand
-  // the rope looked cut off, visible only where the climber happens to
-  // be.  The strand below uses the same yellow/amber/brown palette as
-  // the sprite ropes so they tile seamlessly when the character covers
-  // a section.
-  const ropeTop    = beamY + beamH;
-  const ropeBottom = SCENE_H * 0.86;
-  const ropeW      = 5;
-  // Subtle horizontal sway anchored to the beam, easing toward zero at
-  // the top so the rope still meets the anchor cleanly.
-  const swayBase = Math.sin(t * 0.0007 + centerXScene) * 1.2;
-  const ropeXTop = centerXScene;
-  // Main rope body (amber)
-  ctx.fillStyle = "#b48438";
-  ctx.fillRect(sx(ropeXTop - ropeW / 2), sy(ropeTop),
-               ss(ropeW), ss(ropeBottom - ropeTop));
-  // Shaded right edge
-  ctx.fillStyle = "#7a5621";
-  ctx.fillRect(sx(ropeXTop + ropeW / 2 - 1), sy(ropeTop),
-               ss(1), ss(ropeBottom - ropeTop));
-  // Lit left edge
-  ctx.fillStyle = "#e3b96b";
-  ctx.fillRect(sx(ropeXTop - ropeW / 2), sy(ropeTop),
-               ss(1), ss(ropeBottom - ropeTop));
-  // Twist marks — slow vertical scroll, gives the rope visible texture
-  const twistSpacing = 6;
-  const twistOffset  = ((t * 0.005) % twistSpacing);
-  ctx.fillStyle = "#4a3416";
-  for (let y = ropeTop + twistOffset; y < ropeBottom; y += twistSpacing) {
-    ctx.fillRect(sx(ropeXTop - ropeW / 2 + 1), sy(y), ss(ropeW - 2), ss(1));
-  }
-
-  // Anchor "ring" attaching rope to beam — accent colour
-  ctx.fillStyle = accentColor;
-  ctx.fillRect(sx(centerXScene - 4), sy(beamY + beamH), ss(8), ss(3));
-  // Top star floating above the beam
-  drawStar(sx(centerXScene), sy(beamY - 7), ss(5), t);
-  // Tiny mute on swayBase usage so linter doesn't complain
-  void swayBase;
-}
-
-function drawStar(cx, cy, r, t) {
-  // Pulse the star slightly
-  const pulse = 1 + 0.18 * Math.sin(t * 0.005);
-  const rr = r * pulse;
-  ctx.fillStyle = "#ffe27a";
-  ctx.fillRect(cx - rr / 8, cy - rr,    rr / 4, rr * 2);
-  ctx.fillRect(cx - rr,     cy - rr / 8, rr * 2, rr / 4);
-  ctx.fillStyle = "#fff4b0";
-  ctx.fillRect(cx - rr / 3, cy - rr / 3, rr / 1.5, rr / 1.5);
-  // Soft glow
-  ctx.fillStyle = "rgba(255, 226, 122, 0.18)";
-  ctx.fillRect(cx - rr * 1.8, cy - rr * 1.8, rr * 3.6, rr * 3.6);
-}
-
-// ------------------------------------------------------------------ //
-// Characters
-// ------------------------------------------------------------------ //
-
-const CLIMB_BOTTOM_Y = 0.79;    // scene-fractional Y where feet sit at h=0
-const CLIMB_TOP_Y    = 0.20;    // scene-fractional Y where head reaches at h=1
-const SPRITE_HEIGHT  = 110;     // scene units — how tall each character sprite displays
-
-function lerp(a, b, t) { return a + (b - a) * t; }
-
-function drawCharacter(team, centerXScene, height, rate, t) {
-  // Animation: alternate frame A/B at a rate proportional to climb rate.
-  const climbing = rate > 0.004;     // ~0.004 height/sec ≈ active tapping
-  const period = climbing ? Math.max(0.30, 0.55 - rate * 8) : 1.2;
-  const frame = Math.floor((t * 0.001 / period) * 2) % 2;
-  const name = team + "_climb_" + (frame === 0 ? "a" : "b");
-  const sprite = SPRITES[name];
-  const h = Math.max(0, Math.min(1, height));
-  const baseY = lerp(CLIMB_BOTTOM_Y, CLIMB_TOP_Y, h) * SCENE_H;
-  const bobAmp = climbing ? 0 : 1.4;
-  const bobY   = bobAmp * Math.sin(t * 0.003 + (team === "diana" ? 0 : 1.6));
-  const swayAmp = climbing ? 1.6 : 0;
-  const swayX   = swayAmp * Math.sin(t * 0.012);
-  const dispH = SPRITE_HEIGHT;
-  const dispW = dispH * (sprite.w / sprite.h);
-  // Anchor the sprite so the rope WITHIN it aligns with the stage rope at
-  // centerXScene — without this, characters were drawn centred on the
-  // rope, so the rope-within-sprite landed off to one side of the actual
-  // stage rope.
-  const anchorFrac = ROPE_ANCHOR_X[name] ?? 0.5;
-  const x = (centerXScene + swayX) - dispW * anchorFrac;
-  const y = baseY - dispH * 0.92 + bobY;
-  drawSprite(ctx, name, sx(x), sy(y), ss(dispW), ss(dispH));
-}
-
-// ------------------------------------------------------------------ //
-// HUD
+// HUD                                                                  //
 // ------------------------------------------------------------------ //
 
 function drawLabel(text, centerXScene, yScene, color, sizeScene, weight) {
@@ -325,58 +175,18 @@ function drawLabel(text, centerXScene, yScene, color, sizeScene, weight) {
   ctx.fillText(text, sx(centerXScene), sy(yScene));
 }
 
-function drawHeader() {
-  drawLabel("ROPE CLIMB", SCENE_W / 2, SCENE_H * 0.04,
-            "rgba(255,255,255,0.42)", 9, 700);
-}
-
-function drawTeamLabels(t) {
-  drawLabel("DIANA", SCENE_W * 0.30, SCENE_H * 0.95, "#6fdb96", 12, 800);
-  drawLabel("ROSIE", SCENE_W * 0.70, SCENE_H * 0.95, "#f88aaa", 12, 800);
-  // % below name
-  drawLabel(Math.round(game.dianaDraw * 100) + "%",
-            SCENE_W * 0.30, SCENE_H * 0.89,
-            "rgba(255,255,255,0.55)", 9, 600);
-  drawLabel(Math.round(game.rosieDraw * 100) + "%",
-            SCENE_W * 0.70, SCENE_H * 0.89,
-            "rgba(255,255,255,0.55)", 9, 600);
-}
-
-function drawWaitingState() {
-  if (game.active || game.winner) return;
-  // Show the two portrait sprites side by side as a "ready" tableau
-  if (!sheetReady) return;
-  const portraitH = 70;
-  const dianaS = SPRITES.diana_portrait;
-  const rosieS = SPRITES.rosie_portrait;
-  const dianaW = portraitH * (dianaS.w / dianaS.h);
-  const rosieW = portraitH * (rosieS.w / rosieS.h);
-  drawSprite(ctx, "diana_portrait",
-    sx(SCENE_W * 0.30 - dianaW / 2), sy(SCENE_H * 0.45 - portraitH / 2),
-    ss(dianaW), ss(portraitH));
-  drawSprite(ctx, "rosie_portrait",
-    sx(SCENE_W * 0.70 - rosieW / 2), sy(SCENE_H * 0.45 - portraitH / 2),
-    ss(rosieW), ss(portraitH));
-  drawLabel("WAITING FOR ROPE CLIMB", SCENE_W / 2, SCENE_H * 0.72,
-            "rgba(255,255,255,0.32)", 10, 700);
-}
-
 // ------------------------------------------------------------------ //
-// Winner banner + confetti
+// Confetti                                                             //
 // ------------------------------------------------------------------ //
 
-function _confettiColours(winner) {
-  return winner === "diana"
-       ? ["#6fdb96", "#3cd073", "#ffd740", "#ffffff"]
-       : winner === "rosie"
-       ? ["#f88aaa", "#c34772", "#ffd740", "#ffffff"]
-       : ["#ffd740", "#ffffff", "#88c8ff", "#f88aaa"];
+function _confettiColours() {
+  return ["#5bb1ff", "#ffd740", "#ffffff", "#b9e6ff", "#ff7eb6", "#9affb2"];
 }
 
-function _spawnConfetti(winner, count, burst) {
+function _spawnConfetti(_winner, count, burst) {
   // burst=true for the initial blast (mid-screen explosion); false for the
   // ongoing trickle (gentler emit from above so it can fall through frame).
-  const colours = _confettiColours(winner);
+  const colours = _confettiColours();
   for (let i = 0; i < count; i++) {
     if (burst) {
       game.confetti.push({
@@ -391,16 +201,18 @@ function _spawnConfetti(winner, count, burst) {
         size: 2 + Math.random() * 3,
       });
     } else {
+      // Trickle from above the scene with a bit of horizontal drift and
+      // gravity, so the room feels actively snowed-on with confetti.
       game.confetti.push({
         x: Math.random() * SCENE_W,
         y: -10 - Math.random() * 30,
-        vx: (Math.random() - 0.5) * 25,
-        vy: 25 + Math.random() * 30,
-        ay: 25,
+        vx: (Math.random() - 0.5) * 40,
+        vy: 35 + Math.random() * 45,
+        ay: 45,
         color: colours[(Math.random() * colours.length) | 0],
         life: 0,
-        maxLife: 4 + Math.random() * 3,
-        size: 2 + Math.random() * 3,
+        maxLife: 4.5 + Math.random() * 2.5,
+        size: 3 + Math.random() * 3,
       });
     }
   }
@@ -408,15 +220,17 @@ function _spawnConfetti(winner, count, burst) {
 
 let _confettiEmitAccum = 0;
 function _maybeEmitConfetti(dt) {
-  if (!game.winner) return;
+  // Only run the loop once a winner is announced.
+  if (game.race.winner == null) return;
   _confettiEmitAccum += dt;
-  // Steady trickle of ~25 pieces per 0.6 s — enough to feel ongoing
-  // without piling up.  Capped so a long-running winner screen doesn't
-  // accumulate thousands of particles.
-  if (_confettiEmitAccum >= 0.6) {
+  // Heavy nonstop trickle so the celebration feels like an actual party
+  // rather than a brief burst.  ~60 pieces every 0.15 s * ~5 s lifetime =
+  // ~2000 particles in flight at steady state; hard-capped at 1200 so
+  // we don't kill the GPU on a long winner screen.
+  if (_confettiEmitAccum >= 0.15) {
     _confettiEmitAccum = 0;
-    if (game.confetti.length < 220) {
-      _spawnConfetti(game.winner, 25, false);
+    if (game.confetti.length < 1200) {
+      _spawnConfetti("race", 60, false);
     }
   }
 }
@@ -442,82 +256,211 @@ function drawConfetti() {
   ctx.globalAlpha = 1;
 }
 
-function drawWinnerBanner(t) {
-  if (!game.winner) return;
-  const age = (t - game.winnerAt) / 1000;
 
-  // Scene dim under the banner
-  const dim = Math.min(0.72, age * 1.4);
+// ------------------------------------------------------------------ //
+// Avatar race                                                          //
+// ------------------------------------------------------------------ //
+
+// Wang integer hash → float [0, 1).  Used to seed per-phone avatar
+// features so each runner gets a deterministic, distinct character
+// without server-side state.
+function _hashF(n) {
+  n = ((n ^ 61) ^ (n >>> 16)) >>> 0;
+  n = ((n + (n << 3)) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 4)) >>> 0;
+  n = ((n * 0x27D4EB2D) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 15)) >>> 0;
+  return (n & 0x7FFFFFFF) / 0x7FFFFFFF;
+}
+
+function _hsl(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+  const m = l - c / 2;
+  const i = Math.floor(h * 6) % 6;
+  let rgb;
+  if      (i === 0) rgb = [c, x, 0];
+  else if (i === 1) rgb = [x, c, 0];
+  else if (i === 2) rgb = [0, c, x];
+  else if (i === 3) rgb = [0, x, c];
+  else if (i === 4) rgb = [x, 0, c];
+  else              rgb = [c, 0, x];
+  return `rgb(${Math.round((rgb[0]+m)*255)},${Math.round((rgb[1]+m)*255)},${Math.round((rgb[2]+m)*255)})`;
+}
+
+const SKIN_TONES = ["#f1c9a5", "#d9a07e", "#a87049", "#6d4524"];
+const HAT_STYLES = ["beanie", "cap", "top", "none"];
+
+function _avatarFeatures(bid) {
+  return {
+    bodyHue:   _hashF(bid),
+    hatHue:    _hashF(bid * 7 + 11),
+    skin:      SKIN_TONES[Math.floor(_hashF(bid * 13 + 5) * SKIN_TONES.length)],
+    hatStyle:  HAT_STYLES[Math.floor(_hashF(bid * 23 + 3) * HAT_STYLES.length)],
+  };
+}
+
+function drawAvatar(cx, cy, sizePx, bid, running, runningPhase) {
+  // sizePx = total avatar height in canvas pixels.  Avatar = head + body.
+  const f = _avatarFeatures(bid);
+  const headR = sizePx * 0.22;
+  const bodyW = sizePx * 0.45;
+  const bodyH = sizePx * 0.50;
+  const headCy = cy - sizePx * 0.28;
+  // Body bob when running (alternating up/down)
+  const bob = running ? Math.sin(runningPhase) * sizePx * 0.04 : 0;
+  // Body
+  ctx.fillStyle = _hsl(f.bodyHue, 0.75, 0.5);
+  ctx.fillRect(cx - bodyW / 2, cy - bodyH / 2 + bob, bodyW, bodyH);
+  // Arms (suggested) — narrow rectangles on the sides
+  ctx.fillStyle = f.skin;
+  const armW = sizePx * 0.08;
+  ctx.fillRect(cx - bodyW / 2 - armW, cy - bodyH * 0.35 + bob, armW, bodyH * 0.5);
+  ctx.fillRect(cx + bodyW / 2,        cy - bodyH * 0.35 + bob, armW, bodyH * 0.5);
+  // Legs (alternating when running)
+  const legW = sizePx * 0.12;
+  const legH = sizePx * 0.20;
+  const legY = cy + bodyH / 2 + bob;
+  const legSwing = running ? Math.sin(runningPhase) * sizePx * 0.08 : 0;
+  ctx.fillStyle = _hsl(f.bodyHue, 0.45, 0.25);
+  ctx.fillRect(cx - bodyW * 0.35 - legW / 2, legY,            legW, legH - Math.abs(legSwing));
+  ctx.fillRect(cx + bodyW * 0.35 - legW / 2, legY,            legW, legH - Math.abs(-legSwing));
+  // Head
+  ctx.fillStyle = f.skin;
+  ctx.beginPath();
+  ctx.arc(cx, headCy + bob, headR, 0, Math.PI * 2);
+  ctx.fill();
+  // Hat
+  if (f.hatStyle !== "none") {
+    ctx.fillStyle = _hsl(f.hatHue, 0.85, 0.45);
+    if (f.hatStyle === "beanie") {
+      ctx.beginPath();
+      ctx.arc(cx, headCy - headR * 0.2 + bob, headR * 1.05, Math.PI, 0);
+      ctx.fill();
+    } else if (f.hatStyle === "cap") {
+      ctx.fillRect(cx - headR, headCy - headR * 0.5 + bob, headR * 2, headR * 0.45);
+      ctx.fillRect(cx - headR * 0.2, headCy - headR * 0.2 + bob, headR * 1.6, headR * 0.18);
+    } else if (f.hatStyle === "top") {
+      ctx.fillRect(cx - headR * 0.7, headCy - headR * 1.6 + bob, headR * 1.4, headR * 1.1);
+      ctx.fillRect(cx - headR * 1.1, headCy - headR * 0.5 + bob, headR * 2.2, headR * 0.18);
+    }
+  }
+}
+
+function drawRaceTrack(t) {
+  const N = game.race.runners.length;
+  if (N === 0) {
+    drawLabel("WAITING FOR RACE", SCENE_W / 2, SCENE_H * 0.5,
+              "rgba(255,255,255,0.32)", 14, 700);
+    return;
+  }
+  // Track area inside the scene
+  const trackX0 = SCENE_W * 0.07;
+  const trackX1 = SCENE_W * 0.92;
+  const trackY0 = SCENE_H * 0.14;
+  const trackY1 = SCENE_H * 0.86;
+  const trackW  = trackX1 - trackX0;
+  const trackH  = trackY1 - trackY0;
+  // One lane per runner — divide evenly so the field always fits inside
+  // the track regardless of roster size (70+ phones still pack cleanly).
+  const laneH      = trackH / N;
+  const avatarSize = Math.min(laneH * 0.95, 26);
+  // Background track lines
+  ctx.fillStyle = "rgba(255,255,255,0.04)";
+  ctx.fillRect(sx(trackX0), sy(trackY0), ss(trackW), ss(trackH));
+  // Start + finish lines
+  ctx.strokeStyle = "rgba(255,255,255,0.20)";
+  ctx.lineWidth = Math.max(1, ss(0.5));
+  ctx.beginPath();
+  ctx.moveTo(sx(trackX0), sy(trackY0));
+  ctx.lineTo(sx(trackX0), sy(trackY1));
+  ctx.stroke();
+  // Finish line — chequered band
+  const finishW = Math.max(2, ss(3));
+  const blockH  = Math.max(2, ss(4));
+  for (let y = sy(trackY0); y < sy(trackY1); y += blockH * 2) {
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(sx(trackX1) - finishW, y,          finishW / 2, blockH);
+    ctx.fillRect(sx(trackX1) - finishW / 2, y + blockH, finishW / 2, blockH);
+    ctx.fillStyle = "#222";
+    ctx.fillRect(sx(trackX1) - finishW, y + blockH, finishW / 2, blockH);
+    ctx.fillRect(sx(trackX1) - finishW / 2, y,          finishW / 2, blockH);
+  }
+  // Sort runners by descending position so leaders draw last (on top).
+  const sorted = [...game.race.runners].sort((a, b) => a.draw - b.draw);
+  for (let i = 0; i < sorted.length; i++) {
+    const r = sorted[i];
+    const lane = game.race.runners.findIndex(rr => rr.blink_id === r.blink_id);
+    const laneY = trackY0 + (lane + 0.5) * laneH;
+    const xScene = trackX0 + r.draw * trackW;
+    const cx = sx(xScene);
+    const cy = sy(laneY);
+    // Lane line behind avatar — subtle horizontal track
+    ctx.strokeStyle = "rgba(255,255,255,0.06)";
+    ctx.beginPath();
+    ctx.moveTo(sx(trackX0), cy);
+    ctx.lineTo(sx(trackX1), cy);
+    ctx.stroke();
+    // Running animation phase from this runner's progress
+    const running = game.active && r.draw < 1.0;
+    const runningPhase = t * 0.012 + r.blink_id * 0.7;
+    drawAvatar(cx, cy, ss(avatarSize), r.blink_id, running, runningPhase);
+    // Phone number label to the right of the avatar
+    if (avatarSize >= 18) {
+      drawLabel(`#${r.blink_id + 1}`, xScene + 3.5, laneY,
+                "rgba(255,255,255,0.55)", 7, 700);
+    }
+  }
+}
+
+function drawRaceHeader() {
+  drawLabel("AVATAR RACE", SCENE_W / 2, SCENE_H * 0.05,
+            "rgba(255,255,255,0.42)", 9, 700);
+}
+
+function drawRaceWinnerBanner(t) {
+  if (game.race.winner == null) return;
+  const age = (t - game.race.winnerAt) / 1000;
+
+  // Soft dim under the celebration so the winner reads against any
+  // residual track ghosts behind it.
+  const dim = Math.min(0.55, age * 1.4);
   ctx.fillStyle = `rgba(0,0,0,${dim})`;
   ctx.fillRect(offX, offY, drawW, drawH);
 
-  // Spinning radiant burst behind the banner — gives the celebration
-  // some motion even when the sprite itself has finished settling.
-  const burstPop = Math.min(1, age * 1.6);
-  if (burstPop > 0) {
-    const cx = sx(SCENE_W / 2);
-    const cy = sy(SCENE_H * 0.42);
-    const baseRadius = ss(SCENE_H * 0.35) * burstPop;
-    const teamColor = game.winner === "diana" ? "rgba(110,219,150,"
-                    : game.winner === "rosie" ? "rgba(248,138,170,"
-                                              : "rgba(255,215,64,";
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(t * 0.0006);
-    const rays = 14;
-    for (let i = 0; i < rays; i++) {
-      const ang = (i / rays) * Math.PI * 2;
-      const len = baseRadius * (1 + 0.12 * Math.sin(t * 0.004 + i));
-      ctx.save();
-      ctx.rotate(ang);
-      const grad = ctx.createLinearGradient(0, 0, len, 0);
-      grad.addColorStop(0, teamColor + "0.18)");
-      grad.addColorStop(1, teamColor + "0)");
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(0, -ss(4));
-      ctx.lineTo(len, 0);
-      ctx.lineTo(0, ss(4));
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  // Banner sprite — pop in with overshoot, then continuous wobble + bob.
+  // Pop the WINNER text in with a gentle overshoot, then breathe.
   const pop      = Math.min(1, age * 2.5);
-  const popScale = pop < 1 ? 1 + 0.22 * (1 - pop) : 1;
-  const settleT  = Math.max(0, age - 0.4);
-  const wobble   = (1 - Math.min(1, settleT * 1.6)) * Math.sin(settleT * 12) * 0.05;
-  const idleBob  = Math.sin(t * 0.0025) * 1.5;
-  const idleTilt = Math.sin(t * 0.0017) * 0.025;
-
-  const bannerH = 68;
-  const bs = SPRITES.winner_banner;
-  const bw = bannerH * (bs.w / bs.h);
+  const popScale = pop < 1 ? 1 + 0.30 * (1 - pop) : 1;
+  const breathe  = 1 + 0.04 * Math.sin(t * 0.005);
+  const wbid     = game.race.winner;
 
   ctx.save();
-  ctx.translate(sx(SCENE_W / 2), sy(SCENE_H * 0.42) + ss(idleBob));
-  ctx.rotate(idleTilt + wobble * 0.6);
-  ctx.scale(popScale * (1 + wobble), popScale * (1 - wobble));
-  drawSprite(ctx, "winner_banner",
-    -ss(bw / 2), -ss(bannerH / 2),
-    ss(bw), ss(bannerH));
+  ctx.translate(sx(SCENE_W / 2), sy(SCENE_H * 0.38));
+  ctx.scale(popScale * breathe, popScale * breathe);
+
+  // "WINNER" label
+  const winnerSize = Math.max(18, Math.round(34 * drawScale));
+  ctx.fillStyle    = "#ffd740";
+  ctx.font         = `900 ${winnerSize}px -apple-system, system-ui, sans-serif`;
+  ctx.textAlign    = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor  = "rgba(255,215,64,0.45)";
+  ctx.shadowBlur   = winnerSize * 0.4;
+  ctx.fillText("WINNER", 0, 0);
+  ctx.shadowBlur   = 0;
+
+  // Phone number underneath
+  const phoneSize = Math.max(14, Math.round(22 * drawScale));
+  ctx.fillStyle   = "#fff";
+  ctx.font        = `800 ${phoneSize}px -apple-system, system-ui, sans-serif`;
+  ctx.fillText(`PHONE #${wbid + 1}`, 0, winnerSize * 0.95);
+
   ctx.restore();
 
-  // Team label below the banner — fades in, then pulses gently.
-  if (game.winner !== "draw") {
-    const color = game.winner === "diana" ? "#6fdb96" : "#f88aaa";
-    const teamLabel = "TEAM " + game.winner.toUpperCase();
-    const labelPop = Math.min(1, Math.max(0, (age - 0.35) * 2.4));
-    const pulse    = 1 + 0.06 * Math.sin(t * 0.006);
-    const sz = 18 * pulse;
-    ctx.globalAlpha = labelPop;
-    drawLabel(teamLabel, SCENE_W / 2, SCENE_H * 0.64,
-              color, sz, 900);
-    ctx.globalAlpha = 1;
-  }
+  // Winner's avatar — running animation under the text.
+  const avSize = 64;
+  drawAvatar(sx(SCENE_W / 2), sy(SCENE_H * 0.74),
+             ss(avSize), wbid, true, t * 0.02);
 }
 
 // ------------------------------------------------------------------ //
@@ -529,28 +472,19 @@ function frame(now) {
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
 
-  // Ease the display height toward the server value
+  // Ease each runner's drawn x toward the server position.
   const easeRate = 6;
-  game.dianaDraw += (game.diana - game.dianaDraw) * Math.min(1, dt * easeRate);
-  game.rosieDraw += (game.rosie - game.rosieDraw) * Math.min(1, dt * easeRate);
+  for (const r of game.race.runners) {
+    r.draw += (r.pos - r.draw) * Math.min(1, dt * easeRate);
+  }
 
   _maybeEmitConfetti(dt);
   if (game.confetti.length) updateConfetti(dt);
 
   drawBackground(now);
-  drawRopeFrame(SCENE_W * 0.30, "#6fdb96", now);
-  drawRopeFrame(SCENE_W * 0.70, "#f88aaa", now);
-  drawHeader();
-  drawTeamLabels(now);
-
-  if (game.active || game.winner) {
-    drawCharacter("diana", SCENE_W * 0.30, game.dianaDraw, game.dianaRate, now);
-    drawCharacter("rosie", SCENE_W * 0.70, game.rosieDraw, game.rosieRate, now);
-  } else {
-    drawWaitingState();
-  }
-
-  drawWinnerBanner(now);
+  drawRaceHeader();
+  drawRaceTrack(now);
+  drawRaceWinnerBanner(now);
   if (game.confetti.length) drawConfetti();
 
   requestAnimationFrame(frame);

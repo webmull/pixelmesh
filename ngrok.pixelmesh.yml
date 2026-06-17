@@ -6,12 +6,3 @@ tunnels:
     addr: 8000
     hostname: pixelmesh.show
     inspect: false
-
-  # Terminal tunnel — operator remote-admin via ttyd.  No geo restriction.
-  terminal:
-    proto: http
-    addr: 7681
-    hostname: ssh.pixelmesh.live
-    inspect: false
-    basic_auth:
-      - "pixel:meshmesh"

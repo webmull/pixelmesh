@@ -13,7 +13,6 @@ Built for live events. Designed for Brighton Dome. Tested with the **Elgato Face
 - Python 3.10+
 - [ngrok](https://ngrok.com) account with a reserved domain (`pixelmesh.show`)
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
-- [ttyd](https://github.com/tsl0922/ttyd) — installed automatically via Homebrew on first run if not present
 
 ```bash
 pip install -r requirements.txt
@@ -48,17 +47,6 @@ Server and ngrok start in parallel. The controller waits up to 10s for the serve
 | `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30fps) |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
-| `https://ssh.pixelmesh.live` | Remote terminal — browser-based, password protected |
-
-**Remote terminal**
-
-On startup a second ngrok tunnel exposes a browser-based terminal (via `ttyd`) at a dynamic URL shown in the status line:
-
-```
-terminal → https://ssh.pixelmesh.live  (pixel / mesh)
-```
-
-Open that URL from anywhere, enter the credentials, and you have full interactive access to the `pixelmesh` tmux session — the same terminal running `run.sh`. Credentials are configured in `ngrok.pixelmesh.yml`.
 
 ---
 
@@ -113,22 +101,37 @@ Click the sidebar buttons to fire effects. Each effect has its own parameter dia
 
 | Effect | Parameters |
 |--------|------------|
-| Wave | Colour, Speed, Direction |
+| Wave | Colour, Speed, Direction, Frequency |
 | Gradient | Colour, Speed, Direction |
-| Binary Wave | Colour, Speed, Direction |
 | Pulse | Colour, BPM |
-| Rainbow | Speed, Direction |
-| Colour Flood | Colour A, Colour B, Split, Speed, Direction |
-| Aurora | Speed |
-| Ripple | Colour, Origin angle, Speed, Frequency |
+| Rainbow | Speed, Direction, Frequency |
+| Ripple | Speed — click-armed; the controller fires it from your click point on the camera preview |
+| Groups | Columns + a colour swatch per column (operator picks one colour per stripe up to 16), Chase speed |
+| Sparkle | Colour A, Colour B, Rate, Density — soft tinkle bloom that picks colour per-cycle |
+| Sections | Colour A, Colour B, Speed, Columns, Rows |
 
-The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect list previews the selected effect in real time.
+The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect list previews the selected effect in real time. **Projection flip (F):** mirrors the MJPEG feed + controller preview so the projector reads the right way round; the HUD redraws onto the flipped canvas so labels stay readable.
 
 **Overlay modes (P):** toggle between showing blink IDs (0-based) or render order (left-to-right spatial rank) on the camera feed. Render order is what the effects engine uses to sequence phones across the crowd.
 
 ---
 
-### 4. bug game
+### 4. avatar race
+
+Every detected phone gets a procedurally-generated character — body colour, hat style, skin tone all hashed from its blink ID — and races left-to-right on the stage projection (`/stage`). Tap the phone to step forward; first across the finish line wins.
+
+- **Target**: 40 taps to finish (`RACE_TAPS_PER_PLAYER` in `game.py`)
+- **Tap rate cap**: ~12 taps/s per phone — beyond that taps are ignored
+- **Progress broadcast**: 10 Hz; the stage eases each runner's displayed x toward the latest server position so motion stays smooth even on slow networks
+- **Lanes auto-fit** — the track divides evenly across however many runners are in the round, scaling avatar size down so 70+ phones still fit cleanly
+- **Phone-side avatar preview** — the user's own character is painted into the race card header alongside their live rank ("12th of 47"), so they can find themselves in a crowded projection
+- **Winner overlay** — text-only (no banner sprite), with looping confetti until the operator triggers the next thing; manual stop ends the round silently
+
+Launch from the sidebar: **Start Avatar Race**. Open `/stage` on a second screen (or projector) to display the race.
+
+---
+
+### 5. bug game
 
 A tap-reaction game. All phones receive a bug at random private intervals within a 20-second round — each player's bug appears at an unpredictable moment. Lowest reaction time wins.
 
@@ -152,7 +155,7 @@ Launch from the sidebar: **Start Bug Game**. The leaderboard window opens automa
 
 ---
 
-### 5. likes
+### 6. likes
 
 A global like counter on the waiting screen. Tap the thumbs-up to add to it — flying heart animations play locally. Taps are batched server-side at ~3 broadcasts/second so simultaneous taps from 300 people don't flood connections.
 
@@ -160,9 +163,9 @@ A global like counter on the waiting screen. Tap the thumbs-up to add to it — 
 
 ---
 
-### 6. post-show report
+### 7. post-show report
 
-A plain-text summary is generated automatically every time the server is reset (`R`). The file opens immediately in the default text editor.
+A plain-text summary is generated automatically every time the server is reset (`R`). The file is saved silently to `debug/reports/`; detection-end runs (D off) open it in the default editor.
 
 ```
 ══════════════════════════════════════════════
@@ -208,6 +211,7 @@ Sections are omitted if they didn't happen (e.g. no BUG GAME section if the game
 | `H` | Toggle all camera overlays (blink streams, device IDs, ROI boundary) |
 | `O` | Toggle device ID overlays |
 | `P` | Toggle overlay mode (blink IDs / render order) |
+| `F` | Flip projection (mirror MJPEG + preview) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `G` | Start/stop debug capture |
@@ -245,7 +249,7 @@ Phones cycle through these views as the show progresses:
 | `missed` | Detection ended, not found | 3 red flashes → black |
 | `effects` | Showtime | Synchronised light effect |
 | `game_wait` | Game active, bug not yet appeared | Black screen |
-| `game` | Bug game (countdown / tap / result) | Bug game UI |
+| `game` | Bug game / Avatar race UI | Tap-to-play card with personal avatar + rank (race) or bug-tap target (bug) |
 
 Each card is a fixed full-screen div. `setView()` is the only point that changes the display — cards are shown/hidden via `style.display`, never via CSS class toggles.
 
@@ -305,7 +309,8 @@ The display and detection threads run independently. Frames pass via `Queue(maxs
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
-| `game.py` | Bug game — server routes, parallel scheduling, controller UI and leaderboard |
+| `game.py` | Bug game + avatar race — server routes, tap dispatch by mode, controller UI |
+| `public/stage.js` | Stage projection — avatar race rendering, confetti, winner overlay |
 | `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
@@ -465,7 +470,6 @@ The four principles the project keeps coming back to:
 ## todo
 
 - **Blackout command** — instant all-phones-off for dramatic moments
-- **Projected camera view is mirrored** — when the controller's canvas is shown on a venue projector (audience-facing), the camera image reads as a mirror of reality (left/right swapped) because the camera faces the audience. Add a "Mirror projection" toggle that horizontally flips the rendered canvas before MJPEG/preview output, leaving the underlying detection coordinates untouched. Should be a sidebar toggle, default off, persists across runs.
 - **Photo-light / flash warning before demo** — venue photographers' strobes and audience camera flashes flood the detector with bright spikes, which `_ever_active` then tracks as candidate signals (eats decode budget, slows time-to-find). Add a one-screen pre-show prompt the operator confirms before pressing D ("Photo lights / flashes will degrade detection — ask the photographer to hold during calibration"). Belt-and-braces: detect a sudden frame-wide brightness spike and surface an amber HUD warning + log line so the operator knows mid-detection.
 - **Extend decode-fail back-off cap** — the detector already has exponential back-off on failed decodes (`min(interval × 2^failures, 5s)`, see tuning section), so a phantom retries once per 5 s at steady state, not every 0.2 s. That's already ~96 % of the available win. The remaining gain is small: extend the cap to e.g. 60 s after 20 consecutive failures, or "permanent suspension" after 100, capped at ~5 min. Last-night data: ~6 phantoms × 16 retries (existing 5 s cap) = ~96 wasted decodes / 80 s run, ≪1 % of detection-thread time. Not a real perf problem; defer until a venue actually shows budget pressure.
   - **Must NOT count `warmup` / `low_history` failures** — only structural failures on points with full history. Otherwise every fresh point gets back-off during its first 13.2 s.
@@ -479,3 +483,4 @@ The four principles the project keeps coming back to:
   - Detector accepts a 2D mask in addition to the four `roi_*_frac` values; old fractions become a fallback when no mask is set.
   - Show drawn ROI on the camera preview as a translucent overlay (excluded zones dimmed, just like today) — same draw_roi_overlay pattern but polygon-aware.
   - Touches `blink_detector.py` (frozen zone) and adds non-trivial UI to `controller.py`. Worth the effort once a venue's geometry is genuinely incompatible with edge cropping.
+- **Souvenirs — personal post-show page per phone** — every connected device gets a unique URL after the show with a recap of *their* pixel: when they joined, which effects they participated in, and a short GIF of just their pixel's colour over the duration of the show. Massive shareability (audience posts it, organic reach) and a reason to keep the tab open after the lights come up. Reuses existing infrastructure: `device_id` already identifies each phone, the broadcast loop already knows what each pixel was rendering at every frame, and `video_recorder.py` already captures grid state. Implementation sketch: (a) during the show, record a per-`device_id` colour timeline at ~5 fps to memory (bounded ring buffer, drop oldest if RAM tight); (b) on show end (or on a sidebar "Freeze souvenirs" action), persist each timeline to disk keyed by `device_id`; (c) phones reconnect to `/souvenir/<device_id>` after the show and get a generated GIF + stats page; (d) device_id token is already in the phone's localStorage, so the URL can be auto-presented on the existing client without a manual code. Open questions: retention window (24 h? until next show?), whether to include a panoramic crowd-cam frame for "where you were sitting" context, GDPR position on storing per-device timelines (likely fine — no PII, just anonymous colour traces). Don't touch the frozen detection files; lives entirely in `server.py` + a new `souvenir.py` module + a new template.

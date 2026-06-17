@@ -45,6 +45,7 @@ class AppState:
         )
 
         self.camera_active        = False        # True when a camera is open
+        self.flip_projection      = False        # mirror the MJPEG feed horizontally
 
         # Calibrated positions: blink_id → {"u": float, "v": float}
         self.calibrated_positions = {}

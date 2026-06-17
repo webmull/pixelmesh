@@ -47,10 +47,10 @@ CC_PAD_TOGGLE = 19   # top-right pad (pad 8 on LPD8 mk2)
 PAD_NOTE_MAP: dict[int, str] = {
     36: "wave",
     37: "gradient",
-    38: "binary_wave",
-    39: "pulse",
-    40: "rainbow",
-    41: "color_flood",
+    38: "pulse",
+    39: "rainbow",
+    40: "ripple",
+    41: "sparkle",
 }
 NOTE_PAD_TOGGLE = 43
 
