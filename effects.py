@@ -91,6 +91,13 @@ EFFECT_PARAMS = {
         # cursor, colour is fixed light-blue, only Speed is user-tunable.
         ("speed", "Speed", "slider_float", {"default_value": 0.6, "min_value": 0.05, "max_value": 1.5}),
     ],
+    "spotlight": [
+        # Cursor-driven follow spotlight — origin streamed continuously
+        # from the controller while armed.  Phones brighten with a
+        # Gaussian falloff around the operator's cursor position.
+        ("color",        "Colour", "color",        {"default_value": (255, 230, 180, 255)}),
+        ("spatial_freq", "Radius", "slider_float", {"default_value": 0.18, "min_value": 0.05, "max_value": 0.6}),
+    ],
     "groups": [
         ("spatial_freq", "Columns",  "slider_float", {"default_value": 2.0,  "min_value": 2.0,  "max_value": float(GROUPS_MAX_COLS), "format": "%.0f"}),
         # Speed=0 leaves all columns lit at full brightness; raise it for
@@ -119,6 +126,7 @@ EFFECT_LABELS = {
     "pulse":        "Pulse",
     "rainbow":      "Rainbow",
     "ripple":       "Ripple",
+    "spotlight":    "Spotlight",
     "groups":       "Groups",
     "sparkle":      "Sparkle",
     "sections":     "Sections",
@@ -196,6 +204,26 @@ def trigger_effect(name: str, extra: dict | None = None):
     with _state.lock:
         _state.current_effect = name
     _set_status(f"Effect: {name}")
+
+
+def trigger_spotlight_at(u: float, v: float):
+    """Broadcast a spotlight effect with the operator's cursor as the
+    Gaussian centre.  Called every render frame while spotlight is armed
+    (the controller throttles to ~15 Hz to avoid flooding the socket)."""
+    color  = _get("spotlight", "color",        (255, 230, 180, 255))
+    radius = _get("spotlight", "spatial_freq", 0.18)
+    payload = {
+        "name":            "spotlight",
+        "speed":           1.0,
+        "spatial_freq":    float(radius),
+        "color_r":         int(color[0]),
+        "color_g":         int(color[1]),
+        "color_b":         int(color[2]),
+        "origin_u":        float(u),
+        "origin_v":        float(v),
+        "origin_explicit": True,
+    }
+    post_json_async("/admin/effect/fire", payload)
 
 
 def trigger_ripple_at(u: float, v: float, wave_angle_deg: float | None = None,
@@ -438,6 +466,18 @@ def _shade_preview(effect, u, v, idx, t, params):
     if effect == "rainbow":
         hue = ((d*sf - t*sp) % 1 + 1) % 1
         return _hsl_to_rgb(hue, 1.0, 0.5)
+
+    if effect == "spotlight":
+        # Cursor-driven Gaussian — preview hovers the origin in the
+        # centre and pulses gently so the operator can see the shape.
+        ou, ov = 0.5, 0.5
+        radius = max(0.05, sf)
+        breathe = 0.92 + 0.08 * math.sin(t * 2.0)
+        du = u - ou
+        dv = v - ov
+        sigma2 = radius * radius * 0.5
+        iv = math.exp(-(du*du + dv*dv) / max(sigma2, 1e-6)) * breathe
+        return (iv * r, iv * g, iv * b)
 
     if effect == "ripple":
         # Click-driven ripple — preview loops from the centre.  Same

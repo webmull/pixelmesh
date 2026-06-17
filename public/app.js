@@ -1252,6 +1252,20 @@ function shade(u, v, t) {
     return hslToRgb(hue, 1.0, 0.5);
   }
 
+  if (currentEffect === "spotlight") {
+    // Cursor-driven Gaussian centred at the controller's mouse position.
+    // The operator drags across the camera preview and the phones inside
+    // the radius brighten in real-time — phones outside fade to black.
+    const ou = effectOriginExplicit ? effectOriginU : 0.5;
+    const ov = effectOriginExplicit ? effectOriginV : 0.5;
+    const r  = Math.max(0.05, effectSpatialFreq);
+    const du = u - ou;
+    const dv = v - ov;
+    const sigma2 = r * r * 0.5;
+    const i = Math.exp(-(du*du + dv*dv) / Math.max(sigma2, 1e-6));
+    return [i * effectR, i * effectG, i * effectB];
+  }
+
   if (currentEffect === "ripple") {
     // Click-driven ripple: a single bright leading edge that flows
     // outward and decays exponentially behind it.  Each phone lights
