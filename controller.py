@@ -1047,6 +1047,12 @@ def _set_ripple_armed(armed: bool):
     global _ripple_armed
     if armed == _ripple_armed:
         return
+    # Cancel the other armed mode first so the spotlight's 15 Hz broadcast
+    # doesn't keep stomping over the ripple a phone has just received (or
+    # vice versa).  The mutual-cancel guards against re-entry via the early
+    # `armed == _xxx_armed` exit at the top of each setter.
+    if armed:
+        _set_spotlight_armed(False)
     _ripple_armed = armed
     with state.lock:
         if armed:
