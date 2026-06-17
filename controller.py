@@ -1304,36 +1304,81 @@ def heart_toggle():
 
 
 trigger_effect = effects.trigger_effect
-def camera_scan_worker(holder=None):
+
+
+def _is_elgato_label(label: str) -> bool:
+    s = (label or "").lower()
+    return "facecam" in s or "elgato" in s
+
+
+def _scan_and_pick_elgato(holder, retrying=False):
+    """Refresh the camera list and open the Elgato if it's available.
+    Returns True if an Elgato is now open, False otherwise."""
     names  = _avfoundation_device_names()
     cams   = find_cameras(8)
     labels = [names.get(i, f"Camera {i}") for i in cams] or ["No cameras found"]
     lmap   = {names.get(i, f"Camera {i}"): i for i in cams}
 
     with state.lock:
-        state.cameras                = cams
-        state.camera_listbox_items   = labels
-        state.camera_label_to_index  = lmap
+        state.cameras               = cams
+        state.camera_listbox_items  = labels
+        state.camera_label_to_index = lmap
+        current_idx                 = state.selected_camera_idx
 
-    log.info(f"[camera] scan complete: {labels}")
+    # If the currently-open camera is already the Elgato, leave it alone.
+    current_label = next(
+        (l for l, i in lmap.items() if i == current_idx),
+        "",
+    )
+    if holder and holder.get("cap") and _is_elgato_label(current_label):
+        return True
 
-    # Auto-open Facecam 4K if present, otherwise first camera found
-    if holder is not None and cams:
-        preferred = next(
-            (l for l in labels if "facecam" in l.lower() or "elgato" in l.lower()),
-            labels[0],
-        )
-        idx = lmap.get(preferred)
-        if idx is not None:
-            cap = open_camera(idx)
-            if cap:
-                old = holder.get("cap")
-                if old:
-                    old.release()
-                holder["cap"] = cap
-                with state.lock:
-                    state.selected_camera_idx = idx
-                log.info(f"[camera] auto-opened {preferred}")
+    # Find an Elgato in the new list and open it.
+    elgato_label = next((l for l in labels if _is_elgato_label(l)), None)
+    if elgato_label is None:
+        if not retrying:
+            log.info(f"[camera] no Elgato found in {labels} — waiting for one to appear")
+            set_status("Plug in the Elgato Facecam — waiting…")
+        return False
+
+    idx = lmap.get(elgato_label)
+    if idx is None or holder is None:
+        return False
+    cap = open_camera(idx)
+    if not cap:
+        log.info(f"[camera] failed to open Elgato at index {idx}")
+        return False
+    old = holder.get("cap")
+    if old:
+        old.release()
+    holder["cap"] = cap
+    with state.lock:
+        state.selected_camera_idx = idx
+        state.status_text         = elgato_label
+    log.info(f"[camera] auto-opened {elgato_label}")
+    return True
+
+
+def camera_scan_worker(holder=None):
+    """Initial Elgato scan + background re-scan loop.  Refuses to silently
+    fall back to a non-Elgato camera (audience phones need consistent
+    exposure, and Camera Hub watchdog only works on the Elgato).  If the
+    Elgato isn't present yet, the loop keeps re-scanning every 5 seconds
+    so plugging it in later picks it up automatically."""
+    if _scan_and_pick_elgato(holder, retrying=False):
+        return
+    while True:
+        try:
+            with state.lock:
+                if not state.running:
+                    return
+            time.sleep(5.0)
+            if _scan_and_pick_elgato(holder, retrying=True):
+                set_status("Elgato connected")
+                return
+        except Exception as e:
+            log.info(f"[camera] rescan error: {e}")
+            time.sleep(5.0)
 
 
 
