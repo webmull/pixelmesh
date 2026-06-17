@@ -125,6 +125,17 @@ _AUDIENCE_ISO_GAIN: int = 100
 # light-blue ripple from the click's u,v and draw a matching water animation on
 # the controller canvas.  Firing any other sidebar effect disarms ripple.
 _ripple_armed: bool = False
+
+# Spotlight-follow state.  Toggled by the Spotlight sidebar button; while
+# armed, every render frame draws a glowing circle on the operator's cursor
+# (visible in both the controller preview and the MJPEG projection), and a
+# throttled broadcast streams the cursor's u,v + radius to the audience
+# phones so phones inside the radius brighten and the rest stay dark.
+_spotlight_armed: bool = False
+_last_spotlight_broadcast_ts: float = 0.0
+_SPOTLIGHT_BROADCAST_HZ = 15.0
+_last_spotlight_canvas_px: tuple[int, int] | None = None
+_last_spotlight_canvas_r:  int                  = 60
 # List of (canvas_x, canvas_y, t_started, theta_deg) for in-flight click ripples.
 # theta_deg points toward the nearest detected phone (None if no detections yet);
 # the local animation draws a half-arch opening in that direction.
@@ -1055,6 +1066,112 @@ def toggle_ripple_arm():
     set_status(f"Ripple {'armed' if _ripple_armed else 'disarmed'}")
 
 
+def _set_spotlight_armed(armed: bool):
+    global _spotlight_armed, _last_spotlight_canvas_px
+    if armed == _spotlight_armed:
+        return
+    _spotlight_armed = armed
+    with state.lock:
+        if armed:
+            state.current_effect = "spotlight"
+        elif state.current_effect == "spotlight":
+            state.current_effect = None
+    if armed:
+        # Arming swaps any current effect for spotlight; the per-frame
+        # broadcast that follows takes over from there.  Clear synchronously
+        # so the ripple-style switch race doesn't bite (network thread pool
+        # could otherwise reorder a stale stop after the first broadcast).
+        _set_ripple_armed(False)
+        post_json("/admin/effect/stop", {}, timeout=0.3)
+    else:
+        _last_spotlight_canvas_px = None
+        post_json_async("/admin/effect/stop", {})
+
+
+def toggle_spotlight_arm():
+    """Sidebar 'Spotlight' button: arm/disarm the cursor-follow spotlight."""
+    _set_spotlight_armed(not _spotlight_armed)
+    set_status(f"Spotlight {'armed' if _spotlight_armed else 'disarmed'}")
+
+
+def _spotlight_cursor_canvas_xy() -> tuple[int, int] | None:
+    """If the operator's mouse is over the camera preview, return the
+    cursor position mapped into display_canvas pixel coordinates.  Returns
+    None when the cursor is off the preview (so the spotlight pauses
+    instead of stuttering at the last in-bounds position)."""
+    if not dpg.does_item_exist("preview_image"):
+        return None
+    if not dpg.is_item_hovered("preview_image"):
+        return None
+    mouse    = dpg.get_mouse_pos(local=False)
+    img_min  = dpg.get_item_rect_min("preview_image")
+    img_size = dpg.get_item_rect_size("preview_image")
+    if img_size[0] <= 0 or img_size[1] <= 0:
+        return None
+    disp_x = mouse[0] - img_min[0]
+    disp_y = mouse[1] - img_min[1]
+    if disp_x < 0 or disp_y < 0 or disp_x >= img_size[0] or disp_y >= img_size[1]:
+        return None
+    px = int(disp_x * PREVIEW_WIDTH  / img_size[0])
+    py = int(disp_y * PREVIEW_HEIGHT / img_size[1])
+    return (px, py)
+
+
+def _broadcast_spotlight_if_due(canvas_px: int, canvas_py: int):
+    """Convert cursor canvas pixel → room u,v and throttle-broadcast.
+    canvas_px/py are in the display_canvas (post-flip) frame; we unflip
+    so phones receive their actual room position."""
+    global _last_spotlight_broadcast_ts
+    now = time.time()
+    if now - _last_spotlight_broadcast_ts < (1.0 / _SPOTLIGHT_BROADCAST_HZ):
+        return
+    _last_spotlight_broadcast_ts = now
+    room_x = (PREVIEW_WIDTH - canvas_px) if state.flip_projection else canvas_px
+    with state.lock:
+        crop_x = state.last_crop_x
+        crop_y = state.last_crop_y
+    u = (room_x + crop_x) / max(1, (PREVIEW_WIDTH  + 2 * crop_x))
+    v = (canvas_py + crop_y) / max(1, (PREVIEW_HEIGHT + 2 * crop_y))
+    u = max(0.0, min(1.0, u))
+    v = max(0.0, min(1.0, v))
+    effects.trigger_spotlight_at(u, v)
+
+
+def _draw_spotlight_cursor(display_canvas):
+    """Paint a glowing disc + ring at the spotlight cursor so the audience
+    can see where the operator is pointing on the projection.  No-op when
+    spotlight isn't armed or the cursor is off the preview."""
+    global _last_spotlight_canvas_px, _last_spotlight_canvas_r
+    if not _spotlight_armed:
+        return
+    cursor = _spotlight_cursor_canvas_xy()
+    if cursor is None:
+        return
+    px, py = cursor
+    _last_spotlight_canvas_px = cursor
+
+    # Radius shown on canvas matches the audience effect's actual reach so
+    # the operator's circle previews what the phones will light.
+    try:
+        radius_u = float(dpg.get_value("fx_spotlight_spatial_freq") or 0.18)
+    except Exception:
+        radius_u = 0.18
+    circle_r = max(20, int(radius_u * PREVIEW_WIDTH * 0.5))
+    _last_spotlight_canvas_r = circle_r
+
+    # Soft filled disc — alpha-blended over the canvas so the audience
+    # sees a gentle glow rather than an opaque blob.
+    overlay = display_canvas.copy()
+    cv2.circle(overlay, (px, py), circle_r, (200, 220, 255), -1, cv2.LINE_AA)
+    cv2.addWeighted(overlay, 0.20, display_canvas, 0.80, 0, display_canvas)
+    # Sharp ring + cursor dot so the operator can pinpoint where they are.
+    cv2.circle(display_canvas, (px, py), circle_r, (255, 255, 255), 2, cv2.LINE_AA)
+    cv2.circle(display_canvas, (px, py), 6, (60, 200, 255), -1, cv2.LINE_AA)
+    cv2.circle(display_canvas, (px, py), 6, (255, 255, 255), 1, cv2.LINE_AA)
+
+    _broadcast_spotlight_if_due(px, py)
+
+
 def stop_current_effect():
     """Tell the audience to clear whatever effect they're rendering and
     reset the controller's tracked current_effect so the sidebar highlight
@@ -1079,6 +1196,7 @@ def fire_effect_and_disarm_ripple(name: str):
     set then immediately cleared by the trailing stop, so users had to
     click twice to switch effects."""
     _set_ripple_armed(False)
+    _set_spotlight_armed(False)
     with state.lock:
         current = state.current_effect
     if current == name:
@@ -1625,6 +1743,8 @@ def setup_ui(holder: dict):
                         for _ename, _elabel in effects.EFFECT_LABELS.items():
                             if _ename == "ripple":
                                 _btn_cb = lambda s, a, u: toggle_ripple_arm()
+                            elif _ename == "spotlight":
+                                _btn_cb = lambda s, a, u: toggle_spotlight_arm()
                             else:
                                 _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
                             with dpg.group(horizontal=True, indent=_PAD):
@@ -1898,6 +2018,7 @@ def main():
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
                     draw_hud(display_canvas, fps)
+                    _draw_spotlight_cursor(display_canvas)
 
                     # MJPEG stream — write JPEG atomically so server.py
                     # never reads a partial file.  Capped at 30 fps.
