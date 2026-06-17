@@ -307,20 +307,130 @@ let effectG2          = 0;
 let effectB2          = 0;
 let effectSplit       = 0.5;
 let effectGroups      = {};   // groups: blink_id → group_index
+let effectColumnColors = [];  // groups: per-column [r, g, b] array
 
-// ---- Rope climb game ----
-let myTeam            = null;     // "diana" | "rosie" | null (uncalibrated / not assigned)
-let ropeActive        = false;
-let ropeTapHandlerOn  = false;
-let ropeWinnerTimer   = null;
-const ropeTeamName    = document.getElementById("ropeTeamName");
-const ropeTeamSub     = document.getElementById("ropeTeamSub");
-const ropePrompt      = document.getElementById("ropePrompt");
-const ropeBarDiana    = document.getElementById("ropeBarDiana");
-const ropeBarRosie    = document.getElementById("ropeBarRosie");
-const ropeWinner      = document.getElementById("ropeWinner");
-const ropeWinnerName  = document.getElementById("ropeWinnerName");
-const ropeWinnerSub   = document.getElementById("ropeWinnerSub");
+// ---- Avatar race ----
+let raceActive        = false;
+let raceTapHandlerOn  = false;
+let raceInRoster      = false;    // true if my blink_id is in this round's runners
+let raceRosterSize    = 0;
+const raceMyAvatar    = document.getElementById("raceMyAvatar");
+const raceMyName      = document.getElementById("raceMyName");
+const raceMySub       = document.getElementById("raceMySub");
+const raceRank        = document.getElementById("raceRank");
+const racePrompt      = document.getElementById("racePrompt");
+const raceBarMine     = document.getElementById("raceBarMine");
+const raceBarLeader   = document.getElementById("raceBarLeader");
+const raceWinner      = document.getElementById("raceWinner");
+const raceWinnerWho   = document.getElementById("raceWinnerWho");
+const raceWinnerSub   = document.getElementById("raceWinnerSub");
+
+// Avatar generator — kept in sync with stage.js so the character on the
+// projector matches the one painted into the phone's header.
+function _raceHashF(n) {
+  n = ((n ^ 61) ^ (n >>> 16)) >>> 0;
+  n = ((n + (n << 3)) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 4)) >>> 0;
+  n = ((n * 0x27D4EB2D) & 0x7FFFFFFF) >>> 0;
+  n =  (n ^ (n >>> 15)) >>> 0;
+  return (n & 0x7FFFFFFF) / 0x7FFFFFFF;
+}
+function _raceHsl(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+  const m = l - c / 2;
+  const i = Math.floor(h * 6) % 6;
+  let rgb;
+  if      (i === 0) rgb = [c, x, 0];
+  else if (i === 1) rgb = [x, c, 0];
+  else if (i === 2) rgb = [0, c, x];
+  else if (i === 3) rgb = [0, x, c];
+  else if (i === 4) rgb = [x, 0, c];
+  else              rgb = [c, 0, x];
+  return `rgb(${Math.round((rgb[0]+m)*255)},${Math.round((rgb[1]+m)*255)},${Math.round((rgb[2]+m)*255)})`;
+}
+const RACE_SKIN_TONES = ["#f1c9a5", "#d9a07e", "#a87049", "#6d4524"];
+const RACE_HAT_STYLES = ["beanie", "cap", "top", "none"];
+function _raceAvatarFeatures(bid) {
+  return {
+    bodyHue:  _raceHashF(bid),
+    hatHue:   _raceHashF(bid * 7 + 11),
+    skin:     RACE_SKIN_TONES[Math.floor(_raceHashF(bid * 13 + 5) * RACE_SKIN_TONES.length)],
+    hatStyle: RACE_HAT_STYLES[Math.floor(_raceHashF(bid * 23 + 3) * RACE_HAT_STYLES.length)],
+  };
+}
+function _paintMyAvatar(bid) {
+  if (!raceMyAvatar || bid == null) return;
+  const cx = raceMyAvatar.width  / 2;
+  const cy = raceMyAvatar.height / 2;
+  const size = Math.min(raceMyAvatar.width, raceMyAvatar.height) * 0.9;
+  const c = raceMyAvatar.getContext("2d");
+  c.clearRect(0, 0, raceMyAvatar.width, raceMyAvatar.height);
+  const f = _raceAvatarFeatures(bid);
+  const headR = size * 0.22;
+  const bodyW = size * 0.45;
+  const bodyH = size * 0.50;
+  const headCy = cy - size * 0.28;
+  c.fillStyle = _raceHsl(f.bodyHue, 0.75, 0.5);
+  c.fillRect(cx - bodyW / 2, cy - bodyH / 2, bodyW, bodyH);
+  c.fillStyle = f.skin;
+  const armW = size * 0.08;
+  c.fillRect(cx - bodyW / 2 - armW, cy - bodyH * 0.35, armW, bodyH * 0.5);
+  c.fillRect(cx + bodyW / 2,        cy - bodyH * 0.35, armW, bodyH * 0.5);
+  const legW = size * 0.12;
+  const legH = size * 0.20;
+  c.fillStyle = _raceHsl(f.bodyHue, 0.45, 0.25);
+  c.fillRect(cx - bodyW * 0.35 - legW / 2, cy + bodyH / 2, legW, legH);
+  c.fillRect(cx + bodyW * 0.35 - legW / 2, cy + bodyH / 2, legW, legH);
+  c.fillStyle = f.skin;
+  c.beginPath();
+  c.arc(cx, headCy, headR, 0, Math.PI * 2);
+  c.fill();
+  if (f.hatStyle !== "none") {
+    c.fillStyle = _raceHsl(f.hatHue, 0.85, 0.45);
+    if (f.hatStyle === "beanie") {
+      c.beginPath();
+      c.arc(cx, headCy - headR * 0.2, headR * 1.05, Math.PI, 0);
+      c.fill();
+    } else if (f.hatStyle === "cap") {
+      c.fillRect(cx - headR, headCy - headR * 0.5, headR * 2, headR * 0.45);
+      c.fillRect(cx - headR * 0.2, headCy - headR * 0.2, headR * 1.6, headR * 0.18);
+    } else if (f.hatStyle === "top") {
+      c.fillRect(cx - headR * 0.7, headCy - headR * 1.6, headR * 1.4, headR * 1.1);
+      c.fillRect(cx - headR * 1.1, headCy - headR * 0.5, headR * 2.2, headR * 0.18);
+    }
+  }
+}
+function _ordinalLabel(rank) {
+  if (rank == null) return "—";
+  const j = rank % 10, k = rank % 100;
+  if (j === 1 && k !== 11) return rank + "st";
+  if (j === 2 && k !== 12) return rank + "nd";
+  if (j === 3 && k !== 13) return rank + "rd";
+  return rank + "th";
+}
+
+// ---- Bug-tap game (Game 1) ----
+let bugTapHandlerOn   = false;
+let bugShowAt         = 0;        // server-time ms when this phone's bug appears
+let bugSlotMs         = 1400;
+let bugTapped         = false;
+let bugReactionMs     = null;
+let bugTimer          = null;
+let bugCountdownTimer = null;
+let bugRoundStartAt   = 0;        // server timestamp when 20s round begins
+const gameSlotBar       = document.getElementById("gameSlotBar");
+const gameProgress      = document.getElementById("gameProgress");
+const countdownText     = document.getElementById("countdownText");
+const bugHappy          = document.getElementById("bugHappy");
+const bugScared         = document.getElementById("bugScared");
+const gamePrompt        = document.getElementById("gamePrompt");
+const gameResult        = document.getElementById("gameResult");
+const gameWinner        = document.getElementById("gameWinner");
+const gameMyBannerLabel = document.getElementById("gameMyBannerLabel");
+const gameMyBannerTime  = document.getElementById("gameMyBannerTime");
+const gameWinnerPhone   = document.getElementById("gameWinnerPhone");
+const gameWinnerTime    = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let reconnectDelay  = 500;
@@ -623,6 +733,7 @@ function handleMessage(msg) {
     effectB2          = msg.color2_b ?? 0;
     effectSplit       = msg.split ?? 0.5;
     effectGroups      = msg.groups ?? {};
+    effectColumnColors = msg.column_colors ?? [];
     setView("effects");
     return;
   }
@@ -654,25 +765,78 @@ function handleMessage(msg) {
     return;
   }
 
-  if (msg.type === "rope_start") {
+  if (msg.type === "race_start") {
     currentEffect = null;
-    ropeActive    = true;
-    // Pull this phone's team out of the assignment map; null if uncalibrated.
-    const teams = msg.teams || {};
-    myTeam = teams[String(myBlinkId)] || null;
-    _resetRopeView();
+    raceActive    = true;
+    raceInRoster  = (msg.blink_ids || []).includes(myBlinkId);
+    raceRosterSize = (msg.blink_ids || []).length;
+    CARDS.game.classList.remove("mode-bug");
+    CARDS.game.classList.add("mode-race");
+    _resetRaceView();
     setView("game");
     return;
   }
 
-  if (msg.type === "rope_progress") {
-    if (ropeBarDiana) ropeBarDiana.style.width = (msg.diana * 100).toFixed(1) + "%";
-    if (ropeBarRosie) ropeBarRosie.style.width = (msg.rosie * 100).toFixed(1) + "%";
+  if (msg.type === "race_progress") {
+    if (!raceActive) return;
+    const positions = msg.positions || {};
+    const mine = positions[String(myBlinkId)] ?? 0;
+    let leader = 0;
+    let rank   = 1;
+    for (const [bid, v] of Object.entries(positions)) {
+      if (v > leader) leader = v;
+      // Strict greater-than for rank so ties share the same place.
+      if (parseInt(bid, 10) !== myBlinkId && v > mine) rank++;
+    }
+    if (raceBarMine)   raceBarMine.style.width   = (mine   * 100).toFixed(1) + "%";
+    if (raceBarLeader) raceBarLeader.style.width = (leader * 100).toFixed(1) + "%";
+    if (raceRank && raceInRoster) {
+      raceRank.textContent = `${_ordinalLabel(rank)} of ${raceRosterSize}`;
+    }
     return;
   }
 
-  if (msg.type === "rope_end") {
-    _showRopeWinner(msg);
+  if (msg.type === "race_end") {
+    _showRaceWinner(msg);
+    return;
+  }
+
+  // ---- Bug-tap game (Game 1) ----
+  if (msg.type === "game_countdown") {
+    bugReactionMs    = null;
+    bugTapped        = false;
+    currentEffect    = null;
+    bugRoundStartAt  = msg.start_at + 3000;
+    _cleanupGame();
+    CARDS.game.classList.add("mode-bug");
+    gameProgress.style.display = "none";
+    setView("game");
+    _bugStartCountdown(msg.start_at);
+    return;
+  }
+
+  if (msg.type === "game_show") {
+    bugShowAt    = msg.show_at;
+    bugSlotMs    = msg.slot_ms;
+    bugTapped    = false;
+    bugReactionMs = null;
+    bugHappy.style.display  = "none";
+    bugScared.style.display = "none";
+    gameResult.textContent  = "";
+    setView("game");
+    const delay = bugShowAt - serverNow();
+    bugTimer = setTimeout(_bugShowHappy, Math.max(0, delay));
+    return;
+  }
+
+  if (msg.type === "game_progress") {
+    gameProgress.textContent   = `${msg.tapped} / ${msg.total} tapped`;
+    gameProgress.style.display = "block";
+    return;
+  }
+
+  if (msg.type === "game_winner" || msg.type === "game_end") {
+    _bugShowWinner(msg);
     return;
   }
 }
@@ -743,130 +907,250 @@ function _drawPositionMap() {
 // Bug game
 // ------------------------------------------------------------------ //
 
-// Set up the rope view from scratch: team gradient, label, tap handler,
-// bars cleared, winner banner hidden.
-function _resetRopeView() {
-  // Card colour / labels
-  CARDS.game.classList.remove("team-diana", "team-rosie", "team-neutral");
-  if (myTeam === "diana") {
-    CARDS.game.classList.add("team-diana");
-    ropeTeamName.textContent = "Team Diana";
-    ropeTeamSub.textContent  = "Tap to lift Diana up the rope";
-    ropePrompt.textContent   = "";       // no label — icon glyph speaks for itself
-    ropePrompt.style.display = "flex";
-  } else if (myTeam === "rosie") {
-    CARDS.game.classList.add("team-rosie");
-    ropeTeamName.textContent = "Team Rosie";
-    ropeTeamSub.textContent  = "Tap to lift Rosie up the rope";
-    ropePrompt.textContent   = "";
-    ropePrompt.style.display = "flex";
-  } else {
-    CARDS.game.classList.add("team-neutral");
-    ropeTeamName.textContent = "Spectating";
-    ropeTeamSub.textContent  = "Your phone isn't on a team this round";
-    ropePrompt.textContent   = "";
-    ropePrompt.style.display = "none";
+// ------------------------------------------------------------------ //
+// Avatar race
+// ------------------------------------------------------------------ //
+
+function _resetRaceView() {
+  if (raceMyName) raceMyName.textContent = raceInRoster
+    ? `You are Phone #${(myBlinkId ?? 0) + 1}`
+    : "Spectating";
+  if (raceMySub) raceMySub.textContent = raceInRoster
+    ? "Find me on the stage and tap to run"
+    : "You aren't in this race";
+  if (raceRank) raceRank.textContent = raceInRoster
+    ? `1st of ${raceRosterSize || "—"}`
+    : "—";
+  if (raceBarMine)   raceBarMine.style.width   = "0%";
+  if (raceBarLeader) raceBarLeader.style.width = "0%";
+  if (raceWinner) raceWinner.classList.remove("show");
+  if (racePrompt) racePrompt.textContent = "TAP";
+  // Paint the user's own avatar so they can spot themselves in the
+  // crowd of dots on the stage projection.
+  if (raceInRoster) _paintMyAvatar(myBlinkId);
+  else if (raceMyAvatar) {
+    const c = raceMyAvatar.getContext("2d");
+    c.clearRect(0, 0, raceMyAvatar.width, raceMyAvatar.height);
   }
-  CARDS.game.classList.remove("tapping");
-
-  // Reset bars (server will fill these in via rope_progress almost immediately)
-  if (ropeBarDiana) ropeBarDiana.style.width = "0%";
-  if (ropeBarRosie) ropeBarRosie.style.width = "0%";
-
-  // Hide winner overlay
-  ropeWinner.classList.remove("show");
-  ropeWinnerName.classList.remove("diana", "rosie", "draw");
-
-  // Wire up the tap handler — only for assigned phones
-  if (!ropeTapHandlerOn && myTeam) {
-    CARDS.game.addEventListener("pointerdown", _onRopeTap);
-    ropeTapHandlerOn = true;
-  } else if (ropeTapHandlerOn && !myTeam) {
-    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
-    ropeTapHandlerOn = false;
+  if (raceInRoster && !raceTapHandlerOn) {
+    CARDS.game.addEventListener("pointerdown", _onRaceTap);
+    raceTapHandlerOn = true;
+  } else if (!raceInRoster && raceTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    raceTapHandlerOn = false;
   }
 }
 
-function _onRopeTap(e) {
-  if (!ropeActive || !myTeam) return;
+function _onRaceTap(e) {
+  if (!raceActive || !raceInRoster) return;
   e.preventDefault();
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "game_tap" }));
   }
-  // Press feedback — button squishes briefly
   CARDS.game.classList.add("tapping");
   setTimeout(() => CARDS.game.classList.remove("tapping"), 90);
-  // Ping halo — restart the CSS animation by removing+re-adding the class
-  // on the next frame so rapid taps still fire fresh rings.
-  CARDS.game.classList.remove("pinging");
-  void CARDS.game.offsetWidth;
-  CARDS.game.classList.add("pinging");
 }
 
-function _showRopeWinner(msg) {
-  ropeActive = false;
-  if (ropeTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
-    ropeTapHandlerOn = false;
+function _showRaceWinner(msg) {
+  raceActive = false;
+  if (raceTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    raceTapHandlerOn = false;
   }
-
-  // Manual stop from the controller (no winner) — silently bow out.
-  // The server's default wave broadcast will swap us to the effects view
-  // moments later; until then stay put rather than flicking back to a
-  // "waiting for detection" screen.
-  if (!msg.winner) {
-    ropeWinner.classList.remove("show");
-    if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
-    return;
-  }
-
-  // Final bar values for clarity
-  if (msg.diana != null && ropeBarDiana) {
-    ropeBarDiana.style.width = (msg.diana * 100).toFixed(1) + "%";
-  }
-  if (msg.rosie != null && ropeBarRosie) {
-    ropeBarRosie.style.width = (msg.rosie * 100).toFixed(1) + "%";
-  }
-  // Winner banner
-  ropeWinnerName.classList.remove("diana", "rosie", "draw");
-  if (msg.winner === "diana") {
-    ropeWinnerName.textContent = "DIANA";
-    ropeWinnerName.classList.add("diana");
-    ropeWinnerSub.textContent  = myTeam === "diana" ? "Your team wins!" : "Better luck next round";
-  } else if (msg.winner === "rosie") {
-    ropeWinnerName.textContent = "ROSIE";
-    ropeWinnerName.classList.add("rosie");
-    ropeWinnerSub.textContent  = myTeam === "rosie" ? "Your team wins!" : "Better luck next round";
-  } else {
-    ropeWinnerName.textContent = "DRAW";
-    ropeWinnerName.classList.add("draw");
-    ropeWinnerSub.textContent  = "No one made it to the top";
-  }
-  ropeWinner.classList.add("show");
-  // Leave the winner banner up.  The server fires its default wave
-  // effect immediately after rope_end, and the effect handler cleans
-  // up the game card on receipt — that's the legitimate exit.  Don't
-  // ever bounce the phones back to a detection / waiting view from
-  // here; an isolated audience drop-off would otherwise re-show a
-  // "waiting for detection" screen in the middle of a finished round.
-  if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
+  // Manual stop with no winner — fall back to wave silently.
+  if (msg.winner == null) return;
+  const winnerBid = msg.winner;
+  const wonByMe   = winnerBid === myBlinkId;
+  if (raceWinnerWho) raceWinnerWho.textContent = wonByMe
+    ? "You!"
+    : `Phone #${winnerBid + 1}`;
+  if (raceWinnerSub) raceWinnerSub.textContent = wonByMe
+    ? "First across the line"
+    : "Better luck next round";
+  if (raceWinner) raceWinner.classList.add("show");
 }
 
-// Tear down rope game state — called from the reset handler.
+// Tear down both games' state — called from reset, effect, and goBlack.
 function _cleanupGame() {
-  ropeActive = false;
-  myTeam     = null;
-  if (ropeTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onRopeTap);
-    ropeTapHandlerOn = false;
+  // Race teardown
+  raceActive   = false;
+  raceInRoster = false;
+  if (raceTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    raceTapHandlerOn = false;
   }
-  if (ropeWinnerTimer) { clearTimeout(ropeWinnerTimer); ropeWinnerTimer = null; }
-  ropeWinner.classList.remove("show");
-  CARDS.game.classList.remove(
-    "team-diana", "team-rosie", "team-neutral", "tapping", "pinging",
-  );
-  if (ropeBarDiana) ropeBarDiana.style.width = "0%";
-  if (ropeBarRosie) ropeBarRosie.style.width = "0%";
+  if (raceWinner)    raceWinner.classList.remove("show");
+  if (raceBarMine)   raceBarMine.style.width   = "0%";
+  if (raceBarLeader) raceBarLeader.style.width = "0%";
+  // Bug teardown
+  if (bugTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onBugTap);
+    bugTapHandlerOn = false;
+  }
+  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
+  _bugStopCountdown();
+  if (gameSlotBar) {
+    gameSlotBar.style.transition = "none";
+    gameSlotBar.style.transform  = "scaleX(0)";
+  }
+  if (gamePrompt)   gamePrompt.classList.remove("pulsing");
+  if (gameWinner) { gameWinner.style.display = "none"; gameWinner.classList.remove("show"); }
+  if (gameProgress) gameProgress.style.display = "none";
+  // Card-level state
+  CARDS.game.classList.remove("mode-bug", "mode-race", "tapping");
+}
+
+// ------------------------------------------------------------------ //
+// Bug-tap game (Game 1)
+// ------------------------------------------------------------------ //
+
+function _bugStartCountdown(startAt) {
+  _bugStopCountdown();
+  bugHappy.style.display  = "none";
+  bugScared.style.display = "none";
+  gameResult.textContent  = "";
+
+  function _tick() {
+    const elapsed   = serverNow() - startAt;
+    const remaining = Math.ceil((3000 - elapsed) / 1000);
+    const label     = remaining > 0 ? String(remaining) : "GO!";
+    if (countdownText.textContent !== label) {
+      countdownText.classList.remove("pop");
+      void countdownText.offsetWidth;
+      countdownText.textContent = label;
+      countdownText.classList.add("pop");
+    }
+    if (elapsed >= 3800) {
+      _bugStopCountdown();
+    }
+  }
+  _tick();
+  bugCountdownTimer = setInterval(_tick, 100);
+}
+
+function _bugStopCountdown() {
+  if (bugCountdownTimer) { clearInterval(bugCountdownTimer); bugCountdownTimer = null; }
+  if (countdownText) {
+    countdownText.classList.remove("pop");
+    countdownText.textContent = "";
+  }
+}
+
+function _bugShowHappy() {
+  _bugStopCountdown();
+  bugTapped = false;
+  bugHappy.style.display  = "block";
+  bugScared.style.display = "none";
+  gamePrompt.textContent  = "TAP!";
+  gamePrompt.classList.add("pulsing");
+  gameResult.textContent  = "";
+  CARDS.game.addEventListener("pointerdown", _onBugTap);
+  bugTapHandlerOn = true;
+  // Slot-bar timer from server clock, then transition to 0 over the
+  // remaining round window so phones share the same drain animation.
+  const elapsed   = Math.max(0, serverNow() - bugRoundStartAt);
+  const remaining = Math.max(0, 20000 - elapsed);
+  gameSlotBar.style.transition = "none";
+  gameSlotBar.style.transform  = `scaleX(${remaining / 20000})`;
+  void gameSlotBar.offsetWidth;
+  gameSlotBar.style.transition = `transform ${remaining}ms linear`;
+  gameSlotBar.style.transform  = "scaleX(0)";
+  bugTimer = setTimeout(_bugHideAfterMiss, bugSlotMs);
+}
+
+function _onBugTap(e) {
+  if (bugTapped) return;
+  bugTapped = true;
+  e.preventDefault();
+  CARDS.game.removeEventListener("pointerdown", _onBugTap);
+  bugTapHandlerOn = false;
+  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
+
+  bugReactionMs = Math.round(serverNow() - bugShowAt);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "game_tap", reaction_ms: bugReactionMs }));
+  }
+  gameSlotBar.style.transition = "none";
+  gamePrompt.classList.remove("pulsing");
+  gamePrompt.textContent  = "";
+  bugHappy.style.display  = "none";
+  bugScared.style.display = "block";
+  gameResult.textContent  = `${bugReactionMs} ms`;
+}
+
+function _bugHideAfterMiss() {
+  if (bugTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onBugTap);
+    bugTapHandlerOn = false;
+  }
+  bugHappy.style.display = "none";
+  gamePrompt.classList.remove("pulsing");
+  gamePrompt.textContent = "";
+}
+
+function _bugShowWinner(msg) {
+  if (bugTapHandlerOn) {
+    CARDS.game.removeEventListener("pointerdown", _onBugTap);
+    bugTapHandlerOn = false;
+  }
+  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
+  _bugStopCountdown();
+  gameSlotBar.style.transition = "none";
+  gamePrompt.classList.remove("pulsing");
+  gamePrompt.textContent = "";
+  gameProgress.style.display = "none";
+
+  const isDraw  = msg.draw === true;
+  const drawIds = msg.blink_ids || [];
+  const iWon    = !isDraw && msg.blink_id !== undefined && msg.blink_id === myBlinkId;
+  const iDrew   = isDraw && drawIds.includes(myBlinkId);
+
+  if (iWon) {
+    gameMyBannerLabel.textContent = "YOU WIN";
+    gameMyBannerLabel.style.color = "#ffd740";
+    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.5)";
+    gameMyBannerTime.textContent  = bugReactionMs !== null ? `${bugReactionMs} ms` : "";
+    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
+  } else if (iDrew) {
+    gameMyBannerLabel.textContent = "IT'S A DRAW";
+    gameMyBannerLabel.style.color = "#ffd740";
+    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.3)";
+    gameMyBannerTime.textContent  = bugReactionMs !== null ? `${bugReactionMs} ms` : "";
+    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
+  } else if (bugReactionMs !== null) {
+    gameMyBannerLabel.textContent = "NOT THIS TIME";
+    gameMyBannerLabel.style.color = "rgba(255,255,255,0.75)";
+    gameMyBannerLabel.style.textShadow = "none";
+    gameMyBannerTime.textContent  = `Your time: ${bugReactionMs} ms`;
+    gameMyBannerTime.style.color  = "rgba(255,255,255,0.35)";
+  } else {
+    gameMyBannerLabel.textContent = "YOU MISSED IT";
+    gameMyBannerLabel.style.color = "rgba(255,80,80,0.85)";
+    gameMyBannerLabel.style.textShadow = "none";
+    gameMyBannerTime.textContent  = "";
+  }
+
+  if (isDraw) {
+    gameWinnerPhone.textContent = `Draw — ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
+    gameWinnerTime.textContent  = `${msg.reaction_ms} ms each`;
+  } else if (msg.blink_id !== undefined) {
+    gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
+    gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
+  } else {
+    gameWinnerPhone.textContent = "No taps recorded";
+    gameWinnerTime.textContent  = "";
+  }
+
+  bugHappy.style.display   = "none";
+  bugScared.style.display  = "none";
+  gameResult.textContent   = "";
+  gameWinner.style.display = "flex";
+  gameWinner.classList.remove("show");
+  void gameWinner.offsetWidth;
+  gameWinner.classList.add("show");
+  CARDS.game.classList.remove("mode-race");
+  CARDS.game.classList.add("mode-bug");
+  setView("game");
 }
 
 // ------------------------------------------------------------------ //
@@ -949,12 +1233,6 @@ function shade(u, v, t) {
     return [i * effectR, i * effectG, i * effectB];
   }
 
-  if (currentEffect === "binary_wave") {
-    const phase = 2 * Math.PI * (d * effectSpatialFreq - t * effectSpeed);
-    const i = Math.sin(phase) > 0 ? 1 : 0;
-    return [i * effectR, i * effectG, i * effectB];
-  }
-
   if (currentEffect === "pulse") {
     const beat = Math.sin(2 * Math.PI * (effectBpm / 60) * t);
     const i = Math.max(0, beat);
@@ -967,83 +1245,48 @@ function shade(u, v, t) {
     return hslToRgb(hue, 1.0, 0.5);
   }
 
-  if (currentEffect === "colour_flood") {
-    // Normalise the directed coordinate to 0–1 across the actual u,v range
-    // so the split point works correctly at any angle.
-    const a  = effectAngle * Math.PI / 180;
-    const ca = Math.cos(a), sa = Math.sin(a);
-    const raw = u * ca + v * sa;
-    const corners = [0, ca, sa, ca + sa];
-    const dMin = Math.min(...corners), dMax = Math.max(...corners);
-    const dn = dMax > dMin ? (raw - dMin) / (dMax - dMin) : 0.5;
-    const blend = Math.max(0, Math.min(1, (dn - effectSplit) / 0.08 + 0.5));
-    const r = effectR + (effectR2 - effectR) * blend;
-    const g = effectG + (effectG2 - effectG) * blend;
-    const b = effectB + (effectB2 - effectB) * blend;
-    return [r, g, b];
-  }
-
   if (currentEffect === "ripple") {
-    // Click-driven half-arch ripple: a single light-blue pulse travels
-    // outward from the click's (u,v).  Each phone gets a half-sine peak
-    // as the wave front passes, then a slow afterglow trail so the
-    // brightness drifts down rather than snapping off.
+    // Click-driven ripple: a single bright leading edge that flows
+    // outward and decays exponentially behind it.  Each phone lights
+    // up once as the wave-front arrives, then fades smoothly — no
+    // trailing rings that would re-light it (which read as the wave
+    // "bouncing").
     const ou = effectOriginExplicit ? effectOriginU : 0.5;
     const ov = effectOriginExplicit ? effectOriginV : 0.5;
     const dist = Math.sqrt((u - ou) ** 2 + (v - ov) ** 2);
     const front = t * effectSpeed;
-    const width = 0.55;    // pulse width — wider gives a slower, gentler fade
+    const totalWidth = 0.7;
     const delta = dist - front;
 
-    // Single smooth pulse: peaks at delta=0 (the moment the wave-front
-    // reaches this phone) and decays smoothly via a quarter-cosine over
-    // delta in [-width, 0].  Earlier code joined a half-sine arch to an
-    // afterglow tail, but the half-sine returned to 0 at delta=0 while
-    // the tail started at 0.30 — a discontinuity that read as a "bounce"
-    // a second pulse just after the wave passed.
     let i = 0;
-    if (delta <= 0 && delta >= -width) {
-      const phase = -delta / width;          // 0 at front → 1 at trailing edge
-      i = Math.cos(phase * Math.PI / 2);     // 1 → 0, smooth and monotonic
+    if (delta <= 0 && delta >= -totalWidth) {
+      const age = -delta / totalWidth;         // 0 at front → 1 at trailing edge
+      i = Math.exp(-age * 3.0);                // bright front, monotonic fade
     }
 
-    // Amplitude falls off smoothly with distance — Gaussian-ish tail so
-    // phones near the edge of the room still register a faint shimmer
-    // instead of cutting off hard.
-    const falloff = Math.exp(-dist * dist * 0.8);
+    // Spatial falloff so far edges still register a faint shimmer.
+    const falloff = Math.exp(-dist * dist * 0.6);
     i *= falloff;
 
-    // Directional boost: phones that lie in the direction the controller
-    // wave is travelling go super bright; phones perpendicular get a
-    // modest baseline; phones behind the wave fade out almost entirely.
-    // Only applied when the controller sent a wave_angle — without it
-    // the ripple is omnidirectional.
+    // Directional boost when the controller sent a wave_angle.
     if (effectWaveAngleExplicit && dist > 0.001) {
       const phoneAngle = Math.atan2(v - ov, u - ou);
       const waveAngleRad = effectWaveAngle * Math.PI / 180;
       const dirCos = Math.cos(phoneAngle - waveAngleRad);
-      // baseline 0.25 (perpendicular / behind) → 1.0 (in direction)
       const dirMult = 0.25 + 0.75 * Math.pow(Math.max(0, dirCos), 0.7);
       i *= dirMult;
     } else {
-      // No direction info → keep the overall amplitude calm.
-      i *= 0.55;
+      i *= 0.6;
     }
 
-    // Fade the whole effect out gently once the wave-front (plus its
-    // decay window) clears the far corner of the room.  sqrt(2) ≈ 1.414
-    // is the max u,v distance to the corner.
-    const liveTime = (1.414 + width) / Math.max(effectSpeed, 0.05);
+    // Fade out once the wave-front (plus its decay window) clears the
+    // far corner of the room.  sqrt(2) ≈ 1.414 is the max distance.
+    const liveTime = (1.414 + totalWidth) / Math.max(effectSpeed, 0.05);
     const fadeOut = t > liveTime
       ? Math.max(0, 1 - (t - liveTime) * 0.6)
       : 1;
     i *= fadeOut;
 
-    // Colour shifts from a bright cornflower-blue at the origin to a deep
-    // royal-blue as the wave fans out.  Earlier numbers had R and G both
-    // near 220-255 at the origin, which on a phone screen reads as
-    // pale-lavender / off-white rather than blue.  Pushed R and G down
-    // across the gradient so the blue channel actually dominates.
     const tint = Math.min(1, dist * 1.2);
     const colR = 100 - tint * (100 -  10);
     const colG = 180 - tint * (180 -  60);
@@ -1053,14 +1296,24 @@ function shade(u, v, t) {
   }
 
   if (currentEffect === "sparkle") {
-    // Each phone gets its own rate, phase, and color assignment seeded from its ID.
-    // Density slider controls what fraction of phones are on at any moment.
-    const h0 = _hashFloat(myBlinkId);           // rate variation
-    const h1 = _hashFloat(myBlinkId * 7 + 1);   // phase offset
-    const h2 = _hashFloat(myBlinkId * 13 + 2);  // color A vs B
-    const flashRate = 0.5 + h0;                  // 0.5×–1.5× base rate
-    const threshold = 1.0 - 2.0 * effectSplit;  // split=0 → sparse, 1 → dense
-    const i = Math.sin(2 * Math.PI * (t * effectSpeed * flashRate + h1)) > threshold ? 1.0 : 0.0;
+    // Each phone gets its own rate + phase.  Each flash is a soft tinkle
+    // bloom (not a binary on/off), and the colour is picked per CYCLE
+    // rather than per-phone — so even a single phone alternates between
+    // colour A and colour B over time.  Switch happens at sin=0 so it's
+    // invisible (brightness is 0 there).
+    const h0 = _hashFloat(myBlinkId);
+    const h1 = _hashFloat(myBlinkId * 7 + 1);
+    const flashRate = 0.5 + h0;
+    const threshold = 1.0 - 2.0 * effectSplit;
+    const rawPhase  = t * effectSpeed * flashRate + h1;
+    const sinVal    = Math.sin(2 * Math.PI * rawPhase);
+    let i = 0;
+    if (sinVal > threshold) {
+      const norm = (sinVal - threshold) / Math.max(1.0 - threshold, 1e-6);
+      i = norm * norm * (3.0 - 2.0 * norm);   // smoothstep — soft bell
+    }
+    const cycle = Math.floor(rawPhase);
+    const h2 = _hashFloat(myBlinkId * 13 + 2 + cycle * 97);
     if (h2 < 0.5) return [i * effectR,  i * effectG,  i * effectB];
     else          return [i * effectR2, i * effectG2, i * effectB2];
   }
@@ -1082,15 +1335,26 @@ function shade(u, v, t) {
   }
 
   if (currentEffect === "groups") {
-    // Server assigns each phone a group index sorted by u position so every
-    // group has equal phone count.  Fallback to spatial split for uncalibrated phones.
+    // Server assigns each phone a group index (sorted by u so every column
+    // has equal phone count) and sends column_colors[col] = [r,g,b] picked
+    // by the operator.  Fallback to spatial split / palette default for
+    // uncalibrated phones or missing payload.
     const n   = Math.max(2, Math.round(effectSpatialFreq));
     const col = (myBlinkId in effectGroups)
       ? effectGroups[myBlinkId]
       : Math.min(n - 1, Math.floor(myU * n));
-    const norm = (((col / n) - t * effectSpeed) % 1 + 1) % 1;
-    if (norm < 0.5) return [effectR,  effectG,  effectB];
-    else            return [effectR2, effectG2, effectB2];
+    const c = effectColumnColors[col];
+    let r, g, b;
+    if (c) { r = c[0]; g = c[1]; b = c[2]; }
+    else   { r = effectR; g = effectG; b = effectB; }
+    // Chase: speed=0 leaves all columns lit; speed>0 sweeps a brightness
+    // focus across them so only the "current" column glows fully.
+    if (effectSpeed > 0.001) {
+      const phase = (((col / n) - t * effectSpeed) % 1 + 1) % 1;
+      const focus = 0.5 + 0.5 * Math.cos(2 * Math.PI * phase);
+      r *= focus; g *= focus; b *= focus;
+    }
+    return [r, g, b];
   }
 
   return [0, 0, 0];
@@ -1129,14 +1393,15 @@ function hslToRgb(h, s, l) {
 function renderLoop() {
   updateBlink();
 
-  if (view === "effects" && currentEffect) {
-    if (!calibrated) {
-      projCanvas.style.display       = "none";
+  if (view === "effects") {
+    projCanvas.style.display = "none";
+    if (!currentEffect || !calibrated) {
+      // No active effect (e.g. operator armed ripple → effect_stop) or
+      // pre-calibration: hold black so the previous frame's colour
+      // doesn't linger on screen.
       CARDS.effects.style.background = "#000";
     } else {
       const t = (serverNow() - effectStartTime) / 1000;
-
-      projCanvas.style.display       = "none";
       const [r, g, b] = shade(myU, myV, t);
       CARDS.effects.style.background = `rgb(${r},${g},${b})`;
     }

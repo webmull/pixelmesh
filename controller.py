@@ -112,6 +112,13 @@ _timing_log_handles: list = []      # open file handles paired with _timing_log_
 _detection_amplitudes: list[float] = []
 _iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
 
+# Two-phase ISO: detection wants the low-gain default so blink contrast reads
+# cleanly; the post-detection / showtime phase wants more gain so the camera
+# feed showing the room reads as a bright lit crowd rather than a dim wash.
+# Both auto-applied around the detection toggle; operator can still override
+# via the sidebar slider afterwards.
+_AUDIENCE_ISO_GAIN: int = 100
+
 # Click-to-ripple state.  Toggled by clicking the Ripple button in the sidebar
 # (which highlights when armed); the button no longer fires the audience effect
 # itself.  While armed, left-clicks on the camera preview send a single half-arch
@@ -800,6 +807,7 @@ def update_ui_from_state():
     _safe_set_chk("chk_overlay_pos",  state.overlay_show_render)
     _safe_set_chk("chk_debug",        dbg_cap.active)
     _safe_set_chk("chk_recording",    vid_rec.active)
+    _safe_set_chk("chk_flip_projection", state.flip_projection)
     ui_queue.put(("_roi_enabled", not detecting))
 
     _push_elgato_state()
@@ -833,6 +841,26 @@ def _set_iso(sender, value):
     if _ui_syncing:
         return
     elgato.set_iso(int(value))
+
+
+def toggle_flip_projection():
+    with state.lock:
+        state.flip_projection = not state.flip_projection
+        on = state.flip_projection
+    set_status(f"Projection flip {'ON' if on else 'OFF'}")
+
+
+def _apply_detection_iso():
+    """Drop ISO back to the low-gain default for clean blink detection."""
+    if elgato.connected:
+        elgato.set_iso(elgato._DEFAULT_GAIN)
+
+
+def _apply_audience_iso():
+    """Bump ISO so the live camera feed of the crowd reads brightly during
+    the show."""
+    if elgato.connected:
+        elgato.set_iso(_AUDIENCE_ISO_GAIN)
 
 
 # ------------------------------------------------------------------ #
@@ -916,6 +944,7 @@ def toggle_detection():
                 _debug_auto_started = True
             except Exception as e:
                 log.info(f"[debug] auto-start failed: {e}")
+        _apply_detection_iso()
         post_json_async("/admin/detect", {"detecting": True})
         _open_timing_log()
         set_status("Detection ON")
@@ -925,6 +954,7 @@ def toggle_detection():
         _stop_auto_debug_capture()
         post_json_async("/admin/detect", {"detecting": False})
         _auto_enable_sync()
+        _apply_audience_iso()
         set_status("Detection OFF")
 
 
@@ -1077,9 +1107,15 @@ def _on_preview_click(sender, app_data):
     disp_y = mouse[1] - img_min[1]
     if disp_x < 0 or disp_y < 0 or disp_x >= img_size[0] or disp_y >= img_size[1]:
         return
-    # Map display pixels → canvas pixels (preview is aspect-fitted)
+    # Map display pixels → canvas pixels (preview is aspect-fitted).  When
+    # the projection is flipped, invert x so the canvas-space coords land
+    # on the actual phone in the room — clicks then ripple at the spot the
+    # operator pointed at, and draw_click_ripples renders on the unflipped
+    # canvas which gets mirrored back on display.
     cx = int(disp_x * PREVIEW_WIDTH  / img_size[0])
     cy = int(disp_y * PREVIEW_HEIGHT / img_size[1])
+    if state.flip_projection:
+        cx = PREVIEW_WIDTH - cx
 
     # Look up the nearest detected phone (in canvas-pixel space) so the local
     # half-arch can open toward it.  No detections yet → leave theta None and
@@ -1233,7 +1269,9 @@ def _save_report(auto_open: bool = False):
 
 def reset_server():
     global _detected_ids, _detection_start_time, _render_order, _detection_timings, _iso_hint
-    _save_report(auto_open=True)
+    # Save the run report to disk but don't auto-open it on reset — popping
+    # the file viewer mid-show is jarring.  Detection-end still opens.
+    _save_report(auto_open=False)
     post_json_async("/admin/reset", {})
     detector.reset()
     with _det_lock:
@@ -1334,6 +1372,9 @@ def on_key_press(key, holder):
 
     elif key == dpg.mvKey_P:
         toggle_overlay_mode()
+
+    elif key == dpg.mvKey_F:
+        toggle_flip_projection()
 
 
 
@@ -1451,6 +1492,12 @@ def setup_ui(holder: dict):
                         dpg.add_text("", tag="iso_hint_text",
                                      color=(220, 180, 80), indent=_PAD,
                                      wrap=300)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("PROJECTION", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Flip Projection  [F]", "chk_flip_projection",
+                             toggle_flip_projection)
 
                         dpg.add_spacer(height=8)
                         dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
@@ -1692,6 +1739,7 @@ def main():
                     state.last_detections = []
                     state.last_detection_count = 0
                 post_json_async("/admin/detect", {"detecting": False})
+                _apply_audience_iso()
                 set_status("Camera lost - detection stopped")
 
             if cap is None:
@@ -1784,15 +1832,27 @@ def main():
                     if detecting:
                         draw_detect_border(canvas)
 
-                    fps = 1.0 / max(time.time() - frame_start, 1e-4)
-                    _camera_fps = 0.9 * _camera_fps + 0.1 * fps
-                    draw_hud(canvas, fps)
-
                     if vid_rec.active:
                         vid_rec.record(canvas)
 
                     if dbg_cap.active:
                         dbg_cap.record_frame(canvas)
+
+                    # Scene → Flip Projection: mirror the whole canvas
+                    # BEFORE drawing the HUD so HUD text stays readable
+                    # (mirrored detection overlays and ripples are
+                    # correct — those need to land on the visible phone
+                    # positions in the flipped projection).  The raw
+                    # camera frame queued for detection is untouched, and
+                    # _on_preview_click inverts x to recover the real
+                    # room position when computing u.
+                    display_canvas = (
+                        cv2.flip(canvas, 1) if state.flip_projection else canvas
+                    )
+
+                    fps = 1.0 / max(time.time() - frame_start, 1e-4)
+                    _camera_fps = 0.9 * _camera_fps + 0.1 * fps
+                    draw_hud(display_canvas, fps)
 
                     # MJPEG stream — write JPEG atomically so server.py
                     # never reads a partial file.  Capped at 30 fps.
@@ -1801,10 +1861,10 @@ def main():
                     if _now - _last_stream_ts >= _STREAM_INTERVAL:
                         _last_stream_ts = _now
                         _tmp = _STREAM_PATH + ".new.jpg"
-                        cv2.imwrite(_tmp, canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        cv2.imwrite(_tmp, display_canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
                         _os.replace(_tmp, _STREAM_PATH)
 
-                    texture_data = frame_to_texture(canvas)
+                    texture_data = frame_to_texture(display_canvas)
 
             # Update texture
             dpg.set_value("camera_texture", texture_data)
@@ -2054,6 +2114,7 @@ def _detection_worker():
                         _stop_auto_debug_capture()
                         post_json_async("/admin/detect", {"detecting": False})
                         _auto_enable_sync()
+                        _apply_audience_iso()
                         set_status("Detection OFF")
         finally:
             _detect_queue.task_done()

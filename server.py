@@ -330,9 +330,9 @@ async def websocket_endpoint(ws: WebSocket):
                     "type":      "spectator_hello",
                     "build_id":  BUILD_ID,
                     "game": {
-                        "active":  game.game_active,
-                        "heights": game.rope_heights,
-                        "teams":   {str(b): t for b, t in game.rope_teams.items()},
+                        "active":    game.game_active,
+                        "mode":      game.game_mode,
+                        "positions": {str(b): p for b, p in game.race_positions.items()},
                     },
                 })
                 continue
@@ -692,12 +692,6 @@ async def gradient():
     return {"ok": True}
 
 
-@app.post("/admin/proof/binary")
-async def binary_wave():
-    await start_effect("binary_wave", {"speed": 0.2, "spatial_freq": 1.5})
-    return {"ok": True}
-
-
 @app.post("/admin/proof/pulse")
 async def pulse():
     await start_effect("pulse", {"bpm": 100})
@@ -804,7 +798,7 @@ STAGE_BUILD_ID = _stage_build_id()
 
 @app.get("/stage")
 async def stage():
-    """Full-screen projector page — shows the rope climb characters.
+    """Full-screen projector page — shows the avatar race track.
     Connects to /ws as a spectator (no blink_id assigned)."""
     with open(os.path.join(_PUBLIC_DIR, "stage.html"), "r") as f:
         html = f.read()
