@@ -104,22 +104,29 @@ function handleMessage(msg) {
 const canvas = document.getElementById("stage");
 const ctx    = canvas.getContext("2d", { alpha: false });
 
-// Logical scene dimensions — characters and layout are computed in these
-// units; everything is uniformly scaled to fit the viewport.
-const SCENE_W = 480;
-const SCENE_H = 270;
+// Logical scene dimensions — adjusted at runtime so the scene always
+// matches the viewport aspect ratio (no letterbox bars).  Drawing code
+// stays in scene units; `drawScale` maps scene → display pixels.
+const SCENE_BASE_H = 270;
+let SCENE_W = 480;
+let SCENE_H = SCENE_BASE_H;
 let drawScale = 1, offX = 0, offY = 0, drawW = SCENE_W, drawH = SCENE_H;
 
 function fitCanvas() {
   const vw = window.innerWidth, vh = window.innerHeight;
-  const scale = Math.max(1, Math.min(vw / SCENE_W, vh / SCENE_H));
-  canvas.width  = vw;
-  canvas.height = vh;
-  drawScale = scale;
-  drawW = SCENE_W * scale;
-  drawH = SCENE_H * scale;
-  offX  = Math.round((vw - drawW) / 2);
-  offY  = Math.round((vh - drawH) / 2);
+  // Use device pixel ratio so text/edges stay crisp on hi-DPI displays.
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width  = Math.round(vw * dpr);
+  canvas.height = Math.round(vh * dpr);
+  canvas.style.width  = vw + "px";
+  canvas.style.height = vh + "px";
+  drawScale = (vh * dpr) / SCENE_BASE_H;
+  SCENE_H   = SCENE_BASE_H;
+  SCENE_W   = (vw * dpr) / drawScale;   // scene-W tracks viewport aspect
+  drawW = vw * dpr;
+  drawH = vh * dpr;
+  offX  = 0;
+  offY  = 0;
 }
 fitCanvas();
 window.addEventListener("resize", fitCanvas);
@@ -186,6 +193,8 @@ function _confettiColours() {
 function _spawnConfetti(_winner, count, burst) {
   // burst=true for the initial blast (mid-screen explosion); false for the
   // ongoing trickle (gentler emit from above so it can fall through frame).
+  // Every particle needs ax + ay or the update loop's `p.vx += p.ax * dt`
+  // produces NaN positions and nothing renders.
   const colours = _confettiColours();
   for (let i = 0; i < count; i++) {
     if (burst) {
@@ -194,6 +203,7 @@ function _spawnConfetti(_winner, count, burst) {
         y: SCENE_H * 0.5 + (Math.random() - 0.5) * 60,
         vx: (Math.random() - 0.5) * 90,
         vy: -40 - Math.random() * 90,
+        ax: 0,
         ay: 60,
         color: colours[(Math.random() * colours.length) | 0],
         life: 0,
@@ -201,13 +211,12 @@ function _spawnConfetti(_winner, count, burst) {
         size: 2 + Math.random() * 3,
       });
     } else {
-      // Trickle from above the scene with a bit of horizontal drift and
-      // gravity, so the room feels actively snowed-on with confetti.
       game.confetti.push({
         x: Math.random() * SCENE_W,
         y: -10 - Math.random() * 30,
         vx: (Math.random() - 0.5) * 40,
         vy: 35 + Math.random() * 45,
+        ax: 0,
         ay: 45,
         color: colours[(Math.random() * colours.length) | 0],
         life: 0,

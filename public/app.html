@@ -388,28 +388,69 @@ html, body {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  background: rgba(0,0,0,0.55);
+  gap: 14px;
+  padding: 32px;
+  background: rgba(0,0,0,0.78);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.3s ease-out;
+  z-index: 20;
 }
 #raceWinner.show { opacity: 1; }
+
+/* You-won variant — full-screen gold takeover so the winner KNOWS. */
+#raceWinner.you-won {
+  background: radial-gradient(ellipse at center,
+              #ffd44d 0%, #ff9b1a 55%, #4a2400 100%);
+  color: #1a0d00;
+  animation: race-win-burst 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@keyframes race-win-burst {
+  0%   { transform: scale(0.85); opacity: 0; }
+  60%  { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
 #raceWinnerLabel {
   color: rgba(255,255,255,0.55);
-  font: 600 12px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
+  font: 700 13px -apple-system, system-ui, sans-serif;
+  letter-spacing: 4px;
   text-transform: uppercase;
 }
+#raceWinner.you-won #raceWinnerLabel {
+  color: rgba(26,13,0,0.7);
+}
+
 #raceWinnerWho {
   color: #ffd54a;
-  font: 900 48px -apple-system, system-ui, sans-serif;
-  margin-top: 6px;
+  font: 900 84px -apple-system, system-ui, sans-serif;
+  line-height: 0.95;
   letter-spacing: 1px;
+  text-shadow: 0 6px 30px rgba(255, 200, 50, 0.5);
+  animation: race-winner-pulse 1.6s ease-in-out infinite;
 }
+#raceWinner.you-won #raceWinnerWho {
+  color: #1a0d00;
+  font-size: 96px;
+  text-shadow: 0 6px 0 rgba(255,255,255,0.18),
+               0 14px 32px rgba(0,0,0,0.45);
+}
+@keyframes race-winner-pulse {
+  0%, 100% { transform: scale(1);    }
+  50%      { transform: scale(1.05); }
+}
+
 #raceWinnerSub {
-  color: rgba(255,255,255,0.7);
-  font: 500 14px -apple-system, system-ui, sans-serif;
-  margin-top: 8px;
+  color: rgba(255,255,255,0.78);
+  font: 600 18px -apple-system, system-ui, sans-serif;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+#raceWinner.you-won #raceWinnerSub {
+  color: rgba(26,13,0,0.8);
+  font-size: 20px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
 }
 
 /* ---- Bug-tap game ---- */
