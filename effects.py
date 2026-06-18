@@ -95,8 +95,11 @@ EFFECT_PARAMS = {
         # Cursor-driven follow spotlight — origin streamed continuously
         # from the controller while armed.  Phones brighten with a
         # Gaussian falloff around the operator's cursor position.
+        # Default radius is deliberately tight so the spotlight reads as
+        # a pinpoint on the crowd; widen via the slider if you want a
+        # broader wash.  Min 0.03 lets the operator pick a single phone.
         ("color",        "Colour", "color",        {"default_value": (255, 230, 180, 255)}),
-        ("spatial_freq", "Radius", "slider_float", {"default_value": 0.18, "min_value": 0.05, "max_value": 0.6}),
+        ("spatial_freq", "Radius", "slider_float", {"default_value": 0.09, "min_value": 0.03, "max_value": 0.6}),
     ],
     "groups": [
         ("spatial_freq", "Columns",  "slider_float", {"default_value": 2.0,  "min_value": 2.0,  "max_value": float(GROUPS_MAX_COLS), "format": "%.0f"}),
@@ -211,7 +214,7 @@ def trigger_spotlight_at(u: float, v: float):
     Gaussian centre.  Called every render frame while spotlight is armed
     (the controller throttles to ~15 Hz to avoid flooding the socket)."""
     color  = _get("spotlight", "color",        (255, 230, 180, 255))
-    radius = _get("spotlight", "spatial_freq", 0.18)
+    radius = _get("spotlight", "spatial_freq", 0.09)
     payload = {
         "name":            "spotlight",
         "speed":           1.0,
