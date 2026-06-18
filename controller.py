@@ -1179,9 +1179,9 @@ def _draw_spotlight_cursor(display_canvas):
     # Radius shown on canvas matches the audience effect's actual reach so
     # the operator's circle previews what the phones will light.
     try:
-        radius_u = float(dpg.get_value("fx_spotlight_spatial_freq") or 0.18)
+        radius_u = float(dpg.get_value("fx_spotlight_spatial_freq") or 0.09)
     except Exception:
-        radius_u = 0.18
+        radius_u = 0.09
     circle_r = max(20, int(radius_u * PREVIEW_WIDTH * 0.5))
     _last_spotlight_canvas_r = circle_r
 
