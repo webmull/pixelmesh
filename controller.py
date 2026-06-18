@@ -1109,9 +1109,23 @@ def _set_spotlight_armed(armed: bool):
         # could otherwise reorder a stale stop after the first broadcast).
         _set_ripple_armed(False)
         post_json("/admin/effect/stop", {}, timeout=0.3)
+        # Pop the Spotlight modal so the Radius slider is right there to
+        # tune on the fly — without this you'd have to hunt for the ...
+        # button before you can even see what the radius is set to.
+        try:
+            effects._open_modal("spotlight")
+        except Exception:
+            pass
     else:
         _last_spotlight_canvas_px = None
         post_json_async("/admin/effect/stop", {})
+        # Tuck the modal away again so it doesn't camp on top of the
+        # preview after the operator disarms.
+        try:
+            if dpg.does_item_exist("fx_modal_spotlight"):
+                dpg.configure_item("fx_modal_spotlight", show=False)
+        except Exception:
+            pass
 
 
 def toggle_spotlight_arm():
