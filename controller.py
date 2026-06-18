@@ -875,8 +875,15 @@ def toggle_flip_projection():
 
 
 def _apply_detection_iso():
-    """Drop ISO back to the low-gain default for clean blink detection."""
-    if elgato.connected:
+    """Drop ISO down to the low-gain default for clean blink detection,
+    but never RAISE it — if the operator (or a previous tune) has the
+    slider sitting below the default already, leave that lower value
+    alone.  A lower ISO than _DEFAULT_GAIN is at least as good for blink
+    contrast as the default, so bumping it up would just throw away a
+    deliberate choice."""
+    if not elgato.connected:
+        return
+    if elgato.iso_gain > elgato._DEFAULT_GAIN:
         elgato.set_iso(elgato._DEFAULT_GAIN)
 
 
