@@ -112,12 +112,15 @@ _timing_log_handles: list = []      # open file handles paired with _timing_log_
 _detection_amplitudes: list[float] = []
 _iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
 
-# Two-phase ISO: detection wants the low-gain default so blink contrast reads
-# cleanly; the post-detection / showtime phase wants more gain so the camera
-# feed showing the room reads as a bright lit crowd rather than a dim wash.
-# Both auto-applied around the detection toggle; operator can still override
-# via the sidebar slider afterwards.
-_AUDIENCE_ISO_GAIN: int = 100
+# Two-phase ISO: detection wants the lowest sensible gain so dark phases
+# read near-zero (sensor noise floor matters more than nominal range —
+# noisy dark phases compress amplitude and the variance gate then drops
+# dim or distant phones).  The post-detection / showtime phase wants
+# more gain so the camera feed reads as a bright lit crowd, not a dim
+# wash.  Both auto-applied around the detection toggle; operator can
+# still slide either direction via the ISO control afterwards.
+_DETECTION_ISO_GAIN: int = 35
+_AUDIENCE_ISO_GAIN:  int = 100
 
 # Click-to-ripple state.  Toggled by clicking the Ripple button in the sidebar
 # (which highlights when armed); the button no longer fires the audience effect
@@ -875,16 +878,16 @@ def toggle_flip_projection():
 
 
 def _apply_detection_iso():
-    """Drop ISO down to the low-gain default for clean blink detection,
-    but never RAISE it — if the operator (or a previous tune) has the
-    slider sitting below the default already, leave that lower value
-    alone.  A lower ISO than _DEFAULT_GAIN is at least as good for blink
-    contrast as the default, so bumping it up would just throw away a
-    deliberate choice."""
+    """Drop ISO to the detection baseline (sensor noise floor matters
+    most for clean blink contrast) — but never RAISE it.  If the
+    operator already has the slider below _DETECTION_ISO_GAIN we leave
+    it; lower ISO is at least as good for blink amplitude as the
+    baseline, and bumping back up would throw away a deliberate venue
+    tune."""
     if not elgato.connected:
         return
-    if elgato.iso_gain > elgato._DEFAULT_GAIN:
-        elgato.set_iso(elgato._DEFAULT_GAIN)
+    if elgato.iso_gain > _DETECTION_ISO_GAIN:
+        elgato.set_iso(_DETECTION_ISO_GAIN)
 
 
 def _apply_audience_iso():
