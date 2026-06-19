@@ -2054,11 +2054,6 @@ def main():
                     if detecting:
                         draw_detect_border(display_canvas)
 
-                    # Record the audience-facing view so the post-show
-                    # video matches what was actually on the projector.
-                    if vid_rec.active:
-                        vid_rec.record(display_canvas)
-
                     if dbg_cap.active:
                         dbg_cap.record_frame(canvas)
 
@@ -2066,6 +2061,15 @@ def main():
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
                     draw_hud(display_canvas, fps)
                     _draw_spotlight_cursor(display_canvas)
+
+                    # Record AFTER the HUD + spotlight cursor so the
+                    # post-show video matches what was actually on the
+                    # projector — same frame the MJPEG write below sees.
+                    # (Bug fix: previously the recorder ran before these
+                    # draws so the spotlight cursor never made it into
+                    # the .mp4 even though it was visible on stage.)
+                    if vid_rec.active:
+                        vid_rec.record(display_canvas)
 
                     # MJPEG stream — write JPEG atomically so server.py
                     # never reads a partial file.  Capped at 30 fps.
