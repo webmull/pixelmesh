@@ -14,6 +14,7 @@ Differences from V1:
 import asyncio
 import bisect
 import hashlib
+import json
 import os
 import re
 import sys
@@ -149,6 +150,7 @@ current_effect_state: dict | None = None
 like_count: int    = 0
 like_enabled: bool = True
 _heart_dirty: bool  = False   # pending broadcast from tap accumulation
+_count_dirty: bool  = False   # pending crowd_count broadcast (debounced join/leave)
 
 
 # Whether the controller has actively started detection (distinct from mode).
@@ -187,10 +189,18 @@ _broadcasting_count = False
 
 async def broadcast(message: dict):
     global _broadcasting_count
+    # Serialize once, not once per client.  send_json re-ran json.dumps for every
+    # socket (~16 ms/broadcast at 300 phones); send_text reuses the same bytes.
+    text = json.dumps(message, separators=(",", ":"))
     dead = []
-    for device_id, ws in connections.items():
+    # Snapshot with list(): send_text awaits, and a concurrent hello/disconnect/
+    # reap mutating `connections` mid-iteration would raise "dict changed size
+    # during iteration".  Because heart_broadcast_loop / reap_dead_clients call
+    # broadcast without their own guard, that error would kill those tasks for
+    # the rest of the show.
+    for device_id, ws in list(connections.items()):
         try:
-            await ws.send_json(message)
+            await ws.send_text(text)
         except Exception:
             dead.append(device_id)
     for device_id in dead:
@@ -198,9 +208,9 @@ async def broadcast(message: dict):
     # Same payload goes to spectators (stage page, future read-only viewers).
     # Failures just drop them — they reconnect on their own.
     dead_specs = []
-    for sid, ws in spectators.items():
+    for sid, ws in list(spectators.items()):
         try:
-            await ws.send_json(message)
+            await ws.send_text(text)
         except Exception:
             dead_specs.append(sid)
     for sid in dead_specs:
@@ -264,13 +274,14 @@ def _drop_connection(device_id: str):
 
 async def cleanup_device(device_id: str):
     """Full teardown — used by the reaper for permanently gone devices."""
+    global _count_dirty
     ws = connections.pop(device_id, None)
     last_seen.pop(device_id, None)
     bid = blink_assignments.pop(device_id, None)
     if bid is not None:
         blink_reverse.pop(bid, None)
         bisect.insort(available_blinks, bid)
-    await broadcast_count()
+    _count_dirty = True   # debounced — reaper can drop many at once
     positions.pop(device_id, None)
     sync_stats.pop(device_id, None)
     if ws:
@@ -285,23 +296,34 @@ async def cleanup_device(device_id: str):
 # ------------------------------------------------------------------ #
 
 async def heart_broadcast_loop():
-    """Batch heart count broadcasts — max ~3 per second regardless of tap rate."""
-    global _heart_dirty
+    """Batch heart + crowd-count broadcasts — a few per second regardless of tap
+    or join/leave rate.  The try/except means a stray broadcast error (e.g. a
+    socket dying mid-send) can never terminate this long-lived task."""
+    global _heart_dirty, _count_dirty
     while True:
         await asyncio.sleep(0.3)
-        if _heart_dirty:
-            _heart_dirty = False
-            await broadcast({"type": "like_count", "count": like_count})
+        try:
+            if _heart_dirty:
+                _heart_dirty = False
+                await broadcast({"type": "like_count", "count": like_count})
+            if _count_dirty:
+                _count_dirty = False
+                await broadcast_count()
+        except Exception as e:
+            print(f"[heart] broadcast loop error: {e}")
 
 
 async def reap_dead_clients():
     while True:
         await asyncio.sleep(5)
-        now = time.time()
-        dead = [d for d, ts in list(last_seen.items()) if now - ts > HEARTBEAT_TIMEOUT]
-        for device_id in dead:
-            print(f"[reaper] removing stale device {device_id[:8]}")
-            await cleanup_device(device_id)
+        try:
+            now = time.time()
+            dead = [d for d, ts in list(last_seen.items()) if now - ts > HEARTBEAT_TIMEOUT]
+            for device_id in dead:
+                print(f"[reaper] removing stale device {device_id[:8]}")
+                await cleanup_device(device_id)
+        except Exception as e:
+            print(f"[reaper] loop error: {e}")
 
 
 # ------------------------------------------------------------------ #
@@ -310,7 +332,7 @@ async def reap_dead_clients():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global like_count, _heart_dirty
+    global like_count, _heart_dirty, _count_dirty
     await ws.accept()
     device_id = None
     is_spectator = False
@@ -367,7 +389,8 @@ async def websocket_endpoint(ws: WebSocket):
                     "calibrated": known_pos is not None,
                 })
 
-                await broadcast_count()
+                _count_dirty = True   # debounced fan-out; new client sees it below
+                await ws.send_json({"type": "crowd_count", "count": len(connections)})
                 await ws.send_json({"type": "like_count", "count": like_count})
 
                 # Sync current mode / effect so reconnecting clients aren't lost
@@ -435,11 +458,24 @@ async def websocket_endpoint(ws: WebSocket):
                     last_seen[device_id] = time.time()
 
     except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        # A malformed frame (bad JSON, missing device_id) must still fall through
+        # to cleanup below rather than escape and skip it.
+        print(f"[ws] handler error: {e}")
+    finally:
+        # Runs on every exit path — disconnect, the pool-exhaustion early return,
+        # or any exception above.  The identity guards are essential: on a
+        # reconnect (iOS background / blip) a second socket may have already
+        # replaced this device_id in connections; dropping it unconditionally
+        # would evict the live socket and leave a zombie that receives nothing.
         if is_spectator and device_id:
-            spectators.pop(device_id, None)
+            if spectators.get(device_id) is ws:
+                spectators.pop(device_id, None)
         elif device_id:
-            _drop_connection(device_id)
-            await broadcast_count()
+            if connections.get(device_id) is ws:
+                _drop_connection(device_id)
+                _count_dirty = True
 
 
 # ------------------------------------------------------------------ #
@@ -751,11 +787,24 @@ async def health():
 
 _APP_HTML_VERSION_RE = re.compile(r'(?:__CACHE_BUST__|[a-f0-9]{32})')
 
+def _render_html(filename: str, build_id: str | None = None) -> str | None:
+    """Read a public/ HTML file and stamp the cache-bust token.  Returns None if
+    the file is absent, so a missing page never crashes startup."""
+    try:
+        with open(os.path.join(_PUBLIC_DIR, filename), "r") as f:
+            html = f.read()
+    except OSError:
+        return None
+    return _APP_HTML_VERSION_RE.sub(build_id, html) if build_id else html
+
+# Rendered once at import — BUILD_ID is fixed per process, so the result is
+# constant.  Avoids a blocking open()+regex on the event loop on every page hit
+# (hundreds of phones load "/" simultaneously at show start).
+_APP_HTML = _render_html("app.html", BUILD_ID)
+_SIM_HTML = _render_html("sim.html", SIM_BUILD_ID)
+
 def _serve_app_html():
-    with open(os.path.join(_PUBLIC_DIR, "app.html"), "r") as f:
-        html = f.read()
-    html = _APP_HTML_VERSION_RE.sub(BUILD_ID, html)
-    return HTMLResponse(content=html, headers=_NO_CACHE)
+    return HTMLResponse(content=_APP_HTML, headers=_NO_CACHE)
 
 
 @app.get("/")
@@ -775,10 +824,7 @@ async def dashboard():
 
 @app.get("/internal/sim")
 async def sim():
-    with open(os.path.join(_PUBLIC_DIR, "sim.html"), "r") as f:
-        html = f.read()
-    html = _APP_HTML_VERSION_RE.sub(SIM_BUILD_ID, html)
-    return HTMLResponse(content=html, headers=_NO_CACHE)
+    return HTMLResponse(content=_SIM_HTML, headers=_NO_CACHE)
 
 
 def _stage_build_id() -> str:
@@ -794,16 +840,28 @@ def _stage_build_id() -> str:
 
 
 STAGE_BUILD_ID = _stage_build_id()
+_STAGE_HTML = _render_html("stage.html", STAGE_BUILD_ID)
+_EVENT_HTML = _render_html("telemetry.html")   # no build id — static page
 
 
 @app.get("/stage")
 async def stage():
     """Full-screen projector page — shows the avatar race track.
     Connects to /ws as a spectator (no blink_id assigned)."""
-    with open(os.path.join(_PUBLIC_DIR, "stage.html"), "r") as f:
-        html = f.read()
-    html = _APP_HTML_VERSION_RE.sub(STAGE_BUILD_ID, html)
-    return HTMLResponse(content=html, headers=_NO_CACHE)
+    return HTMLResponse(content=_STAGE_HTML, headers=_NO_CACHE)
+
+
+@app.get("/event")
+@app.get("/telemetry")
+async def event_telemetry_page():
+    """Public post-show telemetry page — what the camera actually saw
+    at the last live event.  Static page, hosted from public/, references
+    pre-rendered SVG charts under /public/stats/.  Aliased at /telemetry
+    for engineers and /event for the rest of the world."""
+    if _EVENT_HTML is None:
+        return HTMLResponse(content="telemetry page not built yet",
+                            status_code=404, headers=_NO_CACHE)
+    return HTMLResponse(content=_EVENT_HTML, headers=_NO_CACHE)
 
 
 @app.get("/internal/debug")
