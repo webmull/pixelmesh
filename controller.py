@@ -804,14 +804,35 @@ def safe_set(tag: str, value):
     ui_queue.put((tag, value))
 
 
+_last_ui_snapshot = None
+
 def update_ui_from_state():
+    global _last_ui_snapshot
     with state.lock:
         status    = state.status_text
         clients   = state.client_count
         detecting = state.detecting
         effect    = state.current_effect
 
-    dbg_label = f"Debug: REC ({dbg_cap.frame_idx} frames)" if dbg_cap.active else ""
+    rec_active = vid_rec.active
+    rec_path   = getattr(vid_rec, "_path", "") if rec_active else ""
+
+    # Every value pushed below changes only on a user action or a background
+    # event (detection / elgato) — never per-frame.  Skip the whole push (and its
+    # ~28 queue items + label-colour reconfigures) when nothing an operator can
+    # see has changed, dropping steady-state UI work to zero.  Event-driven puts
+    # (effect re-fire, sync rows, elgato callback) go through ui_queue elsewhere
+    # and are unaffected.
+    snapshot = (
+        status, clients, detecting, effect, len(_detected_ids),
+        rec_active, rec_path, _iso_hint,
+        state.syncing, state.show_overlays, state.show_device_overlay,
+        state.overlay_show_render, dbg_cap.active, state.flip_projection,
+        elgato.connected, elgato.ae_on, elgato.iso_gain,
+    )
+    if snapshot == _last_ui_snapshot:
+        return
+    _last_ui_snapshot = snapshot
 
     safe_set("status_text",    status)
     safe_set("clients_text",   f"Clients: {clients}")
@@ -820,9 +841,8 @@ def update_ui_from_state():
     # _set_ripple_armed), so the highlight follows naturally.
     ui_queue.put(("_active_effect", effect))
 
-    safe_set("rec_status_text", "[REC]" if vid_rec.active else "")
-    ui_queue.put(("_rec_status_show", vid_rec.active))
-    rec_path = getattr(vid_rec, "_path", "") if vid_rec.active else ""
+    safe_set("rec_status_text", "[REC]" if rec_active else "")
+    ui_queue.put(("_rec_status_show", rec_active))
     safe_set("rec_filename_text", _os.path.basename(rec_path) if rec_path else "")
     ui_queue.put(("_rec_filename_show", bool(rec_path)))
 
@@ -1409,25 +1429,44 @@ def _save_report(auto_open: bool = False):
         return
     if not _detected_ids and not game.game_order:
         return   # nothing to report
-    try:
-        stats = fetch_json("/admin/show_stats") or {}
-        path  = report.generate(
-            detected_ids      = set(_detected_ids),
-            detection_timings = dict(_detection_timings),
-            detection_start   = _detection_start_time,
-            like_count        = stats.get("like_count", 0),
-            total_connected   = stats.get("total_connected", len(_detected_ids)),
-            game_results      = dict(game.game_results),
-            game_order        = list(game.game_order),
-        )
-        _report_saved_path = path
-        if auto_open:
-            import subprocess
-            subprocess.Popen(["open", path])
-        set_status(f"Report saved → {_os.path.basename(path)}")
-        log.info(f"[report] saved → {path}")
-    except Exception as e:
-        log.warning(f"[report] failed: {e}")
+
+    # Snapshot state on the caller's (render) thread so the report reflects the
+    # moment of the stop/reset, then do the blocking fetch_json + file write +
+    # open() on a worker thread — fetch_json can stall up to 0.5s on a slow
+    # server and must never block the render loop.  The snapshot also means a
+    # reset_server() that clears _detected_ids right after this call can't empty
+    # the report mid-generation.
+    snap = dict(
+        detected_ids      = set(_detected_ids),
+        detection_timings = dict(_detection_timings),
+        detection_start   = _detection_start_time,
+        game_results      = dict(game.game_results),
+        game_order        = list(game.game_order),
+    )
+
+    def _work():
+        global _report_saved_path
+        try:
+            stats = fetch_json("/admin/show_stats") or {}
+            path  = report.generate(
+                detected_ids      = snap["detected_ids"],
+                detection_timings = snap["detection_timings"],
+                detection_start   = snap["detection_start"],
+                like_count        = stats.get("like_count", 0),
+                total_connected   = stats.get("total_connected", len(snap["detected_ids"])),
+                game_results      = snap["game_results"],
+                game_order        = snap["game_order"],
+            )
+            _report_saved_path = path
+            if auto_open:
+                import subprocess
+                subprocess.Popen(["open", path])
+            set_status(f"Report saved → {_os.path.basename(path)}")
+            log.info(f"[report] saved → {path}")
+        except Exception as e:
+            log.warning(f"[report] failed: {e}")
+
+    threading.Thread(target=_work, daemon=True).start()
 
 
 def reset_server():
@@ -1627,7 +1666,7 @@ def _safe_set_chk(tag: str, value: bool):
 
 def setup_ui(holder: dict):
     effects.init(state, set_status, ui_queue=ui_queue)
-    game.init(state, set_status, post_json, fetch_json, _render_order)
+    game.init(state, set_status, post_json, fetch_json, _render_order, ui_queue=ui_queue)
     dpg.create_context()
 
     # Theme for the currently active effect button
@@ -1959,25 +1998,30 @@ def main():
             else:
                 ok, raw = cap.read()
                 if ok:
-                    # One copy shared by state.latest_frame and the detection queue —
-                    # avoids a second 6 MB allocation when both need the same frame.
-                    raw_copy = raw.copy()
                     with state.lock:
-                        state.latest_frame = raw_copy
                         detecting = state.detecting
                         show_ov   = state.show_device_overlay
 
                     # Hand frame to detection thread (non-blocking).
                     # If it's busy the frame is dropped — display continues unblocked.
+                    # Only the detector needs a stable copy (cap reuses its buffer
+                    # on the next read); when not detecting we skip the ~6 MB/frame
+                    # copy entirely.  (state.latest_frame was write-only dead state.)
                     if detecting:
+                        raw_copy = raw.copy()
                         try:
                             _detect_queue.put_nowait((raw_copy, time.time()))
                         except Full:
                             pass
 
-                    frame  = apply_gamma(raw)
-                    frame  = apply_contrast(frame)
-                    canvas = build_canvas(frame)
+                    # Downscale first, then apply gamma/contrast on the 720p canvas
+                    # in-place — 6.7× less pixel work and no ~6 MB/frame allocation
+                    # churn vs. correcting the full-res frame and immediately
+                    # discarding it.  Detection is fed the untouched `raw`, so this
+                    # reordering is display-only and does not affect the decoder.
+                    canvas = build_canvas(raw)
+                    apply_gamma(canvas, dst=canvas)
+                    apply_contrast(canvas, dst=canvas)
 
                     with state.lock:
                         _scale  = state.last_render_scale
@@ -2103,6 +2147,7 @@ def main():
                 pass
 
             update_ui_from_state()
+            effects.tick_preview()   # main-thread preview render (self-throttled ~10fps)
 
             # Drain UI queue — set _ui_syncing so checkbox set_value calls
             # don't re-fire toggle callbacks in DearPyGui versions that
@@ -2112,6 +2157,9 @@ def main():
             try:
                 while not ui_queue.empty():
                     tag, value = ui_queue.get()
+                    if tag == "_game_active_btn":
+                        game.set_active_btn(value)
+                        continue
                     if tag == "_active_effect":
                         for n in effects.EFFECT_LABELS:
                             btn = f"fx_btn_{n}"
