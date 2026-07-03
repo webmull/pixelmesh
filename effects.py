@@ -613,15 +613,27 @@ def _render_preview(t: float) -> np.ndarray:
     return img.flatten()
 
 
-def _preview_worker():
-    start = time.time()
-    while _state.running:
-        try:
-            flat = _render_preview(time.time() - start)
-            dpg.set_value("effect_preview_texture", flat)
-        except Exception as e:
-            log.debug(f"[preview] {e}")
-        time.sleep(0.1)   # 10 fps
+_preview_last  = 0.0
+_preview_start = None
+
+def tick_preview():
+    """Render the effect preview and update its texture.  MUST run on the main
+    (DearPyGui) thread — this replaces the old off-thread preview worker, which
+    called dpg.get_value (via _get) and dpg.set_value from a background thread:
+    the exact 05 May freeze pattern the _on_settings_changed docstring warns
+    about.  Self-throttles to ~10 fps; call once per render frame."""
+    global _preview_last, _preview_start
+    now = time.time()
+    if _preview_start is None:
+        _preview_start = now
+    if now - _preview_last < 0.1:
+        return
+    _preview_last = now
+    try:
+        flat = _render_preview(now - _preview_start)
+        dpg.set_value("effect_preview_texture", flat)
+    except Exception as e:
+        log.debug(f"[preview] {e}")
 
 
 def register_preview_texture():
@@ -641,7 +653,9 @@ def build_preview_widget(indent: int = 8):
 
 
 def start_preview_thread():
-    threading.Thread(target=_preview_worker, daemon=True, name="fx-preview").start()
+    """Back-compat no-op — the preview now ticks on the main thread via
+    tick_preview(), so it no longer touches DPG from a background thread."""
+    pass
 
 
 # ------------------------------------------------------------------ #

@@ -11,9 +11,14 @@ GAMMA_TABLE = np.array(
 )
 
 
-def apply_gamma(image):
-    return cv2.LUT(image, GAMMA_TABLE)
+def apply_gamma(image, dst=None):
+    # Pass dst=image to correct in-place (zero allocation); omit for a new array.
+    if dst is None:
+        return cv2.LUT(image, GAMMA_TABLE)
+    return cv2.LUT(image, GAMMA_TABLE, dst=dst)
 
 
-def apply_contrast(image, alpha=1.08, beta=0):
-    return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
+def apply_contrast(image, alpha=1.08, beta=0, dst=None):
+    if dst is None:
+        return cv2.convertScaleAbs(image, alpha=alpha, beta=beta)
+    return cv2.convertScaleAbs(image, dst=dst, alpha=alpha, beta=beta)

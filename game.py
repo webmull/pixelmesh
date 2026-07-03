@@ -58,6 +58,7 @@ _set_status       = None
 _post_json        = None
 _fetch_json       = None
 _render_order     = None
+_ui_queue         = None    # controller's DPG queue — poll worker routes UI ops here
 
 
 def server_init(blink_to_device, connections, positions, blink_assignments,
@@ -74,13 +75,14 @@ def server_init(blink_to_device, connections, positions, blink_assignments,
     _start_effect      = start_effect
 
 
-def init(state, set_status, post_json, fetch_json, render_order):
-    global _state, _set_status, _post_json, _fetch_json, _render_order
+def init(state, set_status, post_json, fetch_json, render_order, ui_queue=None):
+    global _state, _set_status, _post_json, _fetch_json, _render_order, _ui_queue
     _state        = state
     _set_status   = set_status
     _post_json    = post_json
     _fetch_json   = fetch_json
     _render_order = render_order
+    _ui_queue     = ui_queue
 
 
 # ------------------------------------------------------------------ #
@@ -382,6 +384,11 @@ async def _bug_handle_tap(device_id: str, reaction_ms: float):
         return
     if blink_id in game_results:
         return
+    if blink_id in _bug_missed_set:
+        # Slot already lapsed and was counted as missed — a late tap must not
+        # record a result (it would double-count in the finish tally and could
+        # even let a visibly-missed phone win).
+        return
     game_results[blink_id] = float(reaction_ms)
     await _bug_broadcast_progress()
     await _bug_check_finish_early()
@@ -482,14 +489,19 @@ async def _race_handle_tap(device_id: str):
 
 
 async def _race_progress_loop():
+    last_sent = None
     try:
         while game_active:
             await asyncio.sleep(RACE_PROGRESS_INTERVAL)
             if _broadcast:
-                await _broadcast({
-                    "type":      "race_progress",
-                    "positions": {str(b): round(p, 4) for b, p in race_positions.items()},
-                })
+                positions = {str(b): round(p, 4) for b, p in race_positions.items()}
+                # Skip fan-out to every phone when nothing moved this tick.
+                # (Serialization is already done once per broadcast, not per
+                # client, in server.broadcast.)
+                if positions == last_sent:
+                    continue
+                last_sent = positions
+                await _broadcast({"type": "race_progress", "positions": positions})
     except asyncio.CancelledError:
         pass
 
@@ -697,11 +709,19 @@ def _start_poll():
                         f"Race — {runners} runners\n"
                         f"Leader {leader_str}  {leader_pos:>3.0%}"
                     )
-                dpg.set_value("game_status_text", line)
+                if _ui_queue is not None:
+                    _ui_queue.put(("game_status_text", line))
+                else:
+                    dpg.set_value("game_status_text", line)
             except Exception:
                 pass
             if not data.get("active"):
-                set_active_btn(None)
+                # Route the theme rebind onto the main thread — bind_item_theme
+                # off the poll thread is the 05 May off-thread-DPG freeze pattern.
+                if _ui_queue is not None:
+                    _ui_queue.put(("_game_active_btn", None))
+                else:
+                    set_active_btn(None)
                 winner = data.get("winner")
                 if winner is not None:
                     try:
