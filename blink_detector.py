@@ -262,15 +262,13 @@ class BlinkDetector:
         self._std_buf        = None
         self._std_buf_pos    = 0
         self._std_buf_count  = 0
-        self._std_buf = None
-        self._std_buf_pos = 0
-        self._std_buf_count = 0
-        self._ever_active.clear()  # indices are position-dependent; invalidate on grid change
-        self._diff_prev_gray   = None  # force diff reset on grid change
+        # NOTE: _ever_active / _diff_discovered / _diff_centroids were remapped
+        # by (px, py) above so located phones survive the rebuild.  Do NOT clear
+        # them here — clearing was defeating that remap and forcing a full warmup
+        # on every ROI change (the exact regression the remap block fixes).
+        self._diff_prev_gray   = None  # full-frame diff buffer — reset, refills next frame
         self._diff_accum       = None
         self._diff_accum_count = 0
-        self._diff_discovered.clear()
-        self._diff_centroids.clear()
 
     # ---------------------------------------------------------------- #
 
