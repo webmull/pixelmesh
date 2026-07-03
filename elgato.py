@@ -86,25 +86,62 @@ def _ws_send(s: socket.socket, payload: bytes):
     s.send(header + masked)
 
 
-def _ws_recv(s: socket.socket) -> dict | None:
-    try:
-        header = s.recv(2)
-        if len(header) < 2:
+def _recv_exact(s: socket.socket, n: int) -> bytes | None:
+    """Read exactly n bytes, or None if the peer closes.  Guards against short
+    reads on the 2-/8-byte extended-length fields of a fragmented TCP segment."""
+    buf = b""
+    while len(buf) < n:
+        chunk = s.recv(n - len(buf))
+        if not chunk:
             return None
-        b1 = header[1] & 0x7F
-        if b1 < 126:
-            length = b1
-        elif b1 == 126:
-            length = int.from_bytes(s.recv(2), "big")
-        else:
-            length = int.from_bytes(s.recv(8), "big")
-        data = b""
-        while len(data) < length:
-            chunk = s.recv(length - len(data))
-            if not chunk:
+        buf += chunk
+    return buf
+
+
+def _ws_send_pong(s: socket.socket, payload: bytes = b""):
+    mask = os.urandom(4)
+    masked = bytes([b ^ mask[i % 4] for i, b in enumerate(payload)])
+    s.send(bytes([0x8A, 0x80 | len(payload)]) + mask + masked)   # FIN + pong, masked
+
+
+def _ws_recv(s: socket.socket) -> dict | None:
+    """Read one JSON message, transparently handling WebSocket control frames.
+    Returns the parsed dict, or None only on genuine connection close/loss —
+    a ping/pong or non-JSON frame must NOT be reported as a lost connection, or
+    the watchdog drops the socket and leaves auto-exposure unguarded for 30s."""
+    try:
+        while True:
+            header = _recv_exact(s, 2)
+            if header is None:
                 return None
-            data += chunk
-        return json.loads(data)
+            opcode = header[0] & 0x0F
+            b1     = header[1] & 0x7F
+            if b1 < 126:
+                length = b1
+            elif b1 == 126:
+                ext = _recv_exact(s, 2)
+                length = int.from_bytes(ext, "big") if ext else 0
+            else:
+                ext = _recv_exact(s, 8)
+                length = int.from_bytes(ext, "big") if ext else 0
+            data = _recv_exact(s, length) if length else b""
+            if data is None:
+                return None
+
+            if opcode == 0x8:        # close → treat as connection lost
+                return None
+            if opcode == 0x9:        # ping → pong and keep reading for the reply
+                _ws_send_pong(s, data)
+                continue
+            if opcode == 0xA:        # pong → ignore, keep reading
+                continue
+            # Data frame (0x0/0x1/0x2).
+            try:
+                return json.loads(data)
+            except Exception:
+                # Non-JSON data frame — not a disconnect; keep waiting for the
+                # actual JSON-RPC reply instead of tearing down the socket.
+                continue
     except Exception:
         return None
 
