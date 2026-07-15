@@ -150,13 +150,24 @@ def _rpc(s: socket.socket, method: str, params: dict = {}) -> dict | None:
     global _rpc_id
     with _rpc_lock:
         _rpc_id += 1
+        req_id = _rpc_id
         msg = json.dumps({
-            "jsonrpc": "2.0", "id": _rpc_id,
+            "jsonrpc": "2.0", "id": req_id,
             "method": method, "params": params,
         }).encode()
         try:
             _ws_send(s, msg)
-            return _ws_recv(s)
+            # Camera Hub can push unsolicited event frames, and a stale reply
+            # can sit queued from an earlier request. Match replies by id —
+            # otherwise one misplaced frame shifts every later reply onto the
+            # wrong request and the watchdog misreads AE state forever.
+            for _ in range(10):
+                resp = _ws_recv(s)
+                if resp is None:
+                    return None
+                if str(resp.get("id")) == str(req_id):
+                    return resp
+            return None   # stream is garbage — caller reconnects, which resyncs
         except Exception:
             return None
 
@@ -272,7 +283,10 @@ def _watchdog():
                 log.info("[elgato] connection lost — retrying")
                 break
 
-            current_ae = int((resp.get("result") or {}).get("value", 0))
+            result = resp.get("result") if isinstance(resp.get("result"), dict) else {}
+            if result.get("propertyID", _PROP_AE) != _PROP_AE:
+                continue   # reply names a different property — don't read it as AE
+            current_ae = int(result.get("value", 0))
             with _lock:
                 was_on = ae_on
                 ae_on  = bool(current_ae)
