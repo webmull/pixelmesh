@@ -188,8 +188,13 @@ def _discover_device(s: socket.socket) -> str | None:
 
 
 def _apply_initial_settings(s: socket.socket, device: str):
+    # Re-apply the live gain, not the default — a mid-show reconnect must not
+    # silently revert a manually-tuned ISO. First connect is unchanged since
+    # iso_gain starts at _DEFAULT_GAIN.
+    with _lock:
+        gain = iso_gain
     _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_AE,      "value": 0})
-    _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_GAIN,    "value": _DEFAULT_GAIN})
+    _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_GAIN,    "value": gain})
     _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_SHUTTER, "value": _DEFAULT_SHUTTER})
 
 
@@ -269,10 +274,9 @@ def _watchdog():
             _device = device
         _apply_initial_settings(s, device)
         with _lock:
-            ae_on    = False
-            iso_gain = _DEFAULT_GAIN
+            ae_on = False
         _set_connected(True)
-        log.info(f"[elgato] connected — device={device}")
+        log.info(f"[elgato] connected — device={device} gain={iso_gain}")
 
         # --- Poll loop ---
         while True:
