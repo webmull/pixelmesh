@@ -202,18 +202,6 @@ def _log_timing(line: str):
             pass
 
 
-def _stop_auto_debug_capture():
-    """Stop the debug capture only if WE auto-started it (so manual G
-    captures aren't killed by detection toggling off)."""
-    global _debug_auto_started
-    if _debug_auto_started and dbg_cap.active:
-        try:
-            dbg_cap.stop_run()
-        except Exception as e:
-            log.info(f"[debug] auto-stop failed: {e}")
-    _debug_auto_started = False
-
-
 def _compute_iso_hint():
     """After detection ends, look at the median blink amplitude across all
     decoded phones and suggest an ISO change if it's outside the comfort
@@ -276,10 +264,9 @@ vid_rec = VideoRecorder()
 
 # Auto-start debug capture whenever detection runs, so we always have the
 # heatmap available when investigating "why didn't this phone get detected".
-# Tracked separately from the manual G toggle: only the auto-started runs
-# are auto-stopped on detection-off.
+# Auto-start debug capture with detection; it then runs for the whole
+# session until toggled off manually (G / checkbox) or the app exits.
 _DEBUG_AUTO_ON_DETECT = True
-_debug_auto_started   = False
 
 
 # ------------------------------------------------------------------ #
@@ -972,7 +959,7 @@ def toggle_detection():
 
     if val:
         global _detection_start_time, _detected_ids, _render_order
-        global _debug_auto_started, _report_saved_path, _iso_hint
+        global _report_saved_path, _iso_hint
         with _det_lock:
             _detection_start_time = time.time()
             _detected_ids = set()
@@ -990,12 +977,12 @@ def toggle_detection():
         detector.reset()
         log.info(f"[detect] detector reset on run start (cleared {ever_active_before} _ever_active points)")
         # Auto-start debug capture so the heatmap + frames are always there
-        # for post-show diagnostics. Skipped if a manual G capture is already
-        # running (we don't want to interfere with intentional ones).
+        # for post-show diagnostics. Once started it stays on for the whole
+        # session (per-frame JPEGs only accumulate while detecting) until
+        # toggled off manually or the app exits.
         if _DEBUG_AUTO_ON_DETECT and not dbg_cap.active:
             try:
                 dbg_cap.start_run()
-                _debug_auto_started = True
             except Exception as e:
                 log.info(f"[debug] auto-start failed: {e}")
         _apply_detection_iso()
@@ -1005,7 +992,6 @@ def toggle_detection():
     else:
         _log_detection_summary()
         _save_report()
-        _stop_auto_debug_capture()
         post_json_async("/admin/detect", {"detecting": False})
         _auto_enable_sync()
         _apply_audience_iso()
@@ -1978,7 +1964,6 @@ def main():
                 global _detected_ids, _detection_start_time
                 _log_detection_summary()
                 _save_report()
-                _stop_auto_debug_capture()
                 _detected_ids = set()
                 _detection_start_time = 0.0
                 detector.reset()
@@ -2098,9 +2083,6 @@ def main():
                     if detecting:
                         draw_detect_border(display_canvas)
 
-                    if dbg_cap.active:
-                        dbg_cap.record_frame(canvas)
-
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
                     draw_hud(display_canvas, fps)
@@ -2114,6 +2096,13 @@ def main():
                     # the .mp4 even though it was visible on stage.)
                     if vid_rec.active:
                         vid_rec.record(display_canvas)
+
+                    # Debug run.mp4 must also record after the HUD/spotlight
+                    # draws: it queues the frame to a writer thread, and the
+                    # old call site (before draw_hud) let those in-place draws
+                    # race the writer — overlays flashed on/off frame to frame.
+                    if dbg_cap.active:
+                        dbg_cap.record_frame(display_canvas)
 
                     # MJPEG stream — write JPEG atomically so server.py
                     # never reads a partial file.  Capped at 30 fps.
@@ -2249,6 +2238,13 @@ def main():
             dpg.render_dearpygui_frame()
 
     finally:
+        # Session-long debug captures are only stopped here or by the user —
+        # finalise run.mp4 + summary.json before anything else can throw.
+        if dbg_cap.active:
+            try:
+                dbg_cap.stop_run()
+            except Exception as e:
+                log.info(f"[shutdown] debug capture close failed: {e}")
         post_json("/admin/reset", {})
         cap = holder.get("cap")
         if cap:
@@ -2376,7 +2372,6 @@ def _detection_worker():
                     if was_on:
                         _log_detection_summary()
                         _save_report()
-                        _stop_auto_debug_capture()
                         post_json_async("/admin/detect", {"detecting": False})
                         _auto_enable_sync()
                         _apply_audience_iso()
