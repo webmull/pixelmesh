@@ -172,7 +172,13 @@ sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset
 
 available_blinks = list(range(512))           # pool of unassigned blink IDs
 
-HEARTBEAT_TIMEOUT = 90   # seconds
+HEARTBEAT_TIMEOUT = 90     # seconds of silence before the socket is closed
+IDENTITY_TIMEOUT  = 1800   # seconds of silence before blink_id + position are recycled
+
+# A phone that can't accept one frame in this long is effectively gone; drop
+# it rather than let it stall anyone else. Its identity survives (_drop_connection)
+# so it resumes cleanly on reconnect.
+SEND_TIMEOUT = 1.0
 
 
 
@@ -187,34 +193,64 @@ def blink_to_device(blink_id: int) -> str | None:
 _broadcasting_count = False
 
 
+async def _close_quietly(ws):
+    try:
+        await asyncio.wait_for(ws.close(), SEND_TIMEOUT)
+    except Exception:
+        pass
+
+
+async def _timed_send(ws, text: str) -> bool:
+    try:
+        await asyncio.wait_for(ws.send_text(text), SEND_TIMEOUT)
+        return True
+    except Exception:
+        return False
+
+
+async def _timed_send_json(ws, obj: dict) -> bool:
+    try:
+        await asyncio.wait_for(ws.send_json(obj), SEND_TIMEOUT)
+        return True
+    except Exception:
+        return False
+
+
 async def broadcast(message: dict):
     global _broadcasting_count
     # Serialize once, not once per client.  send_json re-ran json.dumps for every
     # socket (~16 ms/broadcast at 300 phones); send_text reuses the same bytes.
     text = json.dumps(message, separators=(",", ":"))
-    dead = []
-    # Snapshot with list(): send_text awaits, and a concurrent hello/disconnect/
+    # Snapshot with list(): sends await, and a concurrent hello/disconnect/
     # reap mutating `connections` mid-iteration would raise "dict changed size
     # during iteration".  Because heart_broadcast_loop / reap_dead_clients call
     # broadcast without their own guard, that error would kill those tasks for
     # the rest of the show.
-    for device_id, ws in list(connections.items()):
-        try:
-            await ws.send_text(text)
-        except Exception:
+    #
+    # Fan out concurrently with a per-send timeout. The old sequential
+    # `await send` meant one stalled phone (backgrounded iOS, TCP zero-window
+    # — socket open but not ACKing) blocked every phone after it in dict
+    # order for up to ~40s until the ws keepalive gave up, freezing all
+    # output for the whole audience. A timed-out socket may still be open
+    # TCP-wise, so close it in the background: the phone's onclose fires and
+    # it reconnects, instead of listening forever on a socket the server no
+    # longer tracks.
+    conns = list(connections.items())
+    sent_ok = await asyncio.gather(*(_timed_send(ws, text) for _, ws in conns))
+    dead = []
+    for (device_id, ws), ok in zip(conns, sent_ok):
+        if not ok:
             dead.append(device_id)
-    for device_id in dead:
-        _drop_connection(device_id)
+            _drop_connection(device_id)
+            asyncio.create_task(_close_quietly(ws))
     # Same payload goes to spectators (stage page, future read-only viewers).
     # Failures just drop them — they reconnect on their own.
-    dead_specs = []
-    for sid, ws in list(spectators.items()):
-        try:
-            await ws.send_text(text)
-        except Exception:
-            dead_specs.append(sid)
-    for sid in dead_specs:
-        spectators.pop(sid, None)
+    specs = list(spectators.items())
+    spec_ok = await asyncio.gather(*(_timed_send(ws, text) for _, ws in specs))
+    for (sid, ws), ok in zip(specs, spec_ok):
+        if not ok:
+            spectators.pop(sid, None)
+            asyncio.create_task(_close_quietly(ws))
     # Guard against re-entry: broadcast_count → broadcast → broadcast_count
     # loops once if more sockets die mid-flight.  The flag lets a single
     # follow-up pass clean up, then bails so we never recurse indefinitely.
@@ -314,14 +350,26 @@ async def heart_broadcast_loop():
 
 
 async def reap_dead_clients():
+    global _count_dirty
     while True:
         await asyncio.sleep(5)
         try:
             now = time.time()
-            dead = [d for d, ts in list(last_seen.items()) if now - ts > HEARTBEAT_TIMEOUT]
-            for device_id in dead:
-                print(f"[reaper] removing stale device {device_id[:8]}")
-                await cleanup_device(device_id)
+            for device_id, ts in list(last_seen.items()):
+                silent = now - ts
+                if silent > IDENTITY_TIMEOUT:
+                    # Genuinely gone — recycle the blink_id and forget the seat.
+                    print(f"[reaper] forgetting device {device_id[:8]} (silent {int(silent)}s)")
+                    await cleanup_device(device_id)
+                elif silent > HEARTBEAT_TIMEOUT and device_id in connections:
+                    # Soft reap: close the dead socket but KEEP blink_id and
+                    # position. Full teardown here made every phone locked
+                    # >90s reconnect with calibrated=false — a permanently
+                    # black pixel even though the person hadn't moved seats.
+                    print(f"[reaper] closing stale socket {device_id[:8]} (identity kept)")
+                    ws = connections.pop(device_id)
+                    _count_dirty = True
+                    asyncio.create_task(_close_quietly(ws))
         except Exception as e:
             print(f"[reaper] loop error: {e}")
 
@@ -519,40 +567,31 @@ async def detect(payload: dict):
     detection_active = detecting
     if detecting:
         await set_mode(MODE_DETECTION)
-        # Only tell clients who don't yet have a known position to blink.
-        # Already-found clients keep their current state undisturbed.
-        msg = {"type": "detection_started"}
-        for device_id, ws in list(connections.items()):
-            if device_id not in positions:
-                try:
-                    await ws.send_json(msg)
-                except Exception:
-                    _drop_connection(device_id)
-            else:
-                # Re-confirm position to any phone that may have drifted out of
-                # PS.FOUND (e.g. after a game round reset it to PS.WAITING).
-                pos = positions[device_id]
-                try:
-                    await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
-                except Exception:
-                    _drop_connection(device_id)
+        # Only tell clients who don't yet have a known position to blink;
+        # already-found clients get their position re-confirmed (they may have
+        # drifted out of PS.FOUND, e.g. after a game round reset).
+        sends = [
+            (device_id, ws,
+             {"type": "detection_started"} if device_id not in positions
+             else {"type": "update_position", **positions[device_id]})
+            for device_id, ws in list(connections.items())
+        ]
     else:
         # Phones that were detected: re-confirm their position so any phone
         # stuck in PS.BLINKING due to a lost update_position gets pushed to
         # PS.FOUND instead of PS.MISSED.
         # Phones that were never detected: send detection_ended so they flash red.
-        for device_id, ws in list(connections.items()):
-            if device_id in positions:
-                pos = positions[device_id]
-                try:
-                    await ws.send_json({"type": "update_position", "u": pos["u"], "v": pos["v"]})
-                except Exception:
-                    _drop_connection(device_id)
-            else:
-                try:
-                    await ws.send_json({"type": "detection_ended"})
-                except Exception:
-                    _drop_connection(device_id)
+        sends = [
+            (device_id, ws,
+             {"type": "update_position", **positions[device_id]} if device_id in positions
+             else {"type": "detection_ended"})
+            for device_id, ws in list(connections.items())
+        ]
+    sent_ok = await asyncio.gather(*(_timed_send_json(ws, m) for _, ws, m in sends))
+    for (device_id, ws, _), ok in zip(sends, sent_ok):
+        if not ok:
+            _drop_connection(device_id)
+            asyncio.create_task(_close_quietly(ws))
     return {"ok": True}
 
 
@@ -583,16 +622,15 @@ async def update_positions(payload: dict):
 
         ws = connections.get(device_id)
         if ws:
-            try:
-                await ws.send_json({
-                    "type": "update_position",
-                    "u":    pos["u"],
-                    "v":    pos["v"],
-                })
-            except Exception:
-                # Dead socket — drop it now so the phone reconnects immediately
-                # rather than waiting for TCP keepalive to detect the loss.
+            if not await _timed_send_json(ws, {
+                "type": "update_position",
+                "u":    pos["u"],
+                "v":    pos["v"],
+            }):
+                # Dead or stalled socket — drop it now so the phone reconnects
+                # immediately rather than waiting for TCP keepalive.
                 _drop_connection(device_id)
+                asyncio.create_task(_close_quietly(ws))
 
         located_batch[str(blink_id)] = {"u": pos["u"], "v": pos["v"]}
 
