@@ -73,7 +73,6 @@ endpoint before launching.
 | `https://pixelmesh.show` | Audience URL — share this on screen |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
-| `http://localhost:8000/internal/sim` | Browser simulator (fake clients) |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30 fps) |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
 
@@ -407,7 +406,6 @@ panel — opens by default), **RUN** (detection, overlays, effects, server contr
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
 | `public/app.js` | Client-side blink renderer, effect engine, waiting/located/game UI |
-| `public/sim.js` | Browser simulator (N fake clients) |
 
 ---
 
@@ -477,11 +475,6 @@ debug/autumn-fox-42/
 | `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session — time-to-detect and confidence per blink ID |
 | `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report — generated automatically on every reset |
 | `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
-
-### Simulator
-
-`/internal/sim` spawns N fake clients in the browser. Simulator cells flash white/black during
-detection only — they go black in showtime mode so they don't interfere with effect testing.
 
 ### Client auto-reload
 
