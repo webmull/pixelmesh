@@ -78,7 +78,10 @@
 
     .hero {
       position: relative;
+      /* svh stays fixed while the mobile URL bar shows/hides; plain vh
+         resizes on every scroll and makes the hero contents jump. */
       min-height: 62vh;
+      min-height: 62svh;
       display: flex;
       align-items: flex-start;
       justify-content: center;
@@ -727,10 +730,24 @@
 
   <section class="hero visible">
     <video class="hero-video" autoplay muted loop playsinline
-           preload="metadata" poster="/public/video/hero-poster.jpg"
+           preload="auto" poster="/public/video/hero-poster.jpg"
            aria-hidden="true">
       <source src="/public/video/hero-loop.mp4" type="video/mp4">
     </video>
+    <script>
+      // Belt-and-braces looping: preview servers without HTTP Range
+      // support and some mobile power-saving modes drop the native
+      // loop. preload=auto keeps the whole 255KB file buffered, and
+      // if 'ended' ever fires despite the loop attribute, restart.
+      document.addEventListener('DOMContentLoaded', function () {
+        var v = document.querySelector('.hero-video');
+        if (!v) return;
+        v.addEventListener('ended', function () {
+          v.currentTime = 0;
+          v.play();
+        });
+      });
+    </script>
     <div class="hero-shade"></div>
     <div class="bg-grid"></div>
     <div class="wrapper hero-inner">
