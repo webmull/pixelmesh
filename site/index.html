@@ -19,12 +19,12 @@
   <!-- Social previews. NOTE: og:image should be an absolute URL once the
        site's canonical domain is confirmed - LinkedIn ignores relative paths. -->
   <meta property="og:type" content="website">
-  <meta property="og:title" content="pixelmesh — a crowd as a display">
+  <meta property="og:title" content="pixelmesh: a crowd as a display">
   <meta property="og:description"
     content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel. No installs, no setup.">
   <meta property="og:image" content="/public/og-image.jpg">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="pixelmesh — a crowd as a display">
+  <meta name="twitter:title" content="pixelmesh: a crowd as a display">
   <meta name="twitter:description"
     content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel.">
   <meta name="twitter:image" content="/public/og-image.jpg">
@@ -130,14 +130,40 @@
     }
 
     .split.media-split {
-      grid-template-columns: 1fr 1.15fr;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 3rem;
     }
 
     .clip-caption {
       color: var(--muted);
-      font-size: 0.85rem;
-      margin-top: 0.7rem;
+      font-size: 0.8rem;
+      margin-top: 0.6rem;
     }
+
+    .how-list {
+      list-style: none;
+      margin: 1.4rem 0 0 0;
+      padding: 0;
+    }
+
+    .how-list li {
+      padding: 0.8rem 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
+    .how-list b {
+      display: block;
+      font-weight: 500;
+      font-size: 0.96rem;
+      margin-bottom: 0.15rem;
+    }
+
+    .how-list span {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
 
     .stats-row {
       display: flex;
@@ -847,44 +873,46 @@
 
   <section class="panel">
     <div class="wrapper split media-split">
-      <div>
-      <div class="section-head">
-        <small>Discovery</small>
-        <h2>How devices find their place</h2>
+      <div class="discovery-visual">
+        <video class="section-clip" autoplay muted loop playsinline preload="auto"
+               aria-label="The detector finding phones in Birmingham: green boxes appear over each screen as its ID decodes, the counter climbing to 46 found">
+          <source src="/public/video/birmingham-detect.mp4" type="video/mp4">
+        </video>
+        <p class="clip-caption">
+          Birmingham, July 2026 &middot; 46 phones located live &middot; 8&times; speed
+        </p>
       </div>
 
-      <p>
-        The hardest problem in the system is identification.
-        pixelmesh solves it optically: each device blinks its screen on and off in a precise temporal pattern, while
-        a single camera at the front of the room watches the entire crowd at once.
-      </p>
+      <div>
+        <div class="section-head">
+          <small>Discovery</small>
+          <h2>How devices find their place</h2>
+        </div>
 
-      <p>
-        Each blink encodes a unique identifier in Manchester binary, a self-clocking format where every bit carries
-        a guaranteed transition. A device tilted into shadow, held at an angle, or partially obscured still resolves
-        cleanly, because the change is what gets read, not the absolute brightness.
-      </p>
+        <p>
+          The hardest problem is identification. pixelmesh solves it optically,
+          with a single camera watching the entire crowd at once.
+        </p>
 
-      <p>
-        A short, deliberately-illegal sync preamble at the start of every cycle lets the detector lock onto frame
-        boundaries with no ambiguity.
-        In about thirteen seconds, every device in the room is mapped to a coordinate.
-      </p>
-
-      <p>
-        No installs. No scans. No per-device setup. Open a URL, hold up the screen.
-      </p>
-    </div>
-
-    <div class="discovery-visual">
-      <video class="section-clip" autoplay muted loop playsinline preload="auto"
-             aria-label="The detector finding phones in Birmingham: green boxes appear over each screen as its ID decodes, the counter climbing to 46 found">
-        <source src="/public/video/birmingham-detect.mp4" type="video/mp4">
-      </video>
-      <p class="clip-caption">
-        Birmingham, July 2026 &mdash; the detector locating 46 phones live. 8&times; speed.
-      </p>
-    </div>
+        <ul class="how-list">
+          <li>
+            <b>Every screen blinks its ID</b>
+            <span>Manchester binary is self-clocking: a phone tilted into
+            shadow or half-obscured still resolves, because the change is what
+            gets read.</span>
+          </li>
+          <li>
+            <b>A sync preamble locks each cycle</b>
+            <span>The detector finds frame boundaries with no ambiguity and pins
+            every device to a coordinate.</span>
+          </li>
+          <li>
+            <b>The room maps itself in ~13 seconds</b>
+            <span>No installs, no scans. Open a URL, hold up the
+            screen.</span>
+          </li>
+        </ul>
+      </div>
     </div>
   </section>
 
@@ -1063,13 +1091,10 @@
           <p>
             By day I lead engineering teams building systems that work at scale and
             under pressure. Distributed systems run beneath everything we use, yet we
-            rarely see them behave as one &mdash; pixelmesh lets a room watch
-            infrastructure become visible.
-          </p>
-
-          <p>
-            Not a product demo: an experiment in synchronisation, scale, and emergent
-            behaviour, built solo and tested in front of real audiences.
+            rarely see them behave as one. pixelmesh lets a room watch infrastructure
+            become visible: not a product demo, an experiment in synchronisation,
+            scale, and emergent behaviour, built solo and tested in front of real
+            audiences.
           </p>
 
           <div class="about-links">
