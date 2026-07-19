@@ -241,6 +241,54 @@
       margin-bottom: 1.75rem;
     }
 
+    .practice-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-top: 0.5rem;
+    }
+
+    .practice-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.07);
+      border-radius: 10px;
+      padding: 1.15rem 1.35rem;
+    }
+
+    .practice-label {
+      display: block;
+      font-size: 0.68rem;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.55rem;
+    }
+
+    .practice-card p {
+      margin: 0;
+      font-size: 0.92rem;
+      color: var(--muted);
+    }
+
+    .pullquote {
+      margin: 2.25rem 0 0 0;
+      padding-left: 1.4rem;
+      border-left: 2px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .pullquote-lead {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.45rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.35;
+      margin: 0 0 0.6rem 0;
+    }
+
+    .pullquote p {
+      margin: 0;
+    }
+
     .stats-note a {
       color: var(--text);
     }
@@ -721,6 +769,14 @@
         font-size: 0.72rem;
       }
 
+      .practice-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .pullquote-lead {
+        font-size: 1.2rem;
+      }
+
       .hero-wordmark {
         margin-bottom: 0.35rem;
       }
@@ -971,27 +1027,42 @@
         Numbers from the most recent live run, July 2026.
       </p>
 
-      <p>
-        Each device calibrates its position into a shared coordinate grid.
-        A central controller broadcasts effect parameters rather than pixel data, and every device computes its own
-        output against a shared clock, a distributed shader running across the room.
-        Low bandwidth, deterministic behaviour, and a crowd that becomes a single rendering engine.
-      </p>
+      <div class="practice-grid">
+        <div class="practice-card">
+          <span class="practice-label">The engineering</span>
+          <p>
+            Each device calibrates its position into a shared coordinate grid.
+            A central controller broadcasts effect parameters rather than pixel
+            data, and every device computes its own output against a shared
+            clock: a distributed shader running across the room. Low bandwidth,
+            deterministic behaviour, and a crowd that becomes a single
+            rendering engine.
+          </p>
+        </div>
+        <div class="practice-card">
+          <span class="practice-label">The proving ground</span>
+          <p>
+            The first public version used printed AprilTag markers for
+            calibration. The current implementation replaces them with
+            optically-encoded screen blinks, so audiences only need to open a
+            URL. It has run live in Stoke, Manchester, London, and Birmingham.
+            Real audiences, real venues, lighting nothing like the controlled
+            conditions it was built in.
+          </p>
+        </div>
+      </div>
 
-      <p>
-        The first public version used printed AprilTag markers for calibration.
-        The current implementation replaces them with optically-encoded screen blinks, so audiences only need to
-        open a URL.
-        It ran live at PHP Stoke in February 2026, then again in Manchester three months later. Real
-        audiences, real venues, lighting nothing like the controlled conditions it was built in.
-      </p>
-
-      <p>
-        What makes it land at an event is that the audience isn't watching the show. They are it.
-        A few hundred phones snap into a single surface; light moves through the room as if it were one piece of
-        hardware.
-        No app, no install, no setup. Just a URL, then a moment that feels closer to physics than software.
-      </p>
+      <blockquote class="pullquote">
+        <p class="pullquote-lead">
+          The audience isn't watching the show. They are it.
+        </p>
+        <p>
+          A few hundred phones snap into a single surface; light moves through
+          the room as if it were one piece of hardware. No app, no install, no
+          setup. Just a URL, then a moment that feels closer to physics than
+          software.
+        </p>
+      </blockquote>
     </div>
   </section>
 
@@ -1181,14 +1252,14 @@
     const blinkFreq = [], blinkPhase = [], lockAt = [];
     for (let i = 0; i < size * size; i++) {
       prop.appendChild(document.createElement("div"));
-      blinkFreq[i]  = 5 + Math.random() * 6;
+      blinkFreq[i]  = 3 + Math.random() * 3.5;
       blinkPhase[i] = Math.random() * Math.PI * 2;
-      lockAt[i]     = 2.0 + Math.random() * 3.2;   // seconds into the loop
+      lockAt[i]     = 3.0 + Math.random() * 5.5;   // seconds into the loop
     }
 
-    const LOOP = 10.5;        // total loop length in seconds
-    const SWEEP_START = 5.9;  // locked grid holds briefly, then the sweep
-    const SWEEP_LEN = 3.4;
+    const LOOP = 16;          // total loop length in seconds
+    const SWEEP_START = 9.5;  // locked grid holds briefly, then the sweep
+    const SWEEP_LEN = 5;
 
     let t = 0;
     let tStart = null;
