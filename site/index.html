@@ -127,6 +127,8 @@
       width: 100%;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
+      /* Tame the detector's pure-green overlay against the mono site */
+      filter: saturate(0.65) brightness(0.95);
     }
 
     .split.media-split {
@@ -879,7 +881,7 @@
           <source src="/public/video/birmingham-detect.mp4" type="video/mp4">
         </video>
         <p class="clip-caption">
-          Birmingham, July 2026 &middot; 46 phones located live &middot; 8&times; speed
+          Birmingham, July 2026 &middot; 46 phones located live &middot; 5&times; speed
         </p>
       </div>
 
