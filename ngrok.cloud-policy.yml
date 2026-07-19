@@ -8,6 +8,15 @@
 # refreshes every 10s, so phones parked on it join the show
 # automatically the moment the tunnel comes up.
 #
+# Two failure states are covered:
+#   1. Agent offline (tunnel not running): forward-internal fails ->
+#      on_error: continue -> request-phase holding page.
+#   2. Agent up but app closed (server.py not on :8000): the forward
+#      "succeeds" and ngrok's upstream error (ERR_NGROK_8012, a 5xx)
+#      comes back through the tunnel -> the on_http_response rule below
+#      replaces any 5xx with the same holding page.
+# The two holding-page bodies must be kept identical when editing.
+#
 # The wordmark is hotlinked from pixelmesh.live (img tags need no CORS).
 # Fonts are NOT hotlinked: pixelmesh.live serves no
 # Access-Control-Allow-Origin header, so cross-origin @font-face would
@@ -87,3 +96,80 @@ on_http_request:
               </script>
             </body>
             </html>
+
+# Agent up but app down: ngrok's upstream error is a 5xx; swap it for
+# the holding page (also covers app crashes mid-show, which is a
+# better audience experience than a stack trace).
+on_http_response:
+  - expressions:
+      - res.status_code >= 500
+    actions:
+    - type: custom-response
+      config:
+        status_code: 200
+        headers:
+          content-type: text/html; charset=utf-8
+          cache-control: no-store
+        body: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>pixelmesh</title>
+            <link rel="icon" type="image/png" href="https://pixelmesh.live/public/favicon.png">
+            <noscript><meta http-equiv="refresh" content="10"></noscript>
+            <style>
+              html, body { height: 100%; }
+              body {
+                margin: 0;
+                background: #020204;
+                color: #9fa3ad;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                text-align: center;
+              }
+              .wrap { padding: 2rem; }
+              .wrap img {
+                width: min(300px, 70vw);
+                display: block;
+                margin: 0 auto 2rem auto;
+              }
+              .msg {
+                color: #ffffff;
+                font-size: 1.05rem;
+                letter-spacing: 0.02em;
+                margin: 0;
+              }
+              .sub {
+                font-size: 0.85rem;
+                margin-top: 0.9rem;
+              }
+              .sub b {
+                color: #ffffff;
+                font-weight: 500;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="wrap">
+              <img src="https://pixelmesh.live/public/pixelmesh_text.svg" alt="pixelmesh">
+              <p class="msg">The show has not yet begun</p>
+              <p class="sub">Keep this page open. Checking again in <b id="count">10</b>s</p>
+            </div>
+            <script>
+              var n = 10;
+              var el = document.getElementById('count');
+              setInterval(function () {
+                n -= 1;
+                if (n <= 0) {
+                  location.reload();
+                  return;
+                }
+                el.textContent = n;
+              }, 1000);
+            </script>
+          </body>
+          </html>
