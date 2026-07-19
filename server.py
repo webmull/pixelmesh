@@ -131,20 +131,6 @@ def _build_id() -> str:
 BUILD_ID = _build_id()
 
 
-def _sim_build_id() -> str:
-    """Independent hash of sim.js so the simulator cache busts on its own
-    changes without triggering audience-client reloads."""
-    h = hashlib.md5()
-    try:
-        with open(os.path.join(_PUBLIC_DIR, "sim.js"), "rb") as f:
-            h.update(f.read())
-    except OSError:
-        pass
-    return h.hexdigest()[:10]
-
-
-SIM_BUILD_ID = _sim_build_id()
-
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
 like_count: int    = 0
@@ -839,7 +825,6 @@ def _render_html(filename: str, build_id: str | None = None) -> str | None:
 # constant.  Avoids a blocking open()+regex on the event loop on every page hit
 # (hundreds of phones load "/" simultaneously at show start).
 _APP_HTML = _render_html("app.html", BUILD_ID)
-_SIM_HTML = _render_html("sim.html", SIM_BUILD_ID)
 
 def _serve_app_html():
     return HTMLResponse(content=_APP_HTML, headers=_NO_CACHE)
@@ -858,11 +843,6 @@ async def app_page():
 @app.get("/internal/dashboard")
 async def dashboard():
     return FileResponse("dashboard.html", headers=_NO_CACHE)
-
-
-@app.get("/internal/sim")
-async def sim():
-    return HTMLResponse(content=_SIM_HTML, headers=_NO_CACHE)
 
 
 def _stage_build_id() -> str:
