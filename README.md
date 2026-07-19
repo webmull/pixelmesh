@@ -500,6 +500,32 @@ The policy (including the embedded holding-page HTML) is versioned at `ngrok.clo
 The dashboard serves whatever was pasted last — re-paste after editing the file
 (dashboard → Universal Gateway → Endpoints → `pixelmesh.show` → Traffic Policy).
 
+**How the pieces fit:**
+
+| Piece | Where | Role |
+|---|---|---|
+| Reserved domain `pixelmesh.show` | ngrok dashboard → Domains | DNS for the show URL (CNAME at the registrar per ngrok's instructions) |
+| Cloud endpoint on `pixelmesh.show` | dashboard → Endpoints | Always-on edge listener; runs the traffic policy |
+| Traffic policy | pasted from `ngrok.cloud-policy.yml` | `forward-internal` to the agent; holding page when the forward fails **or** returns a 5xx (agent up, app closed) |
+| Internal endpoint `pixelmesh-agent.internal` | claimed by the agent at start | Private rendezvous between edge and laptop — not publicly reachable |
+| Agent authtoken | `~/Library/Application Support/ngrok/ngrok.yml` | Default agent config; `run.sh` passes it alongside the project config |
+| Tunnel definition | `ngrok.pixelmesh.yml` | Binds the internal endpoint to `localhost:8000`, inspection off, compression on |
+
+**One-time setup on a new ngrok account:**
+
+1. Reserve `pixelmesh.show` under **Universal Gateway → Domains** and point the registrar's
+   DNS at ngrok per the instructions shown.
+2. **Endpoints → New → Cloud Endpoint**, bind `https://pixelmesh.show`.
+3. Paste the contents of `ngrok.cloud-policy.yml` into the endpoint's Traffic Policy and save.
+4. Put the account authtoken in the default agent config (`ngrok config add-authtoken …`).
+   Nothing to configure for the internal endpoint — the agent claims it on start.
+
+**Verifying the three states** (from `run.sh`, `s` starts everything):
+
+- Nothing running → `pixelmesh.show` shows the holding page (served at the edge).
+- Full stack running → the audience app.
+- Tunnel up but server stopped → still the holding page, via the 5xx catch.
+
 ### Client auto-reload
 
 The server hashes `app.js` at startup into a `BUILD_ID` injected into every page response. On
