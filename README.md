@@ -368,7 +368,7 @@ Key parameters in `blink_detector.py`:
 
 - **Decode backoff** — failed points retry at `min(interval × 2^failures, 5s)`. Counter resets on success.
 - **Stream display gate** — binary stream overlay only shown once a point has been active ≥4s with fewer than 6 consecutive failures.
-- **Phantom ID suppression** — two IDs within 60px are deduplicated; lower-confidence one is dropped. Reduced from 120px to allow detection of phones closer together in a dense crowd (≈1.6m exclusion radius at 30m/1080p).
+- **Phantom ID suppression** — two IDs within 60px are deduplicated; lower-confidence one is dropped. Reduced from 120px to allow detection of phones closer together in a dense crowd (≈1.6m exclusion radius at 30m/1080p). IDs belonging to connected phones (`valid_ids`) are exempt: at meetup density real neighbours sit 15–50px apart in frame, and the 16 Jul demo showed a decoded, still-blinking phone (conf 0.87) silently discarded for a whole run because a found neighbour 40px away outranked it. Only unassigned (phantom) IDs are dropped now; each exempted keep is logged once (`[blink] kept valid ID=…`).
 - **Backward-scan decoder** — phones that started blinking before detection began are decoded from pre-guard history. Confidence penalised 5% per assumed bit.
 - **Stale-entry eviction** — entries below gate for >13.2s are evicted every 3 seconds (wall-clock). Logged at DEBUG: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
 - **Guard-phase extension** — after the main decode loop, points in `_ever_active` whose std has just dropped below gate are retried, recovering phones whose guard phase coincided with their warmup threshold crossing.
