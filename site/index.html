@@ -31,6 +31,11 @@
 
   <link rel="icon" type="image/png" href="/public/favicon.png">
 
+  <!-- Preload the two faces used at first paint - without this the page
+       renders in system type and flickers when the webfonts land -->
+  <link rel="preload" href="/public/fonts/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/public/fonts/poppins-600.woff2" as="font" type="font/woff2" crossorigin>
+
   <style>
     /* Self-hosted fonts: no render-blocking third-party requests */
     @font-face {
@@ -970,7 +975,7 @@
 
       <div class="split media-split">
       <div class="discovery-visual">
-        <video class="section-clip" autoplay muted loop playsinline preload="auto"
+        <video class="section-clip" autoplay muted loop playsinline preload="metadata"
                aria-label="The detector finding phones in Birmingham: green boxes appear over each screen as its ID decodes, the counter climbing to 46 found">
           <source src="/public/video/birmingham-detect.mp4" type="video/mp4">
         </video>
