@@ -1,0 +1,89 @@
+# Traffic policy for the pixelmesh.show CLOUD ENDPOINT (ngrok dashboard:
+# Universal Gateway -> Endpoints -> pixelmesh.show -> Traffic Policy).
+# This file is the versioned copy; paste its contents into the dashboard
+# whenever it changes.
+#
+# Behaviour: forward to the show agent's internal endpoint when the
+# laptop tunnel is up; otherwise serve the holding page below. The page
+# refreshes every 10s, so phones parked on it join the show
+# automatically the moment the tunnel comes up.
+#
+# The wordmark is hotlinked from pixelmesh.live (img tags need no CORS).
+# Fonts are NOT hotlinked: pixelmesh.live serves no
+# Access-Control-Allow-Origin header, so cross-origin @font-face would
+# be silently blocked. System sans is used instead.
+on_http_request:
+  - actions:
+      - type: forward-internal
+        config:
+          url: https://pixelmesh-agent.internal
+          on_error: continue
+      - type: custom-response
+        config:
+          status_code: 200
+          headers:
+            content-type: text/html; charset=utf-8
+            cache-control: no-store
+          body: |
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta http-equiv="refresh" content="10">
+              <title>pixelmesh</title>
+              <style>
+                html, body { height: 100%; }
+                body {
+                  margin: 0;
+                  background: #020204;
+                  color: #9fa3ad;
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  text-align: center;
+                }
+                .wrap { padding: 2rem; }
+                .wrap img {
+                  width: min(300px, 70vw);
+                  display: block;
+                  margin: 0 auto 2rem auto;
+                }
+                .dot {
+                  display: inline-block;
+                  width: 8px;
+                  height: 8px;
+                  border-radius: 50%;
+                  background: #ffffff;
+                  margin-right: 0.6rem;
+                  animation: pulse 2s ease-in-out infinite;
+                }
+                @keyframes pulse {
+                  0%, 100% { opacity: 0.25; }
+                  50% { opacity: 1; }
+                }
+                .msg {
+                  color: #ffffff;
+                  font-size: 1.05rem;
+                  letter-spacing: 0.02em;
+                  margin: 0;
+                }
+                .sub {
+                  font-size: 0.85rem;
+                  margin-top: 0.9rem;
+                }
+                a { color: #9fa3ad; }
+              </style>
+            </head>
+            <body>
+              <div class="wrap">
+                <img src="https://pixelmesh.live/public/pixelmesh_text.svg" alt="pixelmesh">
+                <p class="msg"><span class="dot"></span>The show has not yet begun</p>
+                <p class="sub">
+                  Keep this page open. It refreshes automatically and joins the
+                  show the moment it starts. Meanwhile: <a href="https://pixelmesh.live">pixelmesh.live</a>
+                </p>
+              </div>
+            </body>
+            </html>
