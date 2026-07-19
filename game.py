@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Audience games (dual-mode)
+pixelmesh V2 — Audience games (dual-mode)
 
 Two games sit behind the same /admin/game/* endpoints, dispatched by
 game_mode set on round start:

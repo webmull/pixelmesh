@@ -1,6 +1,6 @@
 # 47 phones, 44 detections, 3 mysteries — a recap of last night's talk at Ministry of Testing London
 
-Last night I gave a talk at the **Ministry of Testing London Chapter Meetup** on PixelMesh — a system I've been building that turns a live audience into a synchronised pixel display. No app install. No QR scan. No printed tag. Just a phone, a URL, and a single camera pointed at the crowd.
+Last night I gave a talk at the **Ministry of Testing London Chapter Meetup** on pixelmesh — a system I've been building that turns a live audience into a synchronised pixel display. No app install. No QR scan. No printed tag. Just a phone, a URL, and a single camera pointed at the crowd.
 
 I did the obvious thing: I asked the room to be the demo.
 

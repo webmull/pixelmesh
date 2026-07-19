@@ -2,7 +2,7 @@
 
 Last week, our audience opened a URL on their phones and held them up. No install. No QR scan. No printed tag on the back of the case. Within four minutes, a single camera pointed at the crowd had figured out exactly which phone belonged to which person and where they were sitting in the room — accurate enough to choreograph each one as its own pixel in a giant low-resolution display.
 
-This is PixelMesh, the audience-as-pixels system I've been building. Here's what actually happened in the data from that detection run (run ID `indigo-thorn-78`, for the engineers).
+This is pixelmesh, the audience-as-pixels system I've been building. Here's what actually happened in the data from that detection run (run ID `indigo-thorn-78`, for the engineers).
 
 ## The numbers
 
@@ -26,6 +26,6 @@ Each phone Manchester-encodes its 9-bit ID by flashing white/black at 300ms per 
 
 ## What's next
 
-I'm giving a talk this week on how PixelMesh actually does the detection — what happens between a phone displaying a blink and the system saying "you are phone #19, you are sitting in row 4 seat 11, here is the wave effect you'll render at exactly 20:14:33.500." More on that soon.
+I'm giving a talk this week on how pixelmesh actually does the detection — what happens between a phone displaying a blink and the system saying "you are phone #19, you are sitting in row 4 seat 11, here is the wave effect you'll render at exactly 20:14:33.500." More on that soon.
 
 If you were one of the 47 in the audience last week — thank you. If you were one of the 3 who never got found, I owe you an apology and a louder spec next time. And if you were one of the 8 who closed the tab early, fair enough; I'll write a better waiting screen.

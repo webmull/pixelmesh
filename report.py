@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Post-show report generator.
+pixelmesh V2 — Post-show report generator.
 
 Writes a plain-text summary to debug/reports/ on every reset.
 Reports are kept indefinitely.
