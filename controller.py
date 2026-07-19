@@ -226,11 +226,11 @@ def _compute_iso_hint():
     if median_amp < 0.55 and current < 160:
         delta = max(10, int(current * 0.25))
         suggested = min(160, current + delta)
-        _iso_hint = f"low signal {median_amp:.2f} — try ISO ~{suggested}"
+        _iso_hint = f"low signal {median_amp:.2f} - try ISO ~{suggested}"
     elif median_amp > 0.95 and current > 30:
         delta = max(10, int(current * 0.20))
         suggested = max(0, current - delta)
-        _iso_hint = f"strong signal {median_amp:.2f} — could try ISO ~{suggested}"
+        _iso_hint = f"strong signal {median_amp:.2f} - could try ISO ~{suggested}"
     else:
         _iso_hint = f"signal OK ({median_amp:.2f}, n={len(_detection_amplitudes)})"
     log.info(f"[iso] {_iso_hint}")
@@ -535,11 +535,13 @@ def no_camera_canvas() -> np.ndarray:
         cv2.line(canvas, (x, 0), (x, PREVIEW_HEIGHT), (30, 30, 30), 1)
     for y in range(0, PREVIEW_HEIGHT, 80):
         cv2.line(canvas, (0, y), (PREVIEW_WIDTH, y), (30, 30, 30), 1)
+    # Drawn large: this 1280x720 texture is stretched to the window, so
+    # small glyphs upscale soft.  Bigger strokes survive the stretch.
     msg = "No camera detected"
-    (tw, _), _ = cv2.getTextSize(msg, FONT, 0.9, 2)
+    (tw, _), _ = cv2.getTextSize(msg, FONT, 1.6, 3)
     cv2.putText(canvas, msg,
                 (PREVIEW_WIDTH // 2 - tw // 2, PREVIEW_HEIGHT // 2),
-                FONT, 0.9, (160, 160, 160), 2, cv2.LINE_AA)
+                FONT, 1.6, (160, 160, 160), 3, cv2.LINE_AA)
     return canvas
 
 
@@ -834,6 +836,7 @@ def update_ui_from_state():
     ui_queue.put(("_rec_filename_show", bool(rec_path)))
 
     safe_set("iso_hint_text",    _iso_hint)
+    ui_queue.put(("_iso_hint_show", bool(_iso_hint)))
     _safe_set_chk("chk_detection",    detecting)
     _safe_set_chk("chk_sync",         state.syncing)
     _safe_set_chk("chk_overlays_all", state.show_overlays)
@@ -1447,7 +1450,7 @@ def _save_report(auto_open: bool = False):
             if auto_open:
                 import subprocess
                 subprocess.Popen(["open", path])
-            set_status(f"Report saved → {_os.path.basename(path)}")
+            set_status(f"Report saved: {_os.path.basename(path)}")
             log.info(f"[report] saved → {path}")
         except Exception as e:
             log.warning(f"[report] failed: {e}")
@@ -1526,7 +1529,7 @@ def _scan_and_pick_elgato(holder, retrying=False):
     if elgato_label is None:
         if not retrying:
             log.info(f"[camera] no Elgato found in {labels} — waiting for one to appear")
-            set_status("Plug in the Elgato Facecam — waiting…")
+            set_status("Plug in the Elgato Facecam - waiting...")
         return False
 
     idx = lmap.get(elgato_label)
@@ -1724,7 +1727,7 @@ def setup_ui(holder: dict):
                                            enabled=False)
                         dpg.add_text("", tag="iso_hint_text",
                                      color=(220, 180, 80), indent=_PAD,
-                                     wrap=300)
+                                     wrap=300, show=False)
 
                         dpg.add_spacer(height=8)
                         dpg.add_text("PROJECTION", color=(160, 160, 160), indent=_PAD)
@@ -2186,6 +2189,9 @@ def main():
                         continue
                     if tag == "_rec_filename_show":
                         dpg.configure_item("rec_filename_text", show=value)
+                        continue
+                    if tag == "_iso_hint_show":
+                        dpg.configure_item("iso_hint_text", show=value)
                         continue
                     if tag == "_roi_enabled":
                         for item in ("sld_roi_top", "sld_roi_bottom",
