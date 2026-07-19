@@ -14,6 +14,7 @@
 - [ ] **3.1** Two phones side by side within one grid step (8px at camera distance) — no patch bleed
 - [ ] **3.2** 10 phones simultaneously — all 10 IDs decoded correctly, no cross-contamination
 - [ ] **3.3** Phone that was detected then turns off — stops receiving effects (connected-client filter)
+- [ ] **3.4** Cluster-dedup fix (715e8a5) — 4–5 phones bunched within 60px in frame, run detection twice. All must be found even after their neighbours are; expect `[blink] kept valid ID=…` log lines. Validates the 16 Jul demo miss (phone 46 decoded at conf 0.87 but shadowed by a found neighbour 40px away; 20/21/35 likely same cause)
 
 ## 4. Decode Correctness
 - [ ] **4.1** Full rotation of IDs 0–15 — every ID decodes to itself, no bit-flip errors
@@ -40,4 +41,4 @@
 
 ---
 
-**Must-pass before Brighton Dome:** range at 15m+ (1.1), multi-phone accuracy at 10+ (3.2), false positive filter (5.3), 60-minute stability run (6.3).
+**Must-pass before Brighton Dome:** range at 15m+ (1.1), multi-phone accuracy at 10+ (3.2), cluster-dedup fix (3.4), false positive filter (5.3), 60-minute stability run (6.3).
