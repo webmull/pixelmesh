@@ -567,11 +567,11 @@ function connect() {
     stopSync();
     goBlack();
     if (!disconnectedSince) disconnectedSince = Date.now();
-    // After ~25s of failed reconnects the show is genuinely down, not
+    // After ~20s of failed reconnects the show is genuinely down, not
     // blipping - reload so the cloud endpoint serves its holding page,
     // whose countdown rejoins automatically when the show returns.
     // (Identity lives in localStorage; a reload never loses the seat.)
-    if (Date.now() - disconnectedSince > 25000) {
+    if (Date.now() - disconnectedSince > 20000) {
       location.reload();
       return;
     }
