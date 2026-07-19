@@ -1,9 +1,15 @@
 version: "3"
 tunnels:
-  # Audience tunnel — public URL phones connect to.
+  # Audience tunnel. Binds an INTERNAL endpoint; the public
+  # https://pixelmesh.show is a cloud endpoint at ngrok's edge whose
+  # traffic policy forwards here when this agent is up and redirects to
+  # https://pixelmesh.live when it isn't (no more ERR_NGROK_3200).
+  #
+  # To revert to direct binding (no cloud endpoint), swap the hostname
+  # line back to:  hostname: pixelmesh.show
   audience:
     proto: http
     addr: 8000
-    hostname: pixelmesh.show
+    hostname: pixelmesh-agent.internal
     inspect: false
     compression: true
