@@ -30,9 +30,9 @@ on_http_request:
             <head>
               <meta charset="utf-8">
               <meta name="viewport" content="width=device-width, initial-scale=1">
-              <meta http-equiv="refresh" content="10">
               <title>pixelmesh</title>
               <link rel="icon" type="image/png" href="https://pixelmesh.live/public/favicon.png">
+              <noscript><meta http-equiv="refresh" content="10"></noscript>
               <style>
                 html, body { height: 100%; }
                 body {
@@ -51,19 +51,6 @@ on_http_request:
                   display: block;
                   margin: 0 auto 2rem auto;
                 }
-                .dot {
-                  display: inline-block;
-                  width: 8px;
-                  height: 8px;
-                  border-radius: 50%;
-                  background: #ffffff;
-                  margin-right: 0.6rem;
-                  animation: pulse 2s ease-in-out infinite;
-                }
-                @keyframes pulse {
-                  0%, 100% { opacity: 0.25; }
-                  50% { opacity: 1; }
-                }
                 .msg {
                   color: #ffffff;
                   font-size: 1.05rem;
@@ -74,17 +61,29 @@ on_http_request:
                   font-size: 0.85rem;
                   margin-top: 0.9rem;
                 }
-                a { color: #9fa3ad; }
+                .sub b {
+                  color: #ffffff;
+                  font-weight: 500;
+                }
               </style>
             </head>
             <body>
               <div class="wrap">
                 <img src="https://pixelmesh.live/public/pixelmesh_text.svg" alt="pixelmesh">
-                <p class="msg"><span class="dot"></span>The show has not yet begun</p>
-                <p class="sub">
-                  Keep this page open. It refreshes automatically and joins the
-                  show the moment it starts. Meanwhile: <a href="https://pixelmesh.live">pixelmesh.live</a>
-                </p>
+                <p class="msg">The show has not yet begun</p>
+                <p class="sub">Keep this page open. Checking again in <b id="count">10</b>s</p>
               </div>
+              <script>
+                var n = 10;
+                var el = document.getElementById('count');
+                setInterval(function () {
+                  n -= 1;
+                  if (n <= 0) {
+                    location.reload();
+                    return;
+                  }
+                  el.textContent = n;
+                }, 1000);
+              </script>
             </body>
             </html>
