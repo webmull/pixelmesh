@@ -6,7 +6,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description"
-    content="pixelmesh is a distributed rendering system that synchronises devices into a shared spatial grid. Calibrated devices. Shared time. One canvas.">
+    content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel. No installs, no setup. Live at meetups and venues across the UK.">
 
   <meta name="keywords"
     content="pixelmesh, distributed systems, projection mapping, synchronised devices, spatial calibration, real-time rendering, distributed shader, installation art, infrastructure engineering, Manchester encoding, optical signalling, audience interaction">
@@ -16,25 +16,63 @@
   <meta name="theme-color" content="#020204">
   <title>pixelmesh</title>
 
-  <!-- Social previews. NOTE: og:image should be an absolute URL once the
-       site's canonical domain is confirmed - LinkedIn ignores relative paths. -->
+  <link rel="canonical" href="https://pixelmesh.live/">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://pixelmesh.live/">
   <meta property="og:title" content="pixelmesh: a crowd as a display">
   <meta property="og:description"
     content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel. No installs, no setup.">
-  <meta property="og:image" content="/public/og-image.jpg">
+  <meta property="og:image" content="https://pixelmesh.live/public/og-image.jpg">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="pixelmesh: a crowd as a display">
   <meta name="twitter:description"
     content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel.">
-  <meta name="twitter:image" content="/public/og-image.jpg">
-
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="twitter:image" content="https://pixelmesh.live/public/og-image.jpg">
 
   <link rel="icon" type="image/png" href="/public/favicon.png">
 
   <style>
+    /* Self-hosted fonts: no render-blocking third-party requests */
+    @font-face {
+      font-family: 'Inter';
+      src: url('/public/fonts/InterVariable.woff2') format('woff2');
+      font-weight: 100 900;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Poppins';
+      src: url('/public/fonts/poppins-400.woff2') format('woff2');
+      font-weight: 400;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Poppins';
+      src: url('/public/fonts/poppins-500.woff2') format('woff2');
+      font-weight: 500;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Poppins';
+      src: url('/public/fonts/poppins-600.woff2') format('woff2');
+      font-weight: 600;
+      font-style: normal;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: 'Poppins';
+      src: url('/public/fonts/poppins-700.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+
     :root {
       --bg: #020204;
       --panel: #17171f;
@@ -590,6 +628,16 @@
       border-top: 1px solid rgba(255, 255, 255, 0.06);
     }
 
+    .event.featured {
+      border-left: 2px solid rgba(255, 255, 255, 0.4);
+      padding-left: 1.1rem;
+    }
+
+    .event.featured .event-group {
+      color: var(--text);
+      font-weight: 600;
+    }
+
     .event:last-child {
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
@@ -990,7 +1038,7 @@
             <span class="event-place">Hippocampus &middot; Leeds, UK</span>
           </div>
         </li>
-        <li class="event">
+        <li class="event featured">
           <span class="event-date">1 Oct 2026</span>
           <div class="event-info">
             <span class="event-group">Ministry of Testing, MotoCon26</span>
