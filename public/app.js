@@ -434,6 +434,7 @@ const gameWinnerTime    = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let reconnectDelay  = 500;
+let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
 let connectWatchdog = null;
 let heartbeatTimer  = null;
 let wakeLock        = null;
@@ -545,6 +546,7 @@ function connect() {
   ws.onopen = () => {
     clearTimeout(connectWatchdog);
     reconnectDelay = 500;
+    disconnectedSince = 0;
 
     ws.send(JSON.stringify({ type: "hello", device_id: deviceId }));
 
@@ -564,6 +566,15 @@ function connect() {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     stopSync();
     goBlack();
+    if (!disconnectedSince) disconnectedSince = Date.now();
+    // After ~25s of failed reconnects the show is genuinely down, not
+    // blipping - reload so the cloud endpoint serves its holding page,
+    // whose countdown rejoins automatically when the show returns.
+    // (Identity lives in localStorage; a reload never loses the seat.)
+    if (Date.now() - disconnectedSince > 25000) {
+      location.reload();
+      return;
+    }
     setStatus("reconnecting…");
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
