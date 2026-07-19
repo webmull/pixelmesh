@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" font-family="-apple-system, system-ui, Helvetica, sans-serif">
+<rect width="1920" height="1080" fill="#fbfaf7"/>
+<text x="100" y="100" font-size="56" font-weight="800" fill="#0d0d0d">indigo-thorn-78</text>
+<text x="100" y="146" font-size="22" font-weight="500" fill="#666">263.9 s detection run · 18 Jun 2026</text>
+<line x1="100" y1="180" x2="1820" y2="180" stroke="#d6d6d6" stroke-width="2"/>
+<rect x="100" y="250" width="14" height="160" fill="#5d5d5d" rx="3"/>
+<text x="140" y="370" font-size="140" font-weight="800" fill="#0d0d0d">47</text>
+<text x="430" y="320" font-size="22" font-weight="700" letter-spacing="4" fill="#666">CONNECTED AT END</text>
+<text x="430" y="368" font-size="24" fill="#262626">peak ≈ 55 mid-run · 8 phones timed out via 90 s heartbeat reaper</text>
+<rect x="100" y="450" width="14" height="160" fill="#1a1a1a" rx="3"/>
+<text x="140" y="570" font-size="140" font-weight="800" fill="#0d0d0d">44</text>
+<text x="430" y="520" font-size="22" font-weight="700" letter-spacing="4" fill="#666">DETECTED</text>
+<text x="430" y="568" font-size="24" fill="#262626">94% of connected · missed IDs 12, 14, 32</text>
+<rect x="100" y="650" width="14" height="160" fill="#a8a8a8" rx="3"/>
+<text x="140" y="770" font-size="140" font-weight="800" fill="#0d0d0d"> 3</text>
+<text x="430" y="720" font-size="22" font-weight="700" letter-spacing="4" fill="#666">PHANTOMS REJECTED</text>
+<text x="430" y="768" font-size="24" fill="#262626">IDs 39, 47, 216 — caught by the valid-set check</text>
+<line x1="100" y1="970" x2="1820" y2="970" stroke="#d6d6d6" stroke-width="2"/>
+<text x="100" y="1008" font-size="20" font-weight="700" fill="#0d0d0d">connection trajectory: 55 → 49 → 47 over 4½ min</text>
+<text x="1820" y="1008" font-size="18" font-weight="500" fill="#666" text-anchor="end">audience-as-pixels</text>
+</svg>
