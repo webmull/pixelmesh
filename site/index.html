@@ -1172,44 +1172,66 @@
     }, { threshold: 0.3 });
     visualBlocks.forEach(v => visualObserver.observe(v));
 
+    // The grid plays the show in miniature, on a loop:
+    //   1. cells strobe at random rates (phones blinking their IDs)
+    //   2. they lock steady one by one (the camera finding them)
+    //   3. a light sweep crosses the locked grid (the first effect)
     const prop = document.getElementById("propagation-grid");
     const size = 12;
+    const blinkFreq = [], blinkPhase = [], lockAt = [];
     for (let i = 0; i < size * size; i++) {
-      const d = document.createElement("div");
-      prop.appendChild(d);
+      prop.appendChild(document.createElement("div"));
+      blinkFreq[i]  = 5 + Math.random() * 6;
+      blinkPhase[i] = Math.random() * Math.PI * 2;
+      lockAt[i]     = 2.0 + Math.random() * 3.2;   // seconds into the loop
     }
 
+    const LOOP = 10.5;        // total loop length in seconds
+    const SWEEP_START = 5.9;  // locked grid holds briefly, then the sweep
+    const SWEEP_LEN = 3.4;
+
     let t = 0;
-    function animatePropagation() {
+    let tStart = null;
+    function animatePropagation(ts) {
       // 144 style writes per frame: only pay for them while the grid
       // is actually on screen, so scrolling elsewhere stays smooth.
       if (!propVisible) {
+        tStart = null;   // restart the loop cleanly when it returns
         requestAnimationFrame(animatePropagation);
         return;
       }
+      // Wall-clock via the rAF timestamp: frame-count timing runs
+      // double speed on 120Hz displays.
+      if (tStart === null) tStart = ts;
+      t = ((ts - tStart) / 1000) % LOOP;
       const cells = prop.children;
-      const speed = window.innerWidth < 768 ? 0.02 : 0.03;
-      const cx = (size - 1) / 2;
-      const cy = (size - 1) / 2;
 
       for (let i = 0; i < cells.length; i++) {
         const x = i % size;
         const y = Math.floor(i / size);
-        const dx = x - cx;
-        const dy = y - cy;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+        let op;
 
-        const ring = Math.sin(dist * 0.85 - t);
-        const pulse = Math.max(0, ring);
-        const falloff = Math.max(0, 1 - dist / (size * 0.7));
+        if (t < lockAt[i]) {
+          // blinking: hard square-wave strobe, per-cell rate and phase
+          op = Math.sin(t * blinkFreq[i] + blinkPhase[i]) > 0 ? 0.7 : 0.05;
+        } else {
+          // found: settle to a steady glow
+          op = 0.3;
+        }
 
-        cells[i].style.opacity = 0.06 + 0.78 * pulse * falloff;
+        if (t > SWEEP_START) {
+          // diagonal band of light crossing the locked grid
+          const p = (x + y) / (2 * (size - 1));
+          const s = (t - SWEEP_START) / SWEEP_LEN * 1.4 - 0.2;
+          op = Math.max(op, 0.3 + 0.65 * Math.max(0, 1 - Math.abs(p - s) * 5));
+        }
+
+        cells[i].style.opacity = op;
       }
 
-      t += speed;
       requestAnimationFrame(animatePropagation);
     }
-    animatePropagation();
+    requestAnimationFrame(animatePropagation);
   </script>
 
 </body>
