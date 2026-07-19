@@ -302,7 +302,7 @@
 
     section {
       position: relative;
-      padding: 4.5rem 0 4rem 0;
+      padding: 2.75rem 0 3.5rem 0;
       opacity: 0;
       transform: translateY(25px);
       transition: all 0.8s ease;
@@ -463,17 +463,46 @@
     }
 
     .about-image img {
-      width: 200px;
-      height: 200px;
+      width: 220px;
+      height: 264px;
       object-fit: cover;
-      border-radius: 50%;
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
       box-shadow: 0 0 28px rgba(255, 255, 255, 0.04);
       filter: grayscale(100%) contrast(115%) brightness(95%);
     }
 
     .about-content p {
       max-width: 60ch;
+    }
+
+    .about-lead {
+      font-size: 1.25rem;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .about-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-top: 1.5rem;
+    }
+
+    .about-link {
+      display: inline-block;
+      padding: 0.45rem 1.05rem;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      color: var(--text);
+      text-decoration: none;
+      transition: background 0.2s ease, border-color 0.2s ease;
+    }
+
+    .about-link:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.3);
     }
 
     /* EVENTS */
@@ -994,27 +1023,30 @@
             <h2>Built by Adam Davis</h2>
           </div>
 
-          <p>
+          <p class="about-lead">
             pixelmesh exists because coordination is invisible.
           </p>
 
           <p>
-            By day I lead engineering teams building systems that work at scale, under pressure, and in the
-            real world. The work spans architecture, delivery, and people. Much of it is reducing developer
-            friction: simplifying systems, tightening feedback loops, making it easier for teams to ship without
-            losing control.
+            By day I lead engineering teams building systems that work at scale and
+            under pressure. Distributed systems run beneath everything we use, yet we
+            rarely see them behave as one &mdash; pixelmesh lets a room watch
+            infrastructure become visible.
           </p>
 
           <p>
-            Distributed systems run beneath everything we use, yet we rarely see them behave as one.
-            I wanted to find out what happens when infrastructure becomes visible: when independent devices share
-            time, share space, and render as a single surface.
+            Not a product demo: an experiment in synchronisation, scale, and emergent
+            behaviour, built solo and tested in front of real audiences.
           </p>
 
-          <p>
-            This is not a product demo. It is an experiment in synchronisation, scale, and emergent behaviour,
-            built solo and tested in front of real audiences.
-          </p>
+          <div class="about-links">
+            <a class="about-link" href="https://www.linkedin.com/in/davisadam/"
+               target="_blank" rel="noopener">LinkedIn</a>
+            <a class="about-link" href="https://www.adamdavis.co.uk"
+               target="_blank" rel="noopener">adamdavis.co.uk</a>
+            <a class="about-link"
+               href="mailto:mail@adamdavis.co.uk?subject=pixelmesh%20booking%20enquiry">Book a show</a>
+          </div>
         </div>
 
       </div>
