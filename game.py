@@ -596,7 +596,7 @@ def start_bug_game():
     with _state.lock:
         positions = dict(_state.calibrated_positions)
     if not positions:
-        _set_status("No detected phones — run detection first")
+        _set_status("No detected phones - run detection first")
         return
     if _render_order:
         ordered = sorted(_render_order.keys(),
@@ -611,7 +611,7 @@ def start_bug_game():
     with _state.lock:
         _state.current_effect = None
     set_active_btn("game_start_bug")
-    _set_status(f"Bug game — {len(ordered)} phones / "
+    _set_status(f"Bug game - {len(ordered)} phones / "
                 f"{BUG_GAME_DURATION_MS // 1000}s round")
     _start_poll()
 
@@ -628,7 +628,7 @@ def start_race_game():
     with _state.lock:
         positions = dict(_state.calibrated_positions)
     if not positions:
-        _set_status("No detected phones — run detection first")
+        _set_status("No detected phones - run detection first")
         return
     blink_ids = sorted(
         positions.keys(),
@@ -645,7 +645,7 @@ def start_race_game():
     with _state.lock:
         _state.current_effect = None
     set_active_btn("game_start_race")
-    _set_status(f"Avatar race — {len(blink_ids)} runners")
+    _set_status(f"Avatar race - {len(blink_ids)} runners")
     _start_poll()
 
 
@@ -725,7 +725,7 @@ def _start_poll():
                 winner = data.get("winner")
                 if winner is not None:
                     try:
-                        _set_status(f"🏆 Phone #{int(winner)+1} wins!")
+                        _set_status(f"Phone #{int(winner)+1} wins!")
                     except Exception:
                         pass
                 break
@@ -739,7 +739,7 @@ def _start_poll():
 def build_sidebar_buttons(indent: int, pad: int):
     """Sidebar block with game modes and a shared Stop."""
     dpg.add_spacer(height=4)
-    dpg.add_text("GAME 1 — BUG", color=(160, 160, 160), indent=indent)
+    dpg.add_text("GAME 1 - BUG", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
     dpg.add_button(label="Start Bug Game",
                    tag="game_start_bug",
@@ -747,7 +747,7 @@ def build_sidebar_buttons(indent: int, pad: int):
                    indent=indent, width=-(pad + 1))
 
     dpg.add_spacer(height=8)
-    dpg.add_text("GAME 2 — AVATAR RACE", color=(160, 160, 160), indent=indent)
+    dpg.add_text("GAME 2 - AVATAR RACE", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
     dpg.add_button(label="Start Avatar Race",
                    tag="game_start_race",

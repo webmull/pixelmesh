@@ -6,3 +6,4 @@ tunnels:
     addr: 8000
     hostname: pixelmesh.show
     inspect: false
+    compression: true

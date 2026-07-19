@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" font-family="-apple-system, system-ui, Helvetica, sans-serif">
+<rect width="1920" height="1080" fill="#fbfaf7"/>
+<text x="100" y="100" font-size="56" font-weight="800" fill="#0d0d0d">Time-to-detect distribution</text>
+<text x="100" y="146" font-size="22" font-weight="500" fill="#666">median 39.1 s · p90 150.1 s · max 162.7 s · warmup floor 13.2 s (1 cycle)</text>
+<line x1="100" y1="180" x2="1820" y2="180" stroke="#d6d6d6" stroke-width="2"/>
+<line x1="160" y1="820" x2="1760" y2="820" stroke="#666" stroke-width="2"/>
+<rect x="176.0" y="670.0" width="234.7" height="150.0" fill="#c3c3c3" rx="6"/>
+<text x="293.3" y="648.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">5</text>
+<text x="293.3" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">0–20 s</text>
+<rect x="442.7" y="280.0" width="234.7" height="540.0" fill="#a2a2a2" rx="6"/>
+<text x="560.0" y="258.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">18</text>
+<text x="560.0" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">20–40 s</text>
+<rect x="709.3" y="640.0" width="234.7" height="180.0" fill="#818181" rx="6"/>
+<text x="826.7" y="618.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">6</text>
+<text x="826.7" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">40–60 s</text>
+<rect x="976.0" y="730.0" width="234.7" height="90.0" fill="#606060" rx="6"/>
+<text x="1093.3" y="708.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">3</text>
+<text x="1093.3" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">60–80 s</text>
+<rect x="1242.7" y="760.0" width="234.7" height="60.0" fill="#3f3f3f" rx="6"/>
+<text x="1360.0" y="738.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">2</text>
+<text x="1360.0" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">80–100 s</text>
+<rect x="1509.3" y="520.0" width="234.7" height="300.0" fill="#1e1e1e" rx="6"/>
+<text x="1626.7" y="498.0" font-size="34" font-weight="800" fill="#0d0d0d" text-anchor="middle">10</text>
+<text x="1626.7" y="864.0" font-size="22" font-weight="600" fill="#666" text-anchor="middle">100+ s</text>
+<line x1="100" y1="970" x2="1820" y2="970" stroke="#d6d6d6" stroke-width="2"/>
+<text x="100" y="1008" font-size="20" font-weight="700" fill="#0d0d0d">only 5 of 44 phones decoded inside one cycle past warmup — the long tail is the real story</text>
+<text x="1820" y="1008" font-size="18" font-weight="500" fill="#666" text-anchor="end"></text>
+</svg>

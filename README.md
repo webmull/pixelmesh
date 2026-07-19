@@ -496,21 +496,14 @@ reloads immediately.
 
 ## Origins
 
-The idea of using a crowd's phones as pixels traces back to Seb Lee-Delisle's
-[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)
-(2011) — phones held up in an audience, manually positioned to form a coordinated display.
+Three generations of one idea — a crowd's phones as pixels:
 
-**PixelMesh V1** built on the same idea but located each phone via an AprilTag printed on its
-lock screen and a homography-based calibration step. It worked, but the printed-tag step was the
-friction point that limited scale.
-
-**PixelMesh V2** (this repo) replaces AprilTag calibration with screen-blink detection: each
-phone Manchester-encodes its assigned ID by flashing white/black at 300 ms per phase, and a
-single camera decodes the position of every phone in the room live — no calibration, no printed
-tags, no app install.
-
-Reused from V1: the WebSocket protocol, the u-space `[0,1]²` coordinate system, and the effects
-engine. Replaced: AprilTags → blink detection.
+- **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
+  (Seb Lee-Delisle, 2011) — phones held up and positioned by hand.
+- **PixelMesh V1** — AprilTags on lock screens, homography calibration. Worked; printing the
+  tags was the friction.
+- **PixelMesh V2** (this repo) — the phones find themselves. Each screen blinks its ID, one
+  camera reads the whole room. No tags, no calibration, no install.
 
 ### Guiding principles
 
