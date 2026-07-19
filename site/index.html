@@ -125,9 +125,12 @@
     .section-clip {
       display: block;
       width: 100%;
-      margin-top: 2rem;
       border-radius: 12px;
       border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .split.media-split {
+      grid-template-columns: 1fr 1.15fr;
     }
 
     .clip-caption {
@@ -192,27 +195,6 @@
           var(--grid) 1px,
           transparent 1px,
           transparent 64px);
-    }
-
-    .bg-grid::after {
-      content: "";
-      position: absolute;
-      inset: -40%;
-      background: linear-gradient(135deg,
-          transparent 40%,
-          rgba(255, 255, 255, 0.08) 50%,
-          transparent 60%);
-      animation: diagonalWave 16s linear infinite;
-    }
-
-    @keyframes diagonalWave {
-      from {
-        transform: translateX(-45%) translateY(-45%);
-      }
-
-      to {
-        transform: translateX(45%) translateY(45%);
-      }
     }
 
     .tech-strip {
@@ -864,7 +846,8 @@
   </section>
 
   <section class="panel">
-    <div class="wrapper full-text">
+    <div class="wrapper split media-split">
+      <div>
       <div class="section-head">
         <small>Discovery</small>
         <h2>How devices find their place</h2>
@@ -891,14 +874,17 @@
       <p>
         No installs. No scans. No per-device setup. Open a URL, hold up the screen.
       </p>
+    </div>
 
+    <div class="discovery-visual">
       <video class="section-clip" autoplay muted loop playsinline preload="auto"
-             aria-label="The detector's view of the crowd: a binary ID stream overlaid on each blinking phone as it decodes">
-        <source src="/public/video/decoder-view.mp4" type="video/mp4">
+             aria-label="The detector finding phones in Birmingham: green boxes appear over each screen as its ID decodes, the counter climbing to 46 found">
+        <source src="/public/video/birmingham-detect.mp4" type="video/mp4">
       </video>
       <p class="clip-caption">
-        The detector's view &mdash; each blinking screen streaming its ID in Manchester binary.
+        Birmingham, July 2026 &mdash; the detector locating 46 phones live. 8&times; speed.
       </p>
+    </div>
     </div>
   </section>
 
