@@ -373,9 +373,6 @@
     section {
       position: relative;
       padding: 2.75rem 0 3.5rem 0;
-      opacity: 0;
-      transform: translateY(25px);
-      transition: all 0.8s ease;
     }
 
     section::before {
@@ -386,11 +383,6 @@
       right: 0;
       height: 1px;
       background: var(--divider);
-    }
-
-    section.visible {
-      opacity: 1;
-      transform: translateY(0);
     }
 
     section.panel {
@@ -707,14 +699,6 @@
       .split.media-split {
         grid-template-columns: 1fr;
         gap: 1.1rem;
-      }
-
-      /* No scroll-reveal on mobile: the late-firing fade reads as the
-         page stalling mid-scroll. Sections are simply visible. */
-      section {
-        opacity: 1;
-        transform: none;
-        transition: none;
       }
 
       .section-head h2 {
@@ -1178,16 +1162,6 @@
 
 
   <script>
-    const sections = document.querySelectorAll("section");
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add("visible");
-        }
-      });
-    }, { threshold: 0.15 });
-    sections.forEach(section => observer.observe(section));
-
     const visualBlocks = document.querySelectorAll('.propagation-grid');
     let propVisible = false;
     const visualObserver = new IntersectionObserver(entries => {
