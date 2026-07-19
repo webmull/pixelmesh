@@ -92,9 +92,12 @@
       box-sizing: border-box;
     }
 
-    html,
+    /* body only, and clip where supported: overflow-x hidden on both
+       html and body makes iOS Safari nest scroll containers, which
+       reads as scroll randomly sticking. clip never creates one. */
     body {
       overflow-x: hidden;
+      overflow-x: clip;
     }
 
     body {
@@ -702,6 +705,14 @@
         gap: 1.75rem;
       }
 
+      /* No scroll-reveal on mobile: the late-firing fade reads as the
+         page stalling mid-scroll. Sections are simply visible. */
+      section {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+
       .hero-wordmark {
         margin-bottom: 0.35rem;
       }
@@ -1154,9 +1165,11 @@
     sections.forEach(section => observer.observe(section));
 
     const visualBlocks = document.querySelectorAll('.propagation-grid');
+    let propVisible = false;
     const visualObserver = new IntersectionObserver(entries => {
       entries.forEach(entry => {
         entry.target.style.opacity = entry.isIntersecting ? "1" : "0.2";
+        propVisible = entry.isIntersecting;
       });
     }, { threshold: 0.3 });
     visualBlocks.forEach(v => visualObserver.observe(v));
@@ -1170,6 +1183,12 @@
 
     let t = 0;
     function animatePropagation() {
+      // 144 style writes per frame: only pay for them while the grid
+      // is actually on screen, so scrolling elsewhere stays smooth.
+      if (!propVisible) {
+        requestAnimationFrame(animatePropagation);
+        return;
+      }
       const cells = prop.children;
       const speed = window.innerWidth < 768 ? 0.02 : 0.03;
       const cx = (size - 1) / 2;
