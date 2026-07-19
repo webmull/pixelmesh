@@ -83,11 +83,13 @@
       min-height: 62vh;
       min-height: 62svh;
       display: flex;
-      align-items: flex-start;
+      /* Wordmark and tagline sit at the bottom, over the shade's dark
+         blend zone - the crowd footage plays unobstructed above. */
+      align-items: flex-end;
       justify-content: center;
       text-align: center;
       overflow: hidden;
-      padding: 4rem 0 2rem 0;
+      padding: 4rem 0 2.75rem 0;
     }
 
     .hero-video {
@@ -105,10 +107,10 @@
       position: absolute;
       inset: 0;
       background: linear-gradient(to bottom,
-          rgba(2, 2, 4, 0.35) 0%,
-          rgba(2, 2, 4, 0.05) 40%,
-          rgba(2, 2, 4, 0.05) 70%,
-          var(--bg) 98%);
+          rgba(2, 2, 4, 0.15) 0%,
+          rgba(2, 2, 4, 0.05) 35%,
+          rgba(2, 2, 4, 0.3) 72%,
+          var(--bg) 96%);
     }
 
     .hero-inner {
@@ -443,7 +445,7 @@
     }
 
     .hero-wordmark img {
-      width: clamp(360px, 60vw, 400px);
+      width: clamp(240px, 34vw, 400px);
       height: auto;
       display: block;
       margin: 0 auto;
