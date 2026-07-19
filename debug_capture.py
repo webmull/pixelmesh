@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Debug Capture
+pixelmesh V2 — Debug Capture
 
 Each call to start_run() creates a new friendly-named subfolder under debug/
 (e.g. "autumn-fox-42").  Only the 15 most recent runs are kept; older ones are

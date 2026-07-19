@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Effects panel
+pixelmesh V2 — Effects panel
 
 Owns the Effects floating window, per-effect parameter storage,
 the trigger_effect() function, and the live effect preview pane.

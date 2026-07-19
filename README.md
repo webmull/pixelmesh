@@ -1,4 +1,4 @@
-# PixelMesh
+# pixelmesh
 
 **Turn a live audience into a pixel display.**
 
@@ -493,9 +493,9 @@ Three generations of one idea — a crowd's phones as pixels:
 
 - **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
   (Seb Lee-Delisle, 2011) — phones held up and positioned by hand.
-- **PixelMesh V1** — AprilTags on lock screens, homography calibration. Worked; printing the
+- **pixelmesh V1** — AprilTags on lock screens, homography calibration. Worked; printing the
   tags was the friction.
-- **PixelMesh V2** (this repo) — the phones find themselves. Each screen blinks its ID, one
+- **pixelmesh V2** (this repo) — the phones find themselves. Each screen blinks its ID, one
   camera reads the whole room. No tags, no calibration, no install.
 
 ### Guiding principles

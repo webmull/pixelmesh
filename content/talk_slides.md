@@ -7,14 +7,14 @@ class: lead
 
 <!-- _class: lead -->
 
-# **PixelMesh**
+# **pixelmesh**
 
 ### Turn an audience into a pixel display
 
 #### using **one camera** and **no app install**
 
 <!--
-Speaker note: PixelMesh is the audience-coordination system I've been
+Speaker note: pixelmesh is the audience-coordination system I've been
 building. The job: every phone in the room becomes a synchronised pixel
 in a giant low-res display. The whole thing runs from a single Facecam
 pointed at the crowd.

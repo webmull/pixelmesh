@@ -1,4 +1,10 @@
-# PixelMesh V2 — Claude Instructions
+# pixelmesh V2 — Claude Instructions
+
+## Brand name is always lowercase
+
+The product is written "pixelmesh" — never "PixelMesh", "Pixelmesh", or
+"PIXELMESH" — in all copy, docs, headings, commit messages, and UI strings,
+including at the start of sentences.
 
 ## Detection code is frozen
 

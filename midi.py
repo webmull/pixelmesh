@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — MIDI input (Akai LPD8 mk2)
+pixelmesh V2 — MIDI input (Akai LPD8 mk2)
 
 Runs a background thread listening for MIDI messages and dispatches
 them to effect triggers and parameter controls.

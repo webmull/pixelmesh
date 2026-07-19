@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — File logger
+pixelmesh V2 — File logger
 All diagnostic output goes to debug/pixelmesh.log instead of stdout.
 """
 

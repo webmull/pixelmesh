@@ -1,4 +1,4 @@
-# PixelMesh V2 — Test Plan
+# pixelmesh V2 — Test Plan
 
 ## 1. Detection Range & Size
 - [ ] **1.1** Single phone at 5m, 10m, 15m, 20m — confirm detection time and confidence at each distance
