@@ -16,6 +16,19 @@
   <meta name="theme-color" content="#020204">
   <title>pixelmesh</title>
 
+  <!-- Social previews. NOTE: og:image should be an absolute URL once the
+       site's canonical domain is confirmed - LinkedIn ignores relative paths. -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="pixelmesh — a crowd as a display">
+  <meta property="og:description"
+    content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel. No installs, no setup.">
+  <meta property="og:image" content="/public/og-image.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="pixelmesh — a crowd as a display">
+  <meta name="twitter:description"
+    content="A room full of phones becomes one synchronised display. Open a URL, hold up your screen, become a pixel.">
+  <meta name="twitter:image" content="/public/og-image.jpg">
+
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 
@@ -65,13 +78,74 @@
 
     .hero {
       position: relative;
-      min-height: 48vh;
+      min-height: 62vh;
       display: flex;
       align-items: flex-start;
       justify-content: center;
       text-align: center;
       overflow: hidden;
       padding: 4rem 0 2rem 0;
+    }
+
+    .hero-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0.55;
+    }
+
+    .hero-shade {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom,
+          rgba(2, 2, 4, 0.6),
+          rgba(2, 2, 4, 0.25) 45%,
+          var(--bg) 97%);
+    }
+
+    .hero-inner {
+      position: relative;
+      z-index: 3;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .hero-video {
+        display: none;
+      }
+    }
+
+    .stats-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 2.5rem 3.5rem;
+      margin: 2.25rem 0 1rem 0;
+    }
+
+    .stat b {
+      display: block;
+      font-family: 'Poppins', sans-serif;
+      font-size: 2.4rem;
+      font-weight: 600;
+      line-height: 1.1;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 0.85rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .stats-note {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .stats-note a {
+      color: var(--text);
     }
 
     .hero::before {
@@ -645,10 +719,14 @@
 <body>
 
   <section class="hero visible">
+    <video class="hero-video" autoplay muted loop playsinline
+           preload="metadata" poster="/public/video/hero-poster.jpg"
+           aria-hidden="true">
+      <source src="/public/video/hero-loop.mp4" type="video/mp4">
+    </video>
+    <div class="hero-shade"></div>
     <div class="bg-grid"></div>
     <div class="wrapper hero-inner">
-
-      <img src="/public/pixelmesh-icon.svg" class="hero-logo" alt="pixelmesh logo">
 
       <h1 class="hero-wordmark">
         <a href="/" aria-label="pixelmesh home">
@@ -731,6 +809,17 @@
         <small>In practice</small>
         <h2>Built for crowds, proven in venues</h2>
       </div>
+
+      <div class="stats-row">
+        <div class="stat"><b>53</b><span>phones connected</span></div>
+        <div class="stat"><b>87%</b><span>located by one camera</span></div>
+        <div class="stat"><b>27s</b><span>median time to find</span></div>
+        <div class="stat"><b>0</b><span>installs required</span></div>
+      </div>
+      <p class="stats-note">
+        Numbers from the most recent live run, July 2026.
+        <a href="/telemetry/london-2026-06">See the raw telemetry from the London show&nbsp;&rarr;</a>
+      </p>
 
       <p>
         Each device calibrates its position into a shared coordinate grid.
