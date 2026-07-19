@@ -122,6 +122,20 @@
       min-width: 0;
     }
 
+    .section-clip {
+      display: block;
+      width: 100%;
+      margin-top: 2rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .clip-caption {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 0.7rem;
+    }
+
     .stats-row {
       display: flex;
       flex-wrap: wrap;
@@ -515,6 +529,29 @@
       margin: 2rem 0 0.25rem 0;
     }
 
+    .past-shows summary.events-group-heading {
+      cursor: pointer;
+      list-style: none;
+      display: inline-block;
+      user-select: none;
+    }
+
+    .past-shows summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .past-shows summary::after {
+      content: "\00a0\00a0+";
+    }
+
+    .past-shows[open] summary::after {
+      content: "\00a0\00a0\2212";
+    }
+
+    .past-shows summary:hover {
+      color: var(--text);
+    }
+
     .events-group-heading:first-of-type {
       margin-top: 1.5rem;
     }
@@ -854,6 +891,14 @@
       <p>
         No installs. No scans. No per-device setup. Open a URL, hold up the screen.
       </p>
+
+      <video class="section-clip" autoplay muted loop playsinline preload="auto"
+             aria-label="The detector's view of the crowd: a binary ID stream overlaid on each blinking phone as it decodes">
+        <source src="/public/video/decoder-view.mp4" type="video/mp4">
+      </video>
+      <p class="clip-caption">
+        The detector's view &mdash; each blinking screen streaming its ID in Manchester binary.
+      </p>
     </div>
   </section>
 
@@ -937,8 +982,9 @@
         </li>
       </ul>
 
-      <h4 class="events-group-heading">Past</h4>
-      <ul class="events-list past">
+      <details class="past-shows">
+        <summary class="events-group-heading">Past shows (4)</summary>
+        <ul class="events-list past">
         <li class="event">
           <span class="event-date">16 Jul 2026</span>
           <div class="event-info">
@@ -967,7 +1013,8 @@
             <span class="event-place">Smithfield Works &middot; Stoke-on-Trent, UK</span>
           </div>
         </li>
-      </ul>
+        </ul>
+      </details>
 
       <div class="events-cta">
         <p>
