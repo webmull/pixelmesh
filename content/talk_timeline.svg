@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="-apple-system, system-ui, Helvetica, sans-serif">
+<rect width="1200" height="800" fill="transparent"/>
+<path d="M 421.68,140.01 A 280,280 0 0 1 514.76,156.52 L 475.84,264.74 A 165,165 0 0 0 420.99,255.00 Z" fill="#2c5f8a"/>
+<path d="M 517.91,157.68 A 280,280 0 0 1 427.14,699.91 L 424.21,584.95 A 165,165 0 0 0 477.70,265.42 Z" fill="#3a87b3"/>
+<path d="M 423.78,699.97 A 280,280 0 0 1 203.47,242.48 L 292.40,315.39 A 165,165 0 0 0 422.23,584.98 Z" fill="#5ab485"/>
+<path d="M 205.61,239.90 A 280,280 0 0 1 358.72,146.79 L 383.89,259.00 A 165,165 0 0 0 293.66,313.87 Z" fill="#c8a13a"/>
+<path d="M 362.00,146.07 A 280,280 0 0 1 418.32,140.01 L 419.01,255.00 A 165,165 0 0 0 385.82,258.58 Z" fill="#d96b3a"/>
+<text x="420" y="418" font-size="78" font-weight="800" fill="#1a1a1a" text-anchor="middle">322</text>
+<text x="420" y="454" font-size="18" font-weight="700" fill="#888" letter-spacing="4" text-anchor="middle">COMMITS</text>
+<rect x="800" y="198" width="20" height="40" fill="#2c5f8a" rx="3"/>
+<text x="838" y="224" font-size="26" font-weight="700" fill="#1a1a1a">Foundation</text>
+<text x="838" y="254" font-size="18" font-weight="500" fill="#888">6%</text>
+<rect x="800" y="276" width="20" height="40" fill="#3a87b3" rx="3"/>
+<text x="838" y="302" font-size="26" font-weight="700" fill="#1a1a1a">Scale &amp; Robustness</text>
+<text x="838" y="332" font-size="18" font-weight="500" fill="#888">44%</text>
+<rect x="800" y="354" width="20" height="40" fill="#5ab485" rx="3"/>
+<text x="838" y="380" font-size="26" font-weight="700" fill="#1a1a1a">Show Layer</text>
+<text x="838" y="410" font-size="18" font-weight="500" fill="#888">36%</text>
+<rect x="800" y="432" width="20" height="40" fill="#c8a13a" rx="3"/>
+<text x="838" y="458" font-size="26" font-weight="700" fill="#1a1a1a">Live-Show Hardening</text>
+<text x="838" y="488" font-size="18" font-weight="500" fill="#888">11%</text>
+<rect x="800" y="510" width="20" height="40" fill="#d96b3a" rx="3"/>
+<text x="838" y="536" font-size="26" font-weight="700" fill="#1a1a1a">Spatial Showpieces</text>
+<text x="838" y="566" font-size="18" font-weight="500" fill="#888">3%</text>
+</svg>
