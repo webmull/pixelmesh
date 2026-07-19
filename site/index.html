@@ -630,9 +630,14 @@
       margin: 0;
     }
 
-    .events-list.past .event-date,
+    .events-list.past .event-when b,
     .events-list.past .event-group {
       color: var(--muted);
+    }
+
+    .events-list.past .event-when {
+      border-color: rgba(255, 255, 255, 0.07);
+      background: none;
     }
 
     .events-list.past .event-place {
@@ -641,10 +646,10 @@
 
     .event {
       display: grid;
-      grid-template-columns: 150px 1fr auto;
-      gap: 2rem;
+      grid-template-columns: auto 1fr;
+      gap: 1.4rem;
       align-items: center;
-      padding: 1rem 0;
+      padding: 0.85rem 0;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
     }
 
@@ -652,12 +657,29 @@
       border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     }
 
-    .event-date {
-      font-size: 0.78rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
+    .event-when {
+      width: 3.6rem;
+      text-align: center;
+      padding: 0.4rem 0 0.45rem 0;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .event-when b {
+      display: block;
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+      line-height: 1.15;
       color: var(--text);
-      font-weight: 500;
+    }
+
+    .event-when span {
+      font-size: 0.6rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
     .event-info {
@@ -864,30 +886,6 @@
         gap: 0rem;
       }
 
-      .event {
-        grid-template-columns: 1fr auto;
-        grid-template-rows: auto auto;
-        gap: 0.4rem 1rem;
-        padding: 0.95rem 0;
-        align-items: center;
-      }
-
-      .event-date {
-        grid-column: 1;
-        grid-row: 1;
-      }
-
-      .event-status {
-        grid-column: 2;
-        grid-row: 1;
-        justify-self: end;
-      }
-
-      .event-info {
-        grid-column: 1 / -1;
-        grid-row: 2;
-      }
-
       .visual {
         justify-content: center;
         margin-top: 1.5rem;
@@ -1079,28 +1077,28 @@
       <h4 class="events-group-heading">Upcoming</h4>
       <ul class="events-list upcoming">
         <li class="event">
-          <span class="event-date">22 Jul 2026</span>
+          <div class="event-when"><b>22</b><span>Jul</span></div>
           <div class="event-info">
             <span class="event-group">MaccTech</span>
             <span class="event-place">Blue Beck &middot; Macclesfield, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">24 Sep 2026</span>
+          <div class="event-when"><b>24</b><span>Sep</span></div>
           <div class="event-info">
             <span class="event-group">Ministry of Testing, Leeds Chapter</span>
             <span class="event-place">Hippocampus &middot; Leeds, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">1 Oct 2026</span>
+          <div class="event-when"><b>1</b><span>Oct</span></div>
           <div class="event-info">
             <span class="event-group">Ministry of Testing, MotoCon26</span>
             <span class="event-place">Brighton Dome &middot; Brighton, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">19 Nov 2026</span>
+          <div class="event-when"><b>19</b><span>Nov</span></div>
           <div class="event-info">
             <span class="event-group">Stoke on Tech</span>
             <span class="event-place">Bet365 Stadium &middot; Stoke-on-Trent, UK</span>
@@ -1112,28 +1110,28 @@
         <summary class="events-group-heading">Past shows (4)</summary>
         <ul class="events-list past">
         <li class="event">
-          <span class="event-date">16 Jul 2026</span>
+          <div class="event-when"><b>16</b><span>Jul</span></div>
           <div class="event-info">
             <span class="event-group">Birmingham Digital and DevOps Meetup</span>
             <span class="event-place">x+why Foundry &middot; Birmingham, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">18 Jun 2026</span>
+          <div class="event-when"><b>18</b><span>Jun</span></div>
           <div class="event-info">
             <span class="event-group">Ministry of Testing, London Chapter</span>
             <span class="event-place">Fora, Blue Fin Building &middot; London, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">5 May 2026</span>
+          <div class="event-when"><b>5</b><span>May</span></div>
           <div class="event-info">
             <span class="event-group">Ministry of Testing, Manchester Chapter</span>
             <span class="event-place">Matillion &middot; Manchester, UK</span>
           </div>
         </li>
         <li class="event">
-          <span class="event-date">26 Feb 2026</span>
+          <div class="event-when"><b>26</b><span>Feb</span></div>
           <div class="event-info">
             <span class="event-group">PHP Stoke</span>
             <span class="event-place">Smithfield Works &middot; Stoke-on-Trent, UK</span>
