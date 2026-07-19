@@ -111,8 +111,15 @@
     }
 
     @media (prefers-reduced-motion: reduce) {
+
+      /* No motion, but still show the product: swap the loop for its
+         poster frame as a static hero background. */
       .hero-video {
         display: none;
+      }
+
+      .hero {
+        background: url('/public/video/hero-poster.jpg') center / cover no-repeat;
       }
     }
 
