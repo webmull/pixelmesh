@@ -1,0 +1,930 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="pixelmesh is a distributed rendering system that synchronises devices into a shared spatial grid. Calibrated devices. Shared time. One canvas.">
+
+  <meta name="keywords"
+    content="pixelmesh, distributed systems, projection mapping, synchronised devices, spatial calibration, real-time rendering, distributed shader, installation art, infrastructure engineering, Manchester encoding, optical signalling, audience interaction">
+
+  <meta name="author" content="Adam Davis">
+
+  <meta name="theme-color" content="#020204">
+  <title>pixelmesh</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="icon" type="image/png" href="/public/favicon.png">
+
+  <style>
+    :root {
+      --bg: #020204;
+      --panel: #17171f;
+      --panel-strong: #1f1f28;
+      --text: #ffffff;
+      --muted: #9fa3ad;
+      --divider: linear-gradient(to right,
+          transparent,
+          rgba(255, 255, 255, 0.18),
+          transparent);
+      --grid: rgba(255, 255, 255, 0.05);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      overflow-x: hidden;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    /* Layout */
+
+    .wrapper {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 2.25rem;
+    }
+
+    /* HERO */
+
+    .hero {
+      position: relative;
+      min-height: 48vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      padding: 4rem 0 2rem 0;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(0deg,
+          var(--grid) 0px,
+          var(--grid) 1px,
+          transparent 1px,
+          transparent 64px),
+        repeating-linear-gradient(90deg,
+          var(--grid) 0px,
+          var(--grid) 1px,
+          transparent 1px,
+          transparent 64px);
+    }
+
+    .bg-grid::after {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background: linear-gradient(135deg,
+          transparent 40%,
+          rgba(255, 255, 255, 0.08) 50%,
+          transparent 60%);
+      animation: diagonalWave 16s linear infinite;
+    }
+
+    @keyframes diagonalWave {
+      from {
+        transform: translateX(-45%) translateY(-45%);
+      }
+
+      to {
+        transform: translateX(45%) translateY(45%);
+      }
+    }
+
+    .tech-strip {
+      margin-top: 3rem;
+      display: flex;
+      gap: 4rem;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .tech-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.8rem;
+      opacity: 0.75;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .tech-item:hover {
+      opacity: 1;
+      transform: translateY(-3px);
+    }
+
+    .tech-item img {
+      height: 48px;
+      width: auto;
+      filter: grayscale(100%) brightness(1.2);
+    }
+
+    .inspiration-strip {
+      gap: 5rem;
+      margin-top: 2.5rem;
+    }
+
+    .inspiration-strip .tech-item img {
+      height: 110px;
+    }
+
+    .inspiration-strip .tech-item span {
+      margin-top: 0.4rem;
+    }
+
+    .tech-item span {
+      font-size: 0.8rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      margin-top: 1rem;
+    }
+
+    .hero-logo {
+      width: clamp(360px, 62vw, 680px);
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto 1rem auto;
+    }
+
+    .hero-tag {
+      font-size: 1.15rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* Sections */
+
+    section {
+      position: relative;
+      padding: 4.5rem 0 4rem 0;
+      opacity: 0;
+      transform: translateY(25px);
+      transition: all 0.8s ease;
+    }
+
+    section::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    section.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    section.panel {
+      background: var(--panel);
+    }
+
+    section.panel-strong {
+      background: var(--panel-strong);
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1.5fr 0.7fr;
+      gap: 4rem;
+      align-items: center;
+    }
+
+    /* Text behaviour */
+
+    .full-text p {
+      max-width: none;
+      /* allow full span */
+    }
+
+    .split p {
+      max-width: 62ch;
+      /* readable measure only where visual exists */
+    }
+
+    /* Headings */
+
+    .section-head {
+      margin-bottom: 1.2rem;
+    }
+
+    .section-head small {
+      display: block;
+      font-size: 0.7rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0.7;
+      margin-bottom: 0.6rem;
+    }
+
+    .section-head h2 {
+      font-weight: 600;
+      font-size: 2.1rem;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      color: var(--muted);
+      margin-bottom: 1.2rem;
+      font-size: 1rem;
+    }
+
+    /* Visuals */
+
+    .visual {
+      display: flex;
+      justify-content: flex-end;
+      width: 100%;
+    }
+
+    .diagram-grid,
+    .propagation-grid {
+      opacity: 0.2;
+      transition: opacity 0.6s ease;
+    }
+
+    .diagram-grid {
+      width: clamp(140px, 22vw, 220px);
+      aspect-ratio: 1/1;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: clamp(4px, 0.6vw, 8px);
+    }
+
+    .propagation-grid {
+      width: clamp(180px, 26vw, 300px);
+      aspect-ratio: 1/1;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      gap: clamp(4px, 0.6vw, 8px);
+    }
+
+    .diagram-grid div,
+    .propagation-grid div {
+      background: #ffffff;
+      opacity: 0.1;
+      transition: opacity 0.2s ease;
+    }
+
+    /* Attribution */
+
+    .attribution {
+      position: relative;
+      padding: 3rem 0;
+      font-size: 0.9rem;
+      background: var(--panel-strong);
+      text-align: center;
+    }
+
+    .attribution::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    .attribution a {
+      color: var(--text);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+    }
+
+    .attribution a:hover {
+      opacity: 0.7;
+    }
+
+
+    .hero-wordmark {
+      margin-bottom: 0.6rem;
+    }
+
+    .hero-wordmark img {
+      width: clamp(360px, 60vw, 400px);
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    /* ABOUT SECTION */
+
+    .about-grid {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 3.5rem;
+      align-items: center;
+    }
+
+    .about-image {
+      display: flex;
+      justify-content: center;
+    }
+
+    .about-image img {
+      width: 200px;
+      height: 200px;
+      object-fit: cover;
+      border-radius: 50%;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      box-shadow: 0 0 28px rgba(255, 255, 255, 0.04);
+      filter: grayscale(100%) contrast(115%) brightness(95%);
+    }
+
+    .about-content p {
+      max-width: 60ch;
+    }
+
+    /* EVENTS */
+
+    .events-list {
+      list-style: none;
+      padding: 0;
+      margin: 0.5rem 0 0 0;
+    }
+
+    .event {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 2.5rem;
+      align-items: baseline;
+      padding: 1.4rem 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .event:last-child {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .event-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .event-date {
+      font-size: 0.75rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    .event-group {
+      font-size: 0.75rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--text);
+      margin-top: 0.5rem;
+    }
+
+    .event-venue {
+      font-size: 0.7rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .event-loc {
+      font-size: 0.7rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0.7;
+    }
+
+    .event-status {
+      align-self: flex-start;
+      font-size: 0.6rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--text);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 0.25rem 0.55rem;
+      border-radius: 2px;
+      margin-bottom: 0.5rem;
+    }
+
+    .event-body p {
+      margin: 0;
+      max-width: 60ch;
+    }
+
+
+    /* Mobile */
+
+    @media (max-width:900px) {
+
+      .about-grid {
+        grid-template-columns: 1fr;
+        text-align: left;
+        /* ← key change */
+        gap: 2rem;
+      }
+
+      .about-image {
+        justify-content: center;
+      }
+
+      .about-image img {
+        width: 160px;
+        height: 160px;
+      }
+
+      .about-content {
+        max-width: 88%;
+        margin: 0 auto;
+      }
+
+      .about-content h2 {
+        font-size: 1.9rem;
+        line-height: 1.2;
+      }
+
+      .about-content p {
+        font-size: 1rem;
+        line-height: 1.75;
+        margin-bottom: 1.6rem;
+      }
+
+      .about-content p:first-of-type {
+        font-weight: 500;
+        color: var(--text);
+      }
+
+      .about-content p:last-of-type {
+        font-size: 1.15rem;
+        font-weight: 500;
+        color: var(--text);
+        margin-top: 2rem;
+      }
+
+      .hero {
+        min-height: 36vh;
+        padding: 2.25rem 0 1.25rem 0;
+      }
+
+      .hero-logo {
+        width: clamp(300px, 88vw, 520px);
+        transform: scale(1.06);
+        margin-bottom: 0.75rem;
+      }
+
+      .hero-tag {
+        font-size: 0.80rem;
+        letter-spacing: 0.06em;
+      }
+
+      .wrapper {
+        padding: 0 1.5rem;
+      }
+
+
+
+      .diagram-grid,
+      .propagation-grid {
+        gap: 4px;
+      }
+
+
+      .split {
+        grid-template-columns: 1fr;
+        gap: 0rem;
+      }
+
+      .event {
+        grid-template-columns: 1fr;
+        gap: 0.6rem;
+        padding: 1.2rem 0;
+      }
+
+      .visual {
+        justify-content: center;
+        margin-top: 1.5rem;
+      }
+
+      .diagram-grid {
+        width: 200px;
+        gap: 4px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <section class="hero visible">
+    <div class="bg-grid"></div>
+    <div class="wrapper hero-inner">
+
+      <img src="/public/pixelmesh-icon.svg" class="hero-logo" alt="pixelmesh logo">
+
+      <h1 class="hero-wordmark">
+        <img src="/public/pixelmesh_text.svg" alt="pixelmesh">
+      </h1>
+
+      <p class="hero-tag">
+        CALIBRATED DEVICES. SHARED TIME. ONE CANVAS.
+      </p>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper split">
+      <div>
+        <div class="section-head">
+          <small>System</small>
+          <h2>What it is</h2>
+        </div>
+        <p>
+          pixelmesh maps individual devices into a shared spatial grid.
+          Each endpoint renders against a synchronised clock.
+          Effects propagate across distributed hardware as if it were one continuous surface.
+        </p>
+      </div>
+      <div class="visual">
+        <div class="diagram-grid" id="grid-diagram"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Intent</small>
+        <h2>Why</h2>
+      </div>
+      <p>
+        Devices normally operate independently. pixelmesh treats them as infrastructure.
+        Once time is shared and position indexed, a crowd becomes a display.
+        Coordination becomes visible.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper split">
+      <div>
+        <div class="section-head">
+          <small>Propagation</small>
+          <h2>Wave demonstration</h2>
+        </div>
+        <p>
+          A simple indexed grid. A shared clock. A travelling wave.
+          At scale, this becomes light moving across a crowd.
+        </p>
+      </div>
+      <div class="visual">
+        <div class="propagation-grid" id="propagation-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Discovery</small>
+        <h2>How devices find their place</h2>
+      </div>
+
+      <p>
+        The hardest problem in the system is identification.
+        pixelmesh solves it optically: each device blinks its screen on and off in a precise temporal pattern, while
+        a single camera at the front of the room watches the entire crowd at once.
+      </p>
+
+      <p>
+        Each blink encodes a unique identifier in Manchester binary, a self-clocking format where every bit carries
+        a guaranteed transition. A device tilted into shadow, held at an angle, or partially obscured still resolves
+        cleanly, because the change is what gets read, not the absolute brightness.
+      </p>
+
+      <p>
+        A short, deliberately-illegal sync preamble at the start of every cycle lets the detector lock onto frame
+        boundaries with no ambiguity.
+        In about thirteen seconds, every device in the room is mapped to a coordinate.
+      </p>
+
+      <p>
+        No installs. No scans. No per-device setup. Open a URL, hold up the screen.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel-strong">
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Architecture</small>
+        <h2>How it was built</h2>
+      </div>
+
+      <p>
+        Devices first undergo spatial calibration, assigning each endpoint a stable coordinate within a shared grid.
+        This coordinate becomes its identity within the system.
+      </p>
+
+      <p>
+        A central controller maintains a shared time reference and broadcasts lightweight effect parameters rather than
+        pixel data.
+        Each device computes its own output locally using indexed position and time, similar to a distributed shader.
+      </p>
+
+      <p>
+        This keeps bandwidth low and behaviour deterministic.
+        The crowd effectively becomes a distributed rendering engine.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Field Test</small>
+        <h2>Tested in public</h2>
+      </div>
+
+      <p>
+        The first version of pixelmesh used printed AprilTag markers for spatial calibration.
+        The current implementation replaces them with optically-encoded screen blinks, so audiences only need to
+        open a URL.
+      </p>
+
+      <p>
+        That version had its first public outing at PHP Stoke in February 2026, then a larger second showing in
+        Manchester three months later.
+        Real audiences, real venues, lighting nothing like the controlled conditions the system was built in.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Events</small>
+        <h2>Where it has run</h2>
+      </div>
+
+      <ul class="events-list">
+        <li class="event">
+          <div class="event-meta">
+            <span class="event-date">26 Feb 2026</span>
+            <span class="event-group">PHP Stoke</span>
+            <span class="event-venue">Smithfield Works</span>
+            <span class="event-loc">Stoke-on-Trent, UK</span>
+          </div>
+          <div class="event-body">
+            <p>
+              First public demonstration, given at PHP Stoke.
+              An early proof of the optical mapping pipeline running against a live audience, captured on an
+              Apple Continuity Camera (iPhone as webcam over Wi-Fi).
+            </p>
+          </div>
+        </li>
+        <li class="event">
+          <div class="event-meta">
+            <span class="event-date">5 May 2026</span>
+            <span class="event-group">Ministry of Testing, Manchester Chapter</span>
+            <span class="event-venue">Matillion</span>
+            <span class="event-loc">Manchester, UK</span>
+          </div>
+          <div class="event-body">
+            <p>
+              Second outing. Live audience, indoor venue, this time captured on a fixed 4K camera at the front
+              of the room.
+              The system mapped and identified every connected device, then ran a small interactive piece across
+              the audience for the duration of the show.
+            </p>
+          </div>
+        </li>
+        <li class="event">
+          <div class="event-meta">
+            <span class="event-status">Upcoming</span>
+            <span class="event-date">24 Sep 2026</span>
+            <span class="event-group">Ministry of Testing, Leeds Chapter</span>
+            <span class="event-venue">Hippocampus</span>
+            <span class="event-loc">Leeds, UK</span>
+          </div>
+          <div class="event-body">
+            <p>
+              Confirmed talk at the Leeds chapter of Ministry of Testing.
+            </p>
+          </div>
+        </li>
+        <li class="event">
+          <div class="event-meta">
+            <span class="event-status">Upcoming</span>
+            <span class="event-date">1 Oct 2026</span>
+            <span class="event-group">Ministry of Testing</span>
+            <span class="event-venue">Brighton Dome</span>
+            <span class="event-loc">Brighton, UK</span>
+          </div>
+          <div class="event-body">
+            <p>
+              Confirmed appearance at MoTaCon 2026.
+            </p>
+          </div>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Origins</small>
+        <h2>Inspiration</h2>
+      </div>
+
+      <p>
+        pixelmesh draws inspiration from Junkyard Jumbotron by MIT and PixelPhones by Seb Lee-Delisle, both early
+        explorations of independent screens forming a coherent visual surface. It blends distributed systems
+        engineering with projection mapping and real-time computation. Infrastructure behaving like art.
+      </p>
+
+      <div class="tech-strip inspiration-strip">
+        <div class="tech-item">
+          <img src="/public/mit_logo.png" alt="MIT logo">
+          <span>MIT &middot; Junkyard Jumbotron</span>
+        </div>
+        <div class="tech-item">
+          <img src="/public/seblee_logo.png" alt="Seb Lee-Delisle">
+          <span>Seb Lee-Delisle &middot; PixelPhones</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel-strong">
+    <div class="wrapper">
+      <div class="about-grid">
+
+        <div class="about-image">
+          <img src="/public/adam.jpg" alt="Adam Davis">
+        </div>
+
+        <div class="about-content">
+          <div class="section-head">
+            <small>Creator</small>
+            <h2>Built by Adam Davis</h2>
+          </div>
+
+          <p>
+            pixelmesh exists because coordination is invisible.
+          </p>
+
+          <p>
+            Distributed systems run beneath everything we use, yet we rarely see them behave as one.
+            I wanted to find out what happens when infrastructure becomes visible: when independent devices share
+            time, share space, and render as a single surface.
+          </p>
+
+          <p>
+            This is not a product demo. It is an experiment in synchronisation, scale, and emergent behaviour,
+            built solo and tested in front of real audiences.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>Stack</small>
+        <h2>Built With</h2>
+      </div>
+
+      <p>
+        pixelmesh combines computer vision, distributed computation and cloud infrastructure.
+        Calibration is powered by OpenCV in Python.
+      </p>
+
+      <div class="tech-strip">
+        <div class="tech-item">
+          <img src="/public/opencv.svg" alt="OpenCV logo">
+          <span>OpenCV</span>
+        </div>
+
+        <div class="tech-item">
+          <img src="/public/python.svg" alt="Python logo">
+          <span>Python</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="attribution">
+    Built and designed by
+    <a href="https://www.adamdavis.co.uk" target="_blank">
+      Adam Davis
+    </a>
+  </div>
+
+
+
+  <script>
+    const sections = document.querySelectorAll("section");
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+        }
+      });
+    }, { threshold: 0.15 });
+    sections.forEach(section => observer.observe(section));
+
+    const visualBlocks = document.querySelectorAll('.diagram-grid, .propagation-grid');
+    const visualObserver = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        entry.target.style.opacity = entry.isIntersecting ? "1" : "0.2";
+      });
+    }, { threshold: 0.3 });
+    visualBlocks.forEach(v => visualObserver.observe(v));
+
+    const grid = document.getElementById("grid-diagram");
+    for (let i = 0; i < 36; i++) {
+      const d = document.createElement("div");
+      grid.appendChild(d);
+    }
+    let index = 0;
+    setInterval(() => {
+      const squares = grid.children;
+      for (let i = 0; i < squares.length; i++) {
+        squares[i].style.opacity = 0.1;
+      }
+      squares[index].style.opacity = 0.85;
+      index = (index + 1) % squares.length;
+    }, 160);
+
+    const prop = document.getElementById("propagation-grid");
+    const size = 8;
+    for (let i = 0; i < size * size; i++) {
+      const d = document.createElement("div");
+      prop.appendChild(d);
+    }
+
+    let t = 0;
+    function animatePropagation() {
+      const cells = prop.children;
+      const speed = window.innerWidth < 768 ? 0.10 : 0.15;
+
+      for (let i = 0; i < cells.length; i++) {
+        const x = i % size;
+        const y = Math.floor(i / size);
+        const wave = Math.sin((x * 0.6 + y * 0.6 + t));
+        cells[i].style.opacity = 0.12 + (0.6 * Math.max(0, wave));
+      }
+
+      t += speed;
+      requestAnimationFrame(animatePropagation);
+    }
+    animatePropagation();
+  </script>
+
+</body>
+
+</html>

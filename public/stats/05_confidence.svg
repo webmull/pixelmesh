@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" font-family="-apple-system, system-ui, Helvetica, sans-serif">
+<rect width="1920" height="1080" fill="#fbfaf7"/>
+<text x="100" y="100" font-size="56" font-weight="800" fill="#0d0d0d">Decode confidence</text>
+<text x="100" y="146" font-size="22" font-weight="500" fill="#666">mean 0.911 · 9 phones at perfect 1.000 · 2 borderline below 0.70</text>
+<line x1="100" y1="180" x2="1820" y2="180" stroke="#d6d6d6" stroke-width="2"/>
+<rect x="160" y="320" width="1600" height="140" fill="#ececea" rx="14"/>
+<rect x="160.0" y="320" width="36.4" height="140" fill="#cfcfcf"/>
+<rect x="196.4" y="320" width="36.4" height="140" fill="#9b9b9b"/>
+<rect x="232.7" y="320" width="363.6" height="140" fill="#5b5b5b"/>
+<text x="414.5" y="406.0" font-size="48" font-weight="800" fill="#fff" text-anchor="middle">10</text>
+<rect x="596.4" y="320" width="1163.6" height="140" fill="#1a1a1a"/>
+<text x="1178.2" y="406.0" font-size="48" font-weight="800" fill="#fff" text-anchor="middle">32</text>
+<rect x="160" y="514" width="36" height="36" fill="#cfcfcf" rx="4"/>
+<text x="220" y="540" font-size="28" font-weight="700" fill="#0d0d0d">below 0.50</text>
+<text x="700" y="540" font-size="26" fill="#262626">1 phones</text>
+<text x="1000" y="540" font-size="26" fill="#666">2%</text>
+<rect x="160" y="594" width="36" height="36" fill="#9b9b9b" rx="4"/>
+<text x="220" y="620" font-size="28" font-weight="700" fill="#0d0d0d">0.50 – 0.70</text>
+<text x="700" y="620" font-size="26" fill="#262626">1 phones</text>
+<text x="1000" y="620" font-size="26" fill="#666">2%</text>
+<rect x="160" y="674" width="36" height="36" fill="#5b5b5b" rx="4"/>
+<text x="220" y="700" font-size="28" font-weight="700" fill="#0d0d0d">0.70 – 0.90</text>
+<text x="700" y="700" font-size="26" fill="#262626">10 phones</text>
+<text x="1000" y="700" font-size="26" fill="#666">23%</text>
+<rect x="160" y="754" width="36" height="36" fill="#1a1a1a" rx="4"/>
+<text x="220" y="780" font-size="28" font-weight="700" fill="#0d0d0d">0.90 and above</text>
+<text x="700" y="780" font-size="26" fill="#262626">32 phones</text>
+<text x="1000" y="780" font-size="26" fill="#666">73%</text>
+<line x1="100" y1="970" x2="1820" y2="970" stroke="#d6d6d6" stroke-width="2"/>
+<text x="100" y="1008" font-size="20" font-weight="700" fill="#0d0d0d">phone #19 sat at 0.458 — borderline accept; worth checking the overlay to confirm it&#x27;s real</text>
+<text x="1820" y="1008" font-size="18" font-weight="500" fill="#666" text-anchor="end"></text>
+</svg>
