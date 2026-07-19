@@ -96,34 +96,24 @@
       width: 100%;
       height: 100%;
       object-fit: cover;
-      opacity: 0.55;
+      /* Footage is already dark - run it at full strength and lift it
+         slightly so the crowd reads on small bright screens. */
+      filter: brightness(1.15);
     }
 
     .hero-shade {
       position: absolute;
       inset: 0;
       background: linear-gradient(to bottom,
-          rgba(2, 2, 4, 0.6),
-          rgba(2, 2, 4, 0.25) 45%,
-          var(--bg) 97%);
+          rgba(2, 2, 4, 0.35) 0%,
+          rgba(2, 2, 4, 0.05) 40%,
+          rgba(2, 2, 4, 0.05) 70%,
+          var(--bg) 98%);
     }
 
     .hero-inner {
       position: relative;
       z-index: 3;
-    }
-
-    @media (prefers-reduced-motion: reduce) {
-
-      /* No motion, but still show the product: swap the loop for its
-         poster frame as a static hero background. */
-      .hero-video {
-        display: none;
-      }
-
-      .hero {
-        background: url('/public/video/hero-poster.jpg') center / cover no-repeat;
-      }
     }
 
     .stats-row {
