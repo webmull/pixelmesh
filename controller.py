@@ -2283,7 +2283,8 @@ def _detection_worker():
 
         try:
             t_frame_start = time.time()
-            results, dbg_imgs = detector.process_frame(raw, ts, need_debug=dbg_cap.active)
+            results, dbg_imgs = detector.process_frame(raw, ts, need_debug=dbg_cap.active,
+                                                       valid_ids=_valid_blink_ids or None)
             elapsed = time.time() - t_frame_start
             _detect_fps = 0.9 * _detect_fps + 0.1 * (1.0 / max(elapsed, 1e-4))
             _last_dbg_imgs = dbg_imgs   # atomic reference swap — main thread reads safely
