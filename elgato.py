@@ -86,25 +86,62 @@ def _ws_send(s: socket.socket, payload: bytes):
     s.send(header + masked)
 
 
-def _ws_recv(s: socket.socket) -> dict | None:
-    try:
-        header = s.recv(2)
-        if len(header) < 2:
+def _recv_exact(s: socket.socket, n: int) -> bytes | None:
+    """Read exactly n bytes, or None if the peer closes.  Guards against short
+    reads on the 2-/8-byte extended-length fields of a fragmented TCP segment."""
+    buf = b""
+    while len(buf) < n:
+        chunk = s.recv(n - len(buf))
+        if not chunk:
             return None
-        b1 = header[1] & 0x7F
-        if b1 < 126:
-            length = b1
-        elif b1 == 126:
-            length = int.from_bytes(s.recv(2), "big")
-        else:
-            length = int.from_bytes(s.recv(8), "big")
-        data = b""
-        while len(data) < length:
-            chunk = s.recv(length - len(data))
-            if not chunk:
+        buf += chunk
+    return buf
+
+
+def _ws_send_pong(s: socket.socket, payload: bytes = b""):
+    mask = os.urandom(4)
+    masked = bytes([b ^ mask[i % 4] for i, b in enumerate(payload)])
+    s.send(bytes([0x8A, 0x80 | len(payload)]) + mask + masked)   # FIN + pong, masked
+
+
+def _ws_recv(s: socket.socket) -> dict | None:
+    """Read one JSON message, transparently handling WebSocket control frames.
+    Returns the parsed dict, or None only on genuine connection close/loss —
+    a ping/pong or non-JSON frame must NOT be reported as a lost connection, or
+    the watchdog drops the socket and leaves auto-exposure unguarded for 30s."""
+    try:
+        while True:
+            header = _recv_exact(s, 2)
+            if header is None:
                 return None
-            data += chunk
-        return json.loads(data)
+            opcode = header[0] & 0x0F
+            b1     = header[1] & 0x7F
+            if b1 < 126:
+                length = b1
+            elif b1 == 126:
+                ext = _recv_exact(s, 2)
+                length = int.from_bytes(ext, "big") if ext else 0
+            else:
+                ext = _recv_exact(s, 8)
+                length = int.from_bytes(ext, "big") if ext else 0
+            data = _recv_exact(s, length) if length else b""
+            if data is None:
+                return None
+
+            if opcode == 0x8:        # close → treat as connection lost
+                return None
+            if opcode == 0x9:        # ping → pong and keep reading for the reply
+                _ws_send_pong(s, data)
+                continue
+            if opcode == 0xA:        # pong → ignore, keep reading
+                continue
+            # Data frame (0x0/0x1/0x2).
+            try:
+                return json.loads(data)
+            except Exception:
+                # Non-JSON data frame — not a disconnect; keep waiting for the
+                # actual JSON-RPC reply instead of tearing down the socket.
+                continue
     except Exception:
         return None
 
@@ -113,13 +150,24 @@ def _rpc(s: socket.socket, method: str, params: dict = {}) -> dict | None:
     global _rpc_id
     with _rpc_lock:
         _rpc_id += 1
+        req_id = _rpc_id
         msg = json.dumps({
-            "jsonrpc": "2.0", "id": _rpc_id,
+            "jsonrpc": "2.0", "id": req_id,
             "method": method, "params": params,
         }).encode()
         try:
             _ws_send(s, msg)
-            return _ws_recv(s)
+            # Camera Hub can push unsolicited event frames, and a stale reply
+            # can sit queued from an earlier request. Match replies by id —
+            # otherwise one misplaced frame shifts every later reply onto the
+            # wrong request and the watchdog misreads AE state forever.
+            for _ in range(10):
+                resp = _ws_recv(s)
+                if resp is None:
+                    return None
+                if str(resp.get("id")) == str(req_id):
+                    return resp
+            return None   # stream is garbage — caller reconnects, which resyncs
         except Exception:
             return None
 
@@ -140,8 +188,13 @@ def _discover_device(s: socket.socket) -> str | None:
 
 
 def _apply_initial_settings(s: socket.socket, device: str):
+    # Re-apply the live gain, not the default — a mid-show reconnect must not
+    # silently revert a manually-tuned ISO. First connect is unchanged since
+    # iso_gain starts at _DEFAULT_GAIN.
+    with _lock:
+        gain = iso_gain
     _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_AE,      "value": 0})
-    _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_GAIN,    "value": _DEFAULT_GAIN})
+    _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_GAIN,    "value": gain})
     _rpc(s, "setWebcamProperty", {"deviceID": device, "propertyID": _PROP_SHUTTER, "value": _DEFAULT_SHUTTER})
 
 
@@ -221,10 +274,9 @@ def _watchdog():
             _device = device
         _apply_initial_settings(s, device)
         with _lock:
-            ae_on    = False
-            iso_gain = _DEFAULT_GAIN
+            ae_on = False
         _set_connected(True)
-        log.info(f"[elgato] connected — device={device}")
+        log.info(f"[elgato] connected — device={device} gain={iso_gain}")
 
         # --- Poll loop ---
         while True:
@@ -235,7 +287,10 @@ def _watchdog():
                 log.info("[elgato] connection lost — retrying")
                 break
 
-            current_ae = int((resp.get("result") or {}).get("value", 0))
+            result = resp.get("result") if isinstance(resp.get("result"), dict) else {}
+            if result.get("propertyID", _PROP_AE) != _PROP_AE:
+                continue   # reply names a different property — don't read it as AE
+            current_ae = int(result.get("value", 0))
             with _lock:
                 was_on = ae_on
                 ae_on  = bool(current_ae)

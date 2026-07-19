@@ -181,6 +181,7 @@ class BlinkDetector:
         self._ever_active:   set[int] = set()           # indices of points that have ever gone above gate
         self._last_evict_ts: float = 0.0               # wall-clock time of last eviction run
         self._locked_positions: dict[int, tuple[float, float]] = {}  # blink_id → (cx, cy) frozen at first decode
+        self._cluster_kept:  set[int] = set()           # valid IDs that survived cluster dedup (log once each)
         # Pre-allocated padded grayscale buffer — reused every frame to avoid
         # the ~2MB allocation that np.pad issues on each call.
         self._gray_pad:         np.ndarray | None = None
@@ -262,15 +263,13 @@ class BlinkDetector:
         self._std_buf        = None
         self._std_buf_pos    = 0
         self._std_buf_count  = 0
-        self._std_buf = None
-        self._std_buf_pos = 0
-        self._std_buf_count = 0
-        self._ever_active.clear()  # indices are position-dependent; invalidate on grid change
-        self._diff_prev_gray   = None  # force diff reset on grid change
+        # NOTE: _ever_active / _diff_discovered / _diff_centroids were remapped
+        # by (px, py) above so located phones survive the rebuild.  Do NOT clear
+        # them here — clearing was defeating that remap and forcing a full warmup
+        # on every ROI change (the exact regression the remap block fixes).
+        self._diff_prev_gray   = None  # full-frame diff buffer — reset, refills next frame
         self._diff_accum       = None
         self._diff_accum_count = 0
-        self._diff_discovered.clear()
-        self._diff_centroids.clear()
 
     # ---------------------------------------------------------------- #
 
@@ -279,6 +278,7 @@ class BlinkDetector:
         frame: np.ndarray,
         ts: float | None = None,
         need_debug: bool = False,
+        valid_ids: set | None = None,
     ) -> tuple[list[DetectedDevice], DebugImages]:
 
         if ts is None:
@@ -649,15 +649,29 @@ class BlinkDetector:
         # caused by phase-shifted decodes of the same phone — most common with IDs
         # whose Manchester pattern is purely alternating (e.g. ID=0 → all-dark-bright,
         # whose 1-phase-shifted complement decodes as ID=511 = all-ones).
+        # Exception: an ID assigned to a connected phone (valid_ids) is a real
+        # neighbour, not a phantom — audience seats can sit closer than CLUSTER_R
+        # (15-50 px at meetup density), and discarding one here silently loses
+        # that phone for the whole run.
         CLUSTER_R = 60   # px — same radius used in draw_overlay stream dedup
         detections = sorted(id_map.values(), key=lambda d: d.confidence, reverse=True)
         kept: list[DetectedDevice] = []
         for det in detections:
-            if any(
-                abs(det.cx_px - k.cx_px) < CLUSTER_R and abs(det.cy_px - k.cy_px) < CLUSTER_R
-                for k in kept
-            ):
-                continue
+            near = next(
+                (k for k in kept
+                 if abs(det.cx_px - k.cx_px) < CLUSTER_R
+                 and abs(det.cy_px - k.cy_px) < CLUSTER_R),
+                None,
+            )
+            if near is not None:
+                if valid_ids is None or det.blink_id not in valid_ids:
+                    continue
+                if det.blink_id not in self._cluster_kept:
+                    self._cluster_kept.add(det.blink_id)
+                    log.info(
+                        f"[blink] kept valid ID={det.blink_id} conf={det.confidence:.2f} "
+                        f"inside cluster of ID={near.blink_id}"
+                    )
             kept.append(det)
 
         self.last_results = kept
@@ -853,6 +867,7 @@ class BlinkDetector:
         """Clear a decoded ID from all grid points — called when a decode is rejected
         as not matching any connected client, so the point can re-attempt decode."""
         self._locked_positions.pop(blink_id, None)
+        self._cluster_kept.discard(blink_id)
         for pt in self._points:
             if pt.decoded_id == blink_id:
                 pt.decoded_id = None
@@ -880,6 +895,7 @@ class BlinkDetector:
         self.cfg["min_recent_std"] = DEFAULTS["min_recent_std"]
         self._ever_active.clear()
         self._locked_positions.clear()
+        self._cluster_kept.clear()
         self._diff_prev_gray   = None
         self._diff_accum       = None
         self._diff_accum_count = 0
