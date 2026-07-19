@@ -195,6 +195,10 @@
       border-top: 1px solid rgba(255, 255, 255, 0.07);
     }
 
+    .how-list li:last-child {
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+
     .how-list b {
       display: block;
       font-weight: 500;
@@ -702,7 +706,7 @@
       /* Must out-rank the desktop .split.media-split columns */
       .split.media-split {
         grid-template-columns: 1fr;
-        gap: 1.75rem;
+        gap: 1.1rem;
       }
 
       /* No scroll-reveal on mobile: the late-firing fade reads as the
@@ -711,6 +715,26 @@
         opacity: 1;
         transform: none;
         transition: none;
+      }
+
+      .section-head h2 {
+        font-size: 1.6rem;
+      }
+
+      /* Stats as an aligned 2x2 grid instead of ragged flex wrap */
+      .stats-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.4rem 1rem;
+        margin: 1.75rem 0 0.75rem 0;
+      }
+
+      .stat b {
+        font-size: 2rem;
+      }
+
+      .stat span {
+        font-size: 0.72rem;
       }
 
       .hero-wordmark {
