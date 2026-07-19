@@ -11,7 +11,8 @@ sync: waves sweep the room, ripples spread from a click on the camera preview, a
 becomes the show.
 
 Built for live events and proven at them — 50+ phones located by one camera in real venues.
-Designed for Brighton Dome.
+Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
+[pixelmesh.live](https://pixelmesh.live) and deploys from this repo.
 
 **How a show runs, in four beats:**
 
@@ -35,6 +36,7 @@ Designed for Brighton Dome.
 - [Architecture](#architecture)
 - [Tuning & performance](#tuning--performance)
 - [Operations](#operations)
+- [The website](#the-website)
 - [Origins](#origins)
 - [Roadmap](#roadmap)
 
@@ -45,7 +47,8 @@ Designed for Brighton Dome.
 **Requirements**
 
 - Python 3.10+
-- [ngrok](https://ngrok.com) account with a reserved domain (`pixelmesh.show`)
+- [ngrok](https://ngrok.com) account with the reserved domain `pixelmesh.show`, set up as a
+  cloud endpoint (see [Show URL & offline page](#show-url--offline-page))
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
 
 ```bash
@@ -70,7 +73,8 @@ endpoint before launching.
 
 | URL | Description |
 |-----|-------------|
-| `https://pixelmesh.show` | Audience URL — share this on screen |
+| `https://pixelmesh.show` | Audience URL — share this on screen. Serves a holding page with a rejoin countdown when the show agent is offline |
+| `https://pixelmesh.live` | Public site — deployed by DigitalOcean from `site/` on every push to `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30 fps) |
@@ -406,6 +410,13 @@ panel — opens by default), **RUN** (detection, overlays, effects, server contr
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
 | `public/app.js` | Client-side blink renderer, effect engine, waiting/located/game UI |
+| `ngrok.pixelmesh.yml` | Show tunnel — binds the internal endpoint behind the cloud endpoint |
+| `ngrok.cloud-policy.yml` | Traffic policy for `pixelmesh.show`, incl. the offline holding page |
+| `site/` | The public website — see [The website](#the-website) |
+| `content/` | Posts, talk slides, and other written material |
+| `tools/` | Offline analysis: detector replay, signal heatmaps, GIF/still generators |
+| `testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
+| `ROADMAP.md` | Design notes for planned work |
 
 ---
 
@@ -476,6 +487,19 @@ debug/autumn-fox-42/
 | `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report — generated automatically on every reset |
 | `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
 
+### Show URL & offline page
+
+`pixelmesh.show` is an always-on **cloud endpoint** at ngrok's edge, not a direct tunnel. The
+agent (started by `run.sh` from `ngrok.pixelmesh.yml`) binds the internal endpoint
+`https://pixelmesh-agent.internal`; the cloud endpoint's traffic policy forwards to it when the
+agent is up and serves an edge-hosted holding page when it isn't — wordmark, "The show has not
+yet begun", and a 10 s JS countdown that reloads, so phones parked on the page join the show the
+moment the agent connects. No laptop involvement while offline, no `ERR_NGROK_3200`.
+
+The policy (including the embedded holding-page HTML) is versioned at `ngrok.cloud-policy.yml`.
+The dashboard serves whatever was pasted last — re-paste after editing the file
+(dashboard → Universal Gateway → Endpoints → `pixelmesh.show` → Traffic Policy).
+
 ### Client auto-reload
 
 The server hashes `app.js` at startup into a `BUILD_ID` injected into every page response. On
@@ -484,6 +508,22 @@ reloads immediately.
 
 - Same code + server restart → same hash, no reload
 - New `app.js` + server restart → new hash, all clients reload within seconds
+
+---
+
+## The website
+
+[pixelmesh.live](https://pixelmesh.live) is a static site served by DigitalOcean App Platform
+from the `site/` directory — **every push to `main` deploys it**. `main` is the release branch;
+day-to-day work should land there deliberately.
+
+- `site/index.html` is the whole page (styles and scripts inline); assets live in
+  `site/public/` so the served URL structure matches the old FastAPI hosting — existing shared
+  links (including `/telemetry/london-2026-06`) still resolve.
+- Fonts are self-hosted in `site/public/fonts/`; there are no third-party requests.
+- The hero loop, detection clip, poster, and `og-image.jpg` are cut from real show footage with
+  ffmpeg — sources are the debug captures under `debug/` and the London opener edit.
+- Brand rule: **pixelmesh is always lowercase**, and no em dashes in site copy.
 
 ---
 
