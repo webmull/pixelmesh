@@ -493,8 +493,9 @@ debug/autumn-fox-42/
 agent (started by `run.sh` from `ngrok.pixelmesh.yml`) binds the internal endpoint
 `https://pixelmesh-agent.internal`; the cloud endpoint's traffic policy forwards to it when the
 agent is up and serves an edge-hosted holding page when it isn't — wordmark, "The show has not
-yet begun", and a 10 s JS countdown that reloads, so phones parked on the page join the show the
-moment the agent connects. No laptop involvement while offline, no `ERR_NGROK_3200`.
+yet begun", and a 10 s countdown that quietly `fetch`-probes the origin, reloading only when the
+response stops carrying the `x-pixelmesh-holding` marker header (i.e. the show is actually up) —
+no reload flash while waiting. No laptop involvement while offline, no `ERR_NGROK_3200`.
 
 The policy (including the embedded holding-page HTML) is versioned at `ngrok.cloud-policy.yml`.
 The dashboard serves whatever was pasted last — re-paste after editing the file
