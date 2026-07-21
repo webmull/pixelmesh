@@ -247,6 +247,59 @@
       margin-bottom: 1.75rem;
     }
 
+    .yt-facade {
+      position: relative;
+      max-width: 720px;
+      aspect-ratio: 16 / 9;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      cursor: pointer;
+      background: #000;
+    }
+
+    .yt-facade img,
+    .yt-facade iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      border: 0;
+    }
+
+    .yt-facade img {
+      filter: brightness(0.8);
+      transition: filter 0.2s ease;
+    }
+
+    .yt-facade:hover img {
+      filter: brightness(1);
+    }
+
+    .yt-play {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 64px;
+      height: 64px;
+      border-radius: 50%;
+      background: rgba(2, 2, 4, 0.75);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+    }
+
+    .yt-play::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 54%;
+      transform: translate(-50%, -50%);
+      border-left: 16px solid #ffffff;
+      border-top: 10px solid transparent;
+      border-bottom: 10px solid transparent;
+    }
+
     .practice-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -1156,6 +1209,25 @@
     </div>
   </section>
 
+  <section class="panel">
+    <div class="wrapper full-text">
+      <div class="section-head">
+        <small>In conversation</small>
+        <h2>pixelmesh on the MoTaverse</h2>
+      </div>
+
+      <div class="yt-facade" id="yt-facade" role="button" tabindex="0"
+           aria-label="Play: Into the MoTaverse episode 22, from the pixelmesh conversation">
+        <img src="https://i.ytimg.com/vi/e2Erxa8_xMw/maxresdefault.jpg" alt="" loading="lazy">
+        <span class="yt-play" aria-hidden="true"></span>
+      </div>
+      <p class="clip-caption">
+        Into the MoTaverse ep. 22 with Rosie Sherry: what you feed AI matters more
+        than how you ask. Starts at the pixelmesh segment.
+      </p>
+    </div>
+  </section>
+
   <section>
     <div class="wrapper full-text">
       <div class="section-head">
@@ -1308,6 +1380,26 @@
       requestAnimationFrame(animatePropagation);
     }
     requestAnimationFrame(animatePropagation);
+
+    // Click-to-load YouTube facade: the page carries only a thumbnail
+    // until someone presses play, then swaps in the real embed
+    // (nocookie domain, deep-linked to the pixelmesh segment).
+    var yt = document.getElementById('yt-facade');
+    function playYt() {
+      var f = document.createElement('iframe');
+      f.src = 'https://www.youtube-nocookie.com/embed/e2Erxa8_xMw?start=748&autoplay=1';
+      f.allow = 'autoplay; encrypted-media; picture-in-picture';
+      f.allowFullscreen = true;
+      yt.innerHTML = '';
+      yt.appendChild(f);
+    }
+    yt.addEventListener('click', playYt, { once: true });
+    yt.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        playYt();
+      }
+    });
   </script>
 
 </body>
