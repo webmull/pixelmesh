@@ -212,16 +212,19 @@ html, body {
   width: 100%;
   max-width: 320px;
 }
+/* Crowd messages styled as a small quote: left accent bar, italic,
+   left-aligned - same idiom as the site's pull-quote */
 #crowdMsg {
   margin-top: 10px;
-  color: rgba(255,255,255,0.55);
-  font: 13px -apple-system, system-ui, sans-serif;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.09);
-  border-radius: 12px;
+  color: rgba(255,255,255,0.6);
+  font: italic 13px -apple-system, system-ui, sans-serif;
+  background: rgba(255,255,255,0.02);
+  border-left: 2px solid rgba(255,255,255,0.35);
+  border-radius: 0 10px 10px 0;
   padding: 10px 16px;
   width: 100%;
   max-width: 320px;
+  text-align: left;
   line-height: 1.5;
 }
 
