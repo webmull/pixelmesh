@@ -175,6 +175,7 @@ html, body {
   border: 1px solid rgba(255,255,255,0.09);
   border-radius: 12px;
   padding: 2px 16px;
+  width: 100%;
   max-width: 320px;
 }
 
@@ -208,13 +209,23 @@ html, body {
   border: 1px solid rgba(255,255,255,0.14);
   border-radius: 999px;
   padding: 9px 18px;
+  width: 100%;
+  max-width: 320px;
 }
 #crowdMsg {
-  margin-top: 8px;
+  margin-top: 10px;
   color: rgba(255,255,255,0.55);
   font: 13px -apple-system, system-ui, sans-serif;
-  min-height: 18px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 12px;
+  padding: 10px 16px;
+  width: 100%;
+  max-width: 320px;
+  line-height: 1.5;
 }
+
+#crowdMsg:empty { display: none; }
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.3; transform: scale(1); }
   50%       { opacity: 1;   transform: scale(1.25); }
