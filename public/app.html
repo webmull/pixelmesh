@@ -55,7 +55,7 @@ html, body {
   gap: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  background: #000;
+  background: #020204;
 }
 
 #card-located {
@@ -132,27 +132,69 @@ html, body {
   font: 400 13px -apple-system, system-ui, sans-serif;
 }
 
-/* ---- Waiting card content ---- */
+/* ---- Waiting card content (design shared with the show-offline
+        holding page: grid, breathing glow, wordmark, steps card) ---- */
+#card-waiting > * { position: relative; }
+
+.wm-bg {
+  position: absolute !important;
+  inset: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px);
+}
+
+.wm-glow {
+  position: absolute !important;
+  inset: -30% 0;
+  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.055), transparent 55%);
+  animation: wm-breathe 6s ease-in-out infinite;
+}
+
+@keyframes wm-breathe {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.wm-logo {
+  width: min(190px, 52vw);
+  aspect-ratio: 710 / 145;
+  margin-bottom: 16px;
+}
+
 .wm-headline {
   color: rgba(255,255,255,0.92);
-  font: 600 28px -apple-system, system-ui, sans-serif;
+  font: 600 24px -apple-system, system-ui, sans-serif;
   letter-spacing: -0.5px;
 }
-.wm-sub {
-  margin-top: 10px;
-  color: rgba(255,255,255,0.55);
-  font: 13px -apple-system, system-ui, sans-serif;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+
+.wm-steps {
+  margin: 16px 0 18px 0;
+  text-align: left;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 12px;
+  padding: 2px 16px;
+  max-width: 320px;
 }
-.wm-divider {
-  width: 70%;
-  max-width: 280px;
-  height: 1px;
-  flex-shrink: 0;
-  background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 14px auto;
+
+.wm-steps div {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 10px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.6);
+  font: 13px -apple-system, system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.wm-steps div:first-child { border-top: 0; }
+
+.wm-steps b {
+  color: #fff;
+  font-weight: 600;
+  font-size: 11px;
 }
 .wm-id {
   color: rgba(255,255,255,0.7);
@@ -181,16 +223,8 @@ html, body {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
-.wm-divider2 {
-  width: 70%;
-  max-width: 280px;
-  height: 1px;
-  flex-shrink: 0;
-  background: linear-gradient(to right, transparent, rgba(255,255,255,0.2) 30%, rgba(255,255,255,0.2) 70%, transparent);
-  margin: 14px auto;
-}
-
 #likeBtn {
+  margin-top: 18px;
   background: none;
   border: none;
   cursor: pointer;
@@ -604,15 +638,17 @@ html, body {
 
 <!-- Waiting card: "Get ready" -->
 <div id="card-waiting" style="display:none">
+  <div class="wm-bg"></div>
+  <div class="wm-glow"></div>
+  <img class="wm-logo" src="/public/pixelmesh_text.svg" alt="pixelmesh">
   <div class="wm-headline">Get ready</div>
-  <div class="wm-sub">
-    <span>Point your screen at the stage when the show starts</span>
-    <span>Brightness to full · Turn off auto-lock</span>
+  <div class="wm-steps">
+    <div><b>1</b><span>Keep this page open until the show starts.</span></div>
+    <div><b>2</b><span>Screen brightness to full, auto-lock off.</span></div>
+    <div><b>3</b><span>When asked, hold your phone up with the screen facing the front.</span></div>
   </div>
-  <div class="wm-divider"></div>
   <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
   <div id="crowdMsg"></div>
-  <div class="wm-divider2"></div>
   <button id="likeBtn" aria-label="Send a like">
     <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path fill="#ffffff" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
