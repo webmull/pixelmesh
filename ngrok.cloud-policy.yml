@@ -5,7 +5,8 @@
 #
 # Behaviour: forward to the show agent's internal endpoint when the
 # laptop tunnel is up; otherwise serve the holding page below. The page
-# probes the origin every 10s with fetch and reloads only when the
+# doubles as pre-show onboarding (keep open / brightness / how to hold)
+# and probes the origin every 10s with fetch, reloading only when the
 # response stops carrying the x-pixelmesh-holding marker header, so
 # there is no per-cycle reload flash.
 #
@@ -40,56 +41,112 @@ on_http_request:
             <html lang="en">
             <head>
               <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1">
+              <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
               <title>pixelmesh</title>
               <link rel="icon" type="image/png" href="https://pixelmesh.live/public/favicon.png">
               <noscript><meta http-equiv="refresh" content="10"></noscript>
               <style>
-                html, body { height: 100%; }
+                * { margin: 0; padding: 0; box-sizing: border-box; }
                 body {
-                  margin: 0;
+                  min-height: 100vh;
+                  min-height: 100svh;
                   background: #020204;
                   color: #9fa3ad;
                   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                   display: flex;
                   align-items: center;
                   justify-content: center;
+                  position: relative;
+                  overflow: hidden;
+                  padding: 2rem calc(1.4rem + env(safe-area-inset-right))
+                           calc(2rem + env(safe-area-inset-bottom))
+                           calc(1.4rem + env(safe-area-inset-left));
+                }
+                .grid-bg {
+                  position: fixed;
+                  inset: 0;
+                  background:
+                    repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px),
+                    repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px);
+                }
+                .glow {
+                  position: fixed;
+                  inset: -30%;
+                  background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.055), transparent 55%);
+                  animation: breathe 6s ease-in-out infinite;
+                }
+                @keyframes breathe {
+                  0%, 100% { opacity: 0.35; }
+                  50% { opacity: 1; }
+                }
+                .wrap {
+                  position: relative;
+                  width: 100%;
+                  max-width: 24rem;
                   text-align: center;
                 }
-                .wrap { padding: 2rem; }
                 .wrap img {
-                  width: min(300px, 70vw);
-                  /* Reserve the box before the SVG arrives so text never nudges */
+                  width: min(230px, 58vw);
                   aspect-ratio: 710 / 145;
                   display: block;
-                  margin: 0 auto 2rem auto;
+                  margin: 0 auto 1.5rem auto;
                 }
-                .msg {
+                h1 {
                   color: #ffffff;
-                  font-size: 1.05rem;
-                  letter-spacing: 0.02em;
-                  margin: 0;
+                  font-size: 1.15rem;
+                  font-weight: 600;
+                  letter-spacing: 0.01em;
                 }
-                .sub {
-                  font-size: 0.85rem;
-                  margin-top: 0.9rem;
+                .steps {
+                  margin-top: 1.5rem;
+                  text-align: left;
+                  background: rgba(255, 255, 255, 0.03);
+                  border: 1px solid rgba(255, 255, 255, 0.09);
+                  border-radius: 12px;
+                  padding: 0.35rem 1.15rem;
                 }
-                .sub b {
+                .steps div {
+                  display: flex;
+                  gap: 0.85rem;
+                  align-items: baseline;
+                  padding: 0.8rem 0;
+                  border-top: 1px solid rgba(255, 255, 255, 0.06);
+                  font-size: 0.92rem;
+                  line-height: 1.5;
+                }
+                .steps div:first-child { border-top: 0; }
+                .steps b {
                   color: #ffffff;
+                  font-weight: 600;
+                  font-size: 0.8rem;
+                }
+                .check {
+                  margin-top: 1.4rem;
+                  font-size: 0.72rem;
+                  letter-spacing: 0.14em;
+                  text-transform: uppercase;
+                  color: #5c606a;
+                }
+                .check b {
+                  color: #9fa3ad;
                   font-weight: 500;
                 }
               </style>
             </head>
             <body>
+              <div class="grid-bg"></div>
+              <div class="glow"></div>
               <div class="wrap">
                 <img src="https://pixelmesh.live/public/pixelmesh_text.svg" alt="pixelmesh">
-                <p class="msg">The show has not yet begun</p>
-                <p class="sub">Keep this page open. Checking again in <b id="count">10</b>s</p>
+                <h1>The show has not yet begun</h1>
+                <div class="steps">
+                  <div><b>1</b><span>Keep this page open. It joins the show the moment it starts.</span></div>
+                  <div><b>2</b><span>Screen brightness to full, auto-lock off.</span></div>
+                  <div><b>3</b><span>When asked, hold your phone up with the screen facing the front.</span></div>
+                </div>
+                <p class="check">Checking again in <b id="count">10</b>s</p>
               </div>
               <script>
-                // Probe instead of reloading: the page only actually reloads when
-                // the origin stops serving the holding page (the show is up), so
-                // there is no flash every cycle.
                 var n = 10;
                 var el = document.getElementById('count');
                 setInterval(function () {
@@ -126,56 +183,112 @@ on_http_response:
           <html lang="en">
           <head>
             <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
             <title>pixelmesh</title>
             <link rel="icon" type="image/png" href="https://pixelmesh.live/public/favicon.png">
             <noscript><meta http-equiv="refresh" content="10"></noscript>
             <style>
-              html, body { height: 100%; }
+              * { margin: 0; padding: 0; box-sizing: border-box; }
               body {
-                margin: 0;
+                min-height: 100vh;
+                min-height: 100svh;
                 background: #020204;
                 color: #9fa3ad;
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
                 display: flex;
                 align-items: center;
                 justify-content: center;
+                position: relative;
+                overflow: hidden;
+                padding: 2rem calc(1.4rem + env(safe-area-inset-right))
+                         calc(2rem + env(safe-area-inset-bottom))
+                         calc(1.4rem + env(safe-area-inset-left));
+              }
+              .grid-bg {
+                position: fixed;
+                inset: 0;
+                background:
+                  repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px),
+                  repeating-linear-gradient(90deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px);
+              }
+              .glow {
+                position: fixed;
+                inset: -30%;
+                background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.055), transparent 55%);
+                animation: breathe 6s ease-in-out infinite;
+              }
+              @keyframes breathe {
+                0%, 100% { opacity: 0.35; }
+                50% { opacity: 1; }
+              }
+              .wrap {
+                position: relative;
+                width: 100%;
+                max-width: 24rem;
                 text-align: center;
               }
-              .wrap { padding: 2rem; }
               .wrap img {
-                width: min(300px, 70vw);
-                /* Reserve the box before the SVG arrives so text never nudges */
+                width: min(230px, 58vw);
                 aspect-ratio: 710 / 145;
                 display: block;
-                margin: 0 auto 2rem auto;
+                margin: 0 auto 1.5rem auto;
               }
-              .msg {
+              h1 {
                 color: #ffffff;
-                font-size: 1.05rem;
-                letter-spacing: 0.02em;
-                margin: 0;
+                font-size: 1.15rem;
+                font-weight: 600;
+                letter-spacing: 0.01em;
               }
-              .sub {
-                font-size: 0.85rem;
-                margin-top: 0.9rem;
+              .steps {
+                margin-top: 1.5rem;
+                text-align: left;
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 12px;
+                padding: 0.35rem 1.15rem;
               }
-              .sub b {
+              .steps div {
+                display: flex;
+                gap: 0.85rem;
+                align-items: baseline;
+                padding: 0.8rem 0;
+                border-top: 1px solid rgba(255, 255, 255, 0.06);
+                font-size: 0.92rem;
+                line-height: 1.5;
+              }
+              .steps div:first-child { border-top: 0; }
+              .steps b {
                 color: #ffffff;
+                font-weight: 600;
+                font-size: 0.8rem;
+              }
+              .check {
+                margin-top: 1.4rem;
+                font-size: 0.72rem;
+                letter-spacing: 0.14em;
+                text-transform: uppercase;
+                color: #5c606a;
+              }
+              .check b {
+                color: #9fa3ad;
                 font-weight: 500;
               }
             </style>
           </head>
           <body>
+            <div class="grid-bg"></div>
+            <div class="glow"></div>
             <div class="wrap">
               <img src="https://pixelmesh.live/public/pixelmesh_text.svg" alt="pixelmesh">
-              <p class="msg">The show has not yet begun</p>
-              <p class="sub">Keep this page open. Checking again in <b id="count">10</b>s</p>
+              <h1>The show has not yet begun</h1>
+              <div class="steps">
+                <div><b>1</b><span>Keep this page open. It joins the show the moment it starts.</span></div>
+                <div><b>2</b><span>Screen brightness to full, auto-lock off.</span></div>
+                <div><b>3</b><span>When asked, hold your phone up with the screen facing the front.</span></div>
+              </div>
+              <p class="check">Checking again in <b id="count">10</b>s</p>
             </div>
             <script>
-              // Probe instead of reloading: the page only actually reloads when
-              // the origin stops serving the holding page (the show is up), so
-              // there is no flash every cycle.
               var n = 10;
               var el = document.getElementById('count');
               setInterval(function () {
