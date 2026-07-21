@@ -579,6 +579,8 @@ Three generations of one idea — a crowd's phones as pixels:
 
 Full design notes in [ROADMAP.md](ROADMAP.md). Headlines:
 
+- **Faster decode** — PHASE_MS 300→250ms cuts every timeline 17% with the ID space intact
+- **Found-state visibility** — steady green on found, so raised phones show their status from behind
 - **Blackout command** — instant all-phones-off for dramatic moments
 - **Photo-light warning** — pre-show prompt + HUD alert when strobes degrade detection
 - **Spatial coherence pre-filter** — kill lone-pixel noise before it reaches the decode budget
