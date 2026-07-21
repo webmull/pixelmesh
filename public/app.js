@@ -622,7 +622,7 @@ function handleMessage(msg) {
       _startPositionMapAnim();
       setView("located");
     } else {
-      waitingId.textContent = `Connected · Phone #${myBlinkId + 1}`;
+      waitingId.textContent = `Connected · Phone ID ${myBlinkId + 1}`;
       _startMsgTimer();
       requestWakeLock();
       setView("waiting");
@@ -768,7 +768,7 @@ function handleMessage(msg) {
     currentEffect = null;
     calibrated    = false;
     _cleanupGame();
-    waitingId.textContent = myBlinkId !== null ? `Connected · Phone #${myBlinkId + 1}` : "Connecting…";
+    waitingId.textContent = myBlinkId !== null ? `Connected · Phone ID ${myBlinkId + 1}` : "Connecting…";
     _startMsgTimer();
     requestWakeLock();
     setView("waiting");
