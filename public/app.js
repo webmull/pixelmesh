@@ -438,6 +438,7 @@ const gameWinnerTime    = document.getElementById("gameWinnerTime");
 let ws              = null;
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
+let reloadTimer     = null;  // hard deadline for handing over to the holding page
 let connectWatchdog = null;
 let heartbeatTimer  = null;
 let wakeLock        = null;
@@ -550,6 +551,7 @@ function connect() {
     clearTimeout(connectWatchdog);
     reconnectDelay = 500;
     disconnectedSince = 0;
+    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
 
     ws.send(JSON.stringify({ type: "hello", device_id: deviceId }));
 
@@ -576,14 +578,16 @@ function connect() {
       waitingId.textContent = "Reconnecting…";
       statusBar.classList.add("warn");
     }
-    if (!disconnectedSince) disconnectedSince = Date.now();
-    // After ~20s of failed reconnects the show is genuinely down, not
-    // blipping - reload so the cloud endpoint serves its holding page,
-    // whose countdown rejoins automatically when the show returns.
-    // (Identity lives in localStorage; a reload never loses the seat.)
-    if (Date.now() - disconnectedSince > 20000) {
-      location.reload();
-      return;
+    if (!disconnectedSince) {
+      disconnectedSince = Date.now();
+      // Hard 8s deadline: reconnects handle short blips, but once the
+      // show is genuinely down, hand over to the holding page fast -
+      // its probe rejoins automatically and identity survives in
+      // localStorage, so an early handover costs nothing. A timer
+      // (not an onclose check) so backoff gaps can't stretch the wait.
+      reloadTimer = setTimeout(() => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) location.reload();
+      }, 8000);
     }
     setStatus("reconnecting…");
     setTimeout(connect, reconnectDelay);
