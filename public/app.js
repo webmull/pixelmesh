@@ -874,6 +874,9 @@ function _statusBarOk(flash) {
     statusBar.classList.remove("flash");
     void statusBar.offsetWidth;   // restart the animation
     statusBar.classList.add("flash");
+    // Drop the class once the join blink finishes so the dot returns
+    // to its idle wink animation instead of freezing on the last frame.
+    setTimeout(() => statusBar.classList.remove("flash"), 1200);
   }
 }
 
