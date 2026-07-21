@@ -249,13 +249,34 @@
 
     .yt-facade {
       position: relative;
-      max-width: 620px;
+      width: 100%;
       aspect-ratio: 16 / 9;
       border-radius: 12px;
       overflow: hidden;
       border: 1px solid rgba(255, 255, 255, 0.08);
       cursor: pointer;
       background: #000;
+    }
+
+    .yt-side p {
+      font-size: 0.95rem;
+    }
+
+    .yt-quote {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.3rem;
+      font-weight: 600;
+      color: var(--text);
+      line-height: 1.4;
+      margin-bottom: 0.9rem;
+    }
+
+    .yt-meta {
+      font-size: 0.68rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0;
     }
 
     .yt-facade img,
@@ -1213,21 +1234,34 @@
   </section>
 
   <section class="panel">
-    <div class="wrapper full-text">
+    <div class="wrapper">
       <div class="section-head">
         <small>In conversation</small>
         <h2>pixelmesh on the MoTaverse</h2>
       </div>
 
-      <div class="yt-facade" id="yt-facade" role="button" tabindex="0"
-           aria-label="Play: Into the MoTaverse episode 22, from the pixelmesh conversation">
-        <img src="https://i.ytimg.com/vi/e2Erxa8_xMw/maxresdefault.jpg" alt="" loading="lazy">
-        <span class="yt-play" aria-hidden="true"></span>
+      <div class="split media-split">
+        <div class="yt-facade" id="yt-facade" role="button" tabindex="0"
+             aria-label="Play: Into the MoTaverse episode 22, from the pixelmesh conversation">
+          <img src="https://i.ytimg.com/vi/e2Erxa8_xMw/maxresdefault.jpg" alt="" loading="lazy">
+          <span class="yt-play" aria-hidden="true"></span>
+        </div>
+
+        <div class="yt-side">
+          <p class="yt-quote">
+            "What you feed AI matters more than how you ask."
+          </p>
+          <p>
+            Adam joins Rosie Sherry on Ministry of Testing's podcast to talk
+            about building pixelmesh and taking it to real rooms.
+          </p>
+          <p>
+            Ministry of Testing chapters host pixelmesh in Leeds this September,
+            and at MotoCon26 at Brighton Dome.
+          </p>
+          <p class="yt-meta">Episode 22 &middot; plays from the pixelmesh segment, 12:28</p>
+        </div>
       </div>
-      <p class="clip-caption">
-        Into the MoTaverse ep. 22 with Rosie Sherry: what you feed AI matters more
-        than how you ask. Starts at the pixelmesh segment.
-      </p>
     </div>
   </section>
 
