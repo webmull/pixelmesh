@@ -49,9 +49,9 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   text-align: center;
-  padding: 24px 32px;
+  padding: calc(20px + 4svh) 32px calc(78px + env(safe-area-inset-bottom)) 32px;
   gap: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -206,51 +206,59 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   bottom: calc(14px + env(safe-area-inset-bottom));
-  width: calc(100% - 48px);
-  max-width: 320px;
+  width: calc(100% - 32px);
+  max-width: 340px;
   display: none;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: rgba(2,2,4,0.75);
-  border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 999px;
-  padding: 11px 18px;
+  /* Borderless: a black band that fades out at the sides */
+  background: linear-gradient(to right,
+      rgba(2, 2, 4, 0),
+      rgba(2, 2, 4, 0.92) 22%,
+      rgba(2, 2, 4, 0.92) 78%,
+      rgba(2, 2, 4, 0));
+  padding: 12px 28px;
   color: rgba(255,255,255,0.9);
   font: 500 14px -apple-system, system-ui, sans-serif;
   letter-spacing: 0.3px;
   z-index: 60;
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
 }
 
+/* The status marker is a pixel: steady when connected (a found
+   phone), hard-blinking while reconnecting (a phone still
+   calibrating), triple-blink on join. */
 #statusBar .sb-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #4ade80;
-  box-shadow: 0 0 10px rgba(74, 222, 128, 0.7);
-  animation: pulse-dot 2s ease-in-out infinite;
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: #ffffff;
   flex-shrink: 0;
 }
 
 #statusBar.warn .sb-dot {
-  background: #fbbf24;
-  box-shadow: 0 0 10px rgba(251, 191, 36, 0.7);
+  animation: sb-blink 0.8s steps(1, end) infinite;
 }
 
-@keyframes sb-flash {
-  0% {
-    background: rgba(74, 222, 128, 0.22);
-    border-color: rgba(74, 222, 128, 0.55);
-  }
-  100% {
-    background: rgba(2,2,4,0.75);
-    border-color: rgba(255,255,255,0.16);
-  }
+@keyframes sb-blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.12; }
+  100% { opacity: 1; }
 }
 
-#statusBar.flash { animation: sb-flash 0.8s ease-out; }
+#statusBar.flash .sb-dot {
+  animation: sb-join 1.05s steps(1, end);
+}
+
+@keyframes sb-join {
+  0% { opacity: 0.12; }
+  14% { opacity: 1; }
+  28% { opacity: 0.12; }
+  42% { opacity: 1; }
+  56% { opacity: 0.12; }
+  70% { opacity: 1; }
+  100% { opacity: 1; }
+}
 /* Crowd messages styled as a small quote: left accent bar, italic,
    left-aligned - same idiom as the site's pull-quote */
 #crowdMsg {
@@ -260,21 +268,27 @@ html, body {
   background: rgba(255,255,255,0.02);
   border-left: 2px solid rgba(255,255,255,0.35);
   border-radius: 0 10px 10px 0;
-  padding: 10px 16px;
+  padding: 6px 16px;
   width: 100%;
   max-width: 320px;
   text-align: center;
   line-height: 1.5;
+  /* Fixed height: rotating messages of different lengths must not
+     shift the layout below */
+  height: 62px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
 }
 
-#crowdMsg:empty { display: none; }
-@keyframes pulse-dot {
-  0%, 100% { opacity: 0.3; transform: scale(1); }
-  50%       { opacity: 1;   transform: scale(1.25); }
-}
-
+/* Reserve the space even when empty so nothing jumps */
+#crowdMsg:empty { visibility: hidden; }
 #likeBtn {
-  margin-top: 20px;
+  /* Centre the like cluster in the free space between the quote box
+     and the status bar (paired with #likeHint's margin-bottom) */
+  margin-top: auto;
   width: 68px;
   height: 68px;
   border-radius: 50%;
@@ -312,6 +326,7 @@ html, body {
 }
 #likeHint {
   margin-top: 6px;
+  margin-bottom: auto;
   color: rgba(255,255,255,0.45);
   font: 12px -apple-system, system-ui, sans-serif;
 }
