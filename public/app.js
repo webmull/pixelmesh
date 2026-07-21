@@ -30,6 +30,7 @@ function encodeId(blinkId) {
 
 const statusPill     = document.getElementById("statusPill");
 const waitingId      = document.getElementById("waitingId");
+const statusBar      = document.getElementById("statusBar");
 const crowdMsg       = document.getElementById("crowdMsg");
 const likeBtn        = document.getElementById("likeBtn");
 const likeCount      = document.getElementById("likeCount");
@@ -262,6 +263,8 @@ function setView(name) {
   for (const [k, el] of Object.entries(CARDS)) {
     el.style.display = k === active ? CARD_DISPLAY[k] : "none";
   }
+  // Connection chrome only where it can't pollute the show
+  statusBar.style.display = (name === "waiting" || name === "located") ? "flex" : "none";
 }
 
 // ------------------------------------------------------------------ //
@@ -565,7 +568,14 @@ function connect() {
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     stopSync();
-    goBlack();
+    // Pre-show drops keep the waiting card up with an amber status bar
+    // instead of cutting to black; every other view blacks out as before.
+    if (view !== "waiting") {
+      goBlack();
+    } else {
+      waitingId.textContent = "Reconnecting…";
+      statusBar.classList.add("warn");
+    }
     if (!disconnectedSince) disconnectedSince = Date.now();
     // After ~20s of failed reconnects the show is genuinely down, not
     // blipping - reload so the cloud endpoint serves its holding page,
@@ -623,6 +633,7 @@ function handleMessage(msg) {
       setView("located");
     } else {
       waitingId.textContent = `Connected · Phone ID ${myBlinkId + 1}`;
+      _statusBarOk(true);
       _startMsgTimer();
       requestWakeLock();
       setView("waiting");
@@ -769,6 +780,7 @@ function handleMessage(msg) {
     calibrated    = false;
     _cleanupGame();
     waitingId.textContent = myBlinkId !== null ? `Connected · Phone ID ${myBlinkId + 1}` : "Connecting…";
+    statusBar.classList.toggle("warn", myBlinkId === null);
     _startMsgTimer();
     requestWakeLock();
     setView("waiting");
@@ -849,6 +861,15 @@ function handleMessage(msg) {
   if (msg.type === "game_winner" || msg.type === "game_end") {
     _bugShowWinner(msg);
     return;
+  }
+}
+
+function _statusBarOk(flash) {
+  statusBar.classList.remove("warn");
+  if (flash) {
+    statusBar.classList.remove("flash");
+    void statusBar.offsetWidth;   // restart the animation
+    statusBar.classList.add("flash");
   }
 }
 
