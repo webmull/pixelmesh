@@ -247,83 +247,6 @@
       margin-bottom: 1.75rem;
     }
 
-    .yt-facade {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 16 / 9;
-      border-radius: 12px;
-      overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      cursor: pointer;
-      background: #000;
-    }
-
-    .yt-side p {
-      font-size: 0.95rem;
-    }
-
-    .yt-quote {
-      font-family: 'Poppins', sans-serif;
-      font-size: 1.3rem;
-      font-weight: 600;
-      color: var(--text);
-      line-height: 1.4;
-      margin-bottom: 0.9rem;
-    }
-
-    .yt-meta {
-      font-size: 0.68rem;
-      letter-spacing: 0.22em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin-bottom: 0;
-    }
-
-    .yt-facade img,
-    .yt-facade iframe {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      border: 0;
-    }
-
-    /* Same treatment as every other image on the site: mono at rest,
-       colour on intent */
-    .yt-facade img {
-      filter: grayscale(100%) brightness(0.75) contrast(1.05);
-      transition: filter 0.25s ease;
-    }
-
-    .yt-facade:hover img,
-    .yt-facade:focus-visible img {
-      filter: grayscale(0%) brightness(0.95);
-    }
-
-    .yt-play {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      width: 64px;
-      height: 64px;
-      border-radius: 50%;
-      background: rgba(2, 2, 4, 0.75);
-      border: 1px solid rgba(255, 255, 255, 0.35);
-    }
-
-    .yt-play::after {
-      content: "";
-      position: absolute;
-      top: 50%;
-      left: 54%;
-      transform: translate(-50%, -50%);
-      border-left: 16px solid #ffffff;
-      border-top: 10px solid transparent;
-      border-bottom: 10px solid transparent;
-    }
-
     .practice-grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -1233,38 +1156,6 @@
     </div>
   </section>
 
-  <section class="panel">
-    <div class="wrapper">
-      <div class="section-head">
-        <small>In conversation</small>
-        <h2>pixelmesh on the MoTaverse</h2>
-      </div>
-
-      <div class="split media-split">
-        <div class="yt-facade" id="yt-facade" role="button" tabindex="0"
-             aria-label="Play: Into the MoTaverse episode 22">
-          <img src="https://i.ytimg.com/vi/e2Erxa8_xMw/maxresdefault.jpg" alt="" loading="lazy">
-          <span class="yt-play" aria-hidden="true"></span>
-        </div>
-
-        <div class="yt-side">
-          <p class="yt-quote">
-            "What you feed AI matters more than how you ask."
-          </p>
-          <p>
-            Adam joins Rosie Sherry on Ministry of Testing's podcast to talk
-            about building pixelmesh and taking it to real rooms.
-          </p>
-          <p>
-            Ministry of Testing chapters host pixelmesh in Leeds this September,
-            and at MotoCon26 at Brighton Dome.
-          </p>
-          <p class="yt-meta">Into the MoTaverse &middot; Episode 22</p>
-        </div>
-      </div>
-    </div>
-  </section>
-
   <section>
     <div class="wrapper full-text">
       <div class="section-head">
@@ -1418,25 +1309,6 @@
     }
     requestAnimationFrame(animatePropagation);
 
-    // Click-to-load YouTube facade: the page carries only a thumbnail
-    // until someone presses play, then swaps in the real embed
-    // (nocookie domain, deep-linked to the pixelmesh segment).
-    var yt = document.getElementById('yt-facade');
-    function playYt() {
-      var f = document.createElement('iframe');
-      f.src = 'https://www.youtube-nocookie.com/embed/e2Erxa8_xMw?autoplay=1';
-      f.allow = 'autoplay; encrypted-media; picture-in-picture';
-      f.allowFullscreen = true;
-      yt.innerHTML = '';
-      yt.appendChild(f);
-    }
-    yt.addEventListener('click', playYt, { once: true });
-    yt.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        playYt();
-      }
-    });
   </script>
 
 </body>
