@@ -249,7 +249,7 @@
 
     .yt-facade {
       position: relative;
-      max-width: 720px;
+      max-width: 620px;
       aspect-ratio: 16 / 9;
       border-radius: 12px;
       overflow: hidden;
@@ -268,13 +268,16 @@
       border: 0;
     }
 
+    /* Same treatment as every other image on the site: mono at rest,
+       colour on intent */
     .yt-facade img {
-      filter: brightness(0.8);
-      transition: filter 0.2s ease;
+      filter: grayscale(100%) brightness(0.75) contrast(1.05);
+      transition: filter 0.25s ease;
     }
 
-    .yt-facade:hover img {
-      filter: brightness(1);
+    .yt-facade:hover img,
+    .yt-facade:focus-visible img {
+      filter: grayscale(0%) brightness(0.95);
     }
 
     .yt-play {
