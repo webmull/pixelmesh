@@ -930,7 +930,7 @@ function _resetRaceView() {
     ? "Find me on the stage and tap to run"
     : "You aren't in this race";
   if (raceRank) raceRank.textContent = raceInRoster
-    ? `1st of ${raceRosterSize || "—"}`
+    ? `1st of ${raceRosterSize || "?"}`
     : "—";
   if (raceBarMine)   raceBarMine.style.width   = "0%";
   if (raceBarLeader) raceBarLeader.style.width = "0%";
@@ -980,7 +980,7 @@ function _showRaceWinner(msg) {
     : `#${winnerBid + 1}`;
   if (raceWinnerSub) raceWinnerSub.textContent = wonByMe
     ? "First across the line"
-    : `Phone ${winnerBid + 1} took it — better luck next round`;
+    : `Phone ${winnerBid + 1} took it. Better luck next round`;
   if (raceWinner) raceWinner.classList.add("show");
   // Haptic punch on the winning phone so they feel the result, not just see it.
   if (wonByMe && navigator.vibrate) {
@@ -1149,7 +1149,7 @@ function _bugShowWinner(msg) {
   }
 
   if (isDraw) {
-    gameWinnerPhone.textContent = `Draw — ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
+    gameWinnerPhone.textContent = `Draw: ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
     gameWinnerTime.textContent  = `${msg.reaction_ms} ms each`;
   } else if (msg.blink_id !== undefined) {
     gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
