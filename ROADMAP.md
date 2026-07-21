@@ -3,6 +3,41 @@
 Design notes for planned work. Ordered roughly by value. Items marked **frozen zone** touch
 `blink_detector.py` / `blink_encoder.py` and need explicit sign-off before implementation.
 
+## Faster decode: PHASE_MS 300ms -> 250ms
+
+Cuts the cycle 13.2s -> 11s (-17%) with the full 512-ID space intact - warmup floor, every
+decode retry, and the whole timeline shrink together. Preferred over narrowing NUM_BITS,
+which was analysed (Jul 2026) and rejected: 7 bits caps at 128 devices (below Brighton
+scale), and the sparse 512-ID space is what makes phantom rejection work - random misreads
+collide with an assigned ID only ~10% of the time at 50 phones, which the cluster-dedup
+valid-ID exemption depends on. Narrowing the space breaks that protection.
+
+- Camera side has huge margin: detection ran 34-140fps at Birmingham; 250ms phases need
+  ~12fps for 3 samples/phase.
+- The risk is phone-side: browser timer jitter and screen latency eat a fixed number of ms
+  per phase, which is a larger fraction of a shorter phase. Validate with the shoulder-tight
+  multi-phone test before any show.
+- `PHASE_MS` is shared truth between `blink_encoder.py` and the client blink renderer - both
+  ends change together. **Frozen zone.**
+- Sequencing: only attempt after the cluster-dedup fix is field-validated; the Birmingham
+  data says retries from marginal signal dominate the median, not cycle length.
+
+## Found-state visibility during calibration
+
+People holding a phone up cannot see its screen, so they do not know when they have been
+found (and flipping to check breaks their own decode). Direction from the Jul 2026
+exploration: on found, switch the screen to a steady bright green for the rest of the
+detection window - the holder sees the glow change from strobing to steady, and the room
+itself becomes the progress bar as it settles green phone by phone. Add a soft chime as
+reinforcement (WebAudio, unlocked by the join tap; iOS ringer switch limits coverage).
+
+- Detection safety argument: the variance gate ignores steady light (no std), but verify
+  with the shoulder-tight test that steady-green neighbours do not slow the unfound phones
+  between them (watch for glare onto adjacent screens).
+- Rejected: vibration (iOS Safari has no support), torch control (not exposed to web),
+  watch-the-projector-for-your-number (high cognitive load mid-crowd).
+- Client + server state change only - no frozen files.
+
 ## Blackout command
 
 Instant all-phones-off for dramatic moments.
