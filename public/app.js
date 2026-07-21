@@ -271,6 +271,14 @@ function setView(name) {
 // Device state
 // ------------------------------------------------------------------ //
 
+// iOS Safari permits pinch zoom even with user-scalable=no; block its
+// proprietary gesture events so the page can never end up stuck zoomed.
+// (Double-tap zoom is already suppressed by touch-action: manipulation.)
+["gesturestart", "gesturechange", "gestureend"].forEach((t) =>
+  document.addEventListener(t, (e) => e.preventDefault())
+);
+document.addEventListener("dblclick", (e) => e.preventDefault());
+
 let deviceId = localStorage.getItem("device_id");
 if (!deviceId) {
   deviceId = (crypto.randomUUID
