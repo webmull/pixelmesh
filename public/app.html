@@ -136,8 +136,10 @@ html, body {
         holding page: grid, breathing glow, wordmark, steps card) ---- */
 #card-waiting > * { position: relative; }
 
+/* Fixed, not absolute: absolute children with negative inset extend the
+   card's scroll area and create phantom black space below the content */
 .wm-bg {
-  position: absolute !important;
+  position: fixed !important;
   inset: 0;
   background:
     repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 48px),
@@ -145,7 +147,7 @@ html, body {
 }
 
 .wm-glow {
-  position: absolute !important;
+  position: fixed !important;
   inset: -30% 0;
   background: radial-gradient(circle at 50% 45%, rgba(255,255,255,0.055), transparent 55%);
   animation: wm-breathe 6s ease-in-out infinite;
@@ -197,21 +199,58 @@ html, body {
   font-weight: 600;
   font-size: 11px;
 }
-.wm-id {
-  color: rgba(255,255,255,0.9);
-  font: 500 14px -apple-system, system-ui, sans-serif;
-  letter-spacing: 0.3px;
-  display: flex;
+/* Sticky connection status bar: system chrome pinned above the home
+   indicator. Shown only on the waiting and located views (setView). */
+#statusBar {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  width: calc(100% - 48px);
+  max-width: 320px;
+  display: none;
   align-items: center;
   justify-content: center;
   gap: 9px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(2,2,4,0.75);
+  border: 1px solid rgba(255,255,255,0.16);
   border-radius: 999px;
-  padding: 9px 18px;
-  width: 100%;
-  max-width: 320px;
+  padding: 11px 18px;
+  color: rgba(255,255,255,0.9);
+  font: 500 14px -apple-system, system-ui, sans-serif;
+  letter-spacing: 0.3px;
+  z-index: 60;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
 }
+
+#statusBar .sb-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 10px rgba(74, 222, 128, 0.7);
+  animation: pulse-dot 2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+#statusBar.warn .sb-dot {
+  background: #fbbf24;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.7);
+}
+
+@keyframes sb-flash {
+  0% {
+    background: rgba(74, 222, 128, 0.22);
+    border-color: rgba(74, 222, 128, 0.55);
+  }
+  100% {
+    background: rgba(2,2,4,0.75);
+    border-color: rgba(255,255,255,0.16);
+  }
+}
+
+#statusBar.flash { animation: sb-flash 0.8s ease-out; }
 /* Crowd messages styled as a small quote: left accent bar, italic,
    left-aligned - same idiom as the site's pull-quote */
 #crowdMsg {
@@ -232,14 +271,6 @@ html, body {
 @keyframes pulse-dot {
   0%, 100% { opacity: 0.3; transform: scale(1); }
   50%       { opacity: 1;   transform: scale(1.25); }
-}
-.wm-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #4ade80;
-  box-shadow: 0 0 10px rgba(74, 222, 128, 0.7);
-  animation: pulse-dot 2s ease-in-out infinite;
 }
 
 #likeBtn {
@@ -671,7 +702,6 @@ html, body {
     <div><b>2</b><span>Screen brightness to full, auto-lock off.</span></div>
     <div><b>3</b><span>When asked, hold your phone up with the screen facing the front.</span></div>
   </div>
-  <div class="wm-id"><span class="wm-dot"></span><span id="waitingId"></span></div>
   <div id="crowdMsg"></div>
   <button id="likeBtn" aria-label="Send a like">
     <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -763,6 +793,9 @@ html, body {
     </div>
   </div>
 </div>
+
+<!-- Sticky connection status: shown on waiting + located views only -->
+<div id="statusBar"><span class="sb-dot"></span><span id="waitingId"></span></div>
 
 <script src="/public/app.js?v=__CACHE_BUST__"></script>
 </body>
