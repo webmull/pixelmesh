@@ -28,7 +28,6 @@ function encodeId(blinkId) {
 // DOM
 // ------------------------------------------------------------------ //
 
-const statusPill     = document.getElementById("statusPill");
 const waitingId      = document.getElementById("waitingId");
 const statusBar      = document.getElementById("statusBar");
 const crowdMsg       = document.getElementById("crowdMsg");
@@ -565,7 +564,6 @@ function connect() {
 
     requestWakeLock();
     startHeartbeat();
-    setStatus("connected – waiting for assignment…");
   };
 
   ws.onmessage = (ev) => {
@@ -597,7 +595,6 @@ function connect() {
         if (!ws || ws.readyState !== WebSocket.OPEN) location.reload();
       }, 8000);
     }
-    setStatus("reconnecting…");
     setTimeout(connect, reconnectDelay);
     reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
   };
@@ -650,7 +647,6 @@ function handleMessage(msg) {
       requestWakeLock();
       setView("waiting");
     }
-    setStatus(`ID ${myBlinkId + 1}`);
     return;
   }
 
@@ -687,7 +683,6 @@ function handleMessage(msg) {
     if (myBlinkId !== null) locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
     _startPositionMapAnim();
     setView("located");
-    setStatus(`ID ${myBlinkId + 1} – located ✓`);
     return;
   }
 
@@ -796,7 +791,6 @@ function handleMessage(msg) {
     _startMsgTimer();
     requestWakeLock();
     setView("waiting");
-    setStatus(myBlinkId !== null ? `ID ${myBlinkId + 1}` : "waiting…");
     return;
   }
 
@@ -886,10 +880,6 @@ function _statusBarOk(flash) {
     // to its idle wink animation instead of freezing on the last frame.
     setTimeout(() => statusBar.classList.remove("flash"), 1200);
   }
-}
-
-function setStatus(text) {
-  statusPill.textContent = text;
 }
 
 // ------------------------------------------------------------------ //
