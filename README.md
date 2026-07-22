@@ -113,6 +113,12 @@ drops below 8. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also se
 still works but takes 25–35 s instead of 13–15 s. Causes: AE compressing amplitude, low phone
 brightness, or ambient light sensor dimming screens.
 
+**Displays: plug in before starting, don't hot-unplug.** Disconnecting a display (projector
+HDMI) while the controller runs wedges the GUI — GLFW cannot survive the macOS display-topology
+change (MaccTech, Jul 2026: frozen app, `r` reload, ~90 s to full recovery including
+re-detection). Connect the projector before `run.sh`, and stop the controller before unplugging.
+If it happens mid-show: `r` restarts everything and phones rejoin and re-detect automatically.
+
 ### 2. Detection
 
 Press **D** to start detection. The camera decodes each blinking screen and maps it to a position
