@@ -231,6 +231,12 @@ html, body {
   flex-shrink: 0;
   /* Mostly steady, with a cheeky double-blink every few seconds */
   animation: sb-wink 6s linear infinite;
+  /* iOS: keep the animating dot on a tracked compositor layer. Without
+     this, swapping the animation while the centred bar re-lays-out
+     (text length change) can leave a ghost frame painted at the old
+     dot position. */
+  will-change: opacity;
+  transform: translateZ(0);
 }
 
 @keyframes sb-wink {

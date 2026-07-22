@@ -581,8 +581,11 @@ function connect() {
     if (view !== "waiting") {
       goBlack();
     } else {
+      // Text change re-centres the bar and moves the dot; nudge a
+      // repaint in the same frame so iOS retires the old layer.
       waitingId.textContent = "Reconnecting…";
       statusBar.classList.add("warn");
+      statusBar.style.transform = "translateX(-50%) translateZ(0)";
     }
     if (!disconnectedSince) {
       disconnectedSince = Date.now();
