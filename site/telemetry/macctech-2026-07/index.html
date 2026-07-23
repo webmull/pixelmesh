@@ -1,0 +1,652 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description"
+    content="Run report from the MaccTech meetup, Macclesfield, 22 July 2026. 21 phones, 19 found, the first 100% detection of every phone still connected, pulled from the pixelmesh detection pipeline.">
+  <meta name="author" content="Adam Davis">
+
+  <meta name="theme-color" content="#020204">
+  <title>pixelmesh - run report &middot; MaccTech Macclesfield</title>
+
+  <meta property="og:title" content="pixelmesh - run report &middot; MaccTech Macclesfield">
+  <meta property="og:description"
+    content="What the camera actually saw at MaccTech Macclesfield: the first perfect detection at a live show, and the cluster-dedup fix earning its first save.">
+  <meta property="og:image" content="https://pixelmesh.live/public/og-image.jpg">
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="icon" type="image/png" href="/public/favicon.png">
+
+  <style>
+    :root {
+      --bg: #020204;
+      --panel: #17171f;
+      --panel-strong: #1f1f28;
+      --text: #ffffff;
+      --muted: #9fa3ad;
+      --divider: linear-gradient(to right,
+          transparent,
+          rgba(255, 255, 255, 0.18),
+          transparent);
+      --grid: rgba(255, 255, 255, 0.05);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      overflow-x: hidden;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+    }
+
+    .wrapper {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 2.25rem;
+    }
+
+    .wrapper.narrow {
+      max-width: 820px;
+    }
+
+    /* HERO (matches index.html) */
+
+    .hero {
+      position: relative;
+      min-height: 48vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      text-align: center;
+      overflow: hidden;
+      padding: 4rem 0 2rem 0;
+    }
+
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    .bg-grid {
+      position: absolute;
+      inset: 0;
+      background:
+        repeating-linear-gradient(0deg,
+          var(--grid) 0px,
+          var(--grid) 1px,
+          transparent 1px,
+          transparent 64px),
+        repeating-linear-gradient(90deg,
+          var(--grid) 0px,
+          var(--grid) 1px,
+          transparent 1px,
+          transparent 64px);
+    }
+
+    .bg-grid::after {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background: linear-gradient(135deg,
+          transparent 40%,
+          rgba(255, 255, 255, 0.08) 50%,
+          transparent 60%);
+      animation: diagonalWave 16s linear infinite;
+    }
+
+    @keyframes diagonalWave {
+      from { transform: translateX(-45%) translateY(-45%); }
+      to   { transform: translateX(45%) translateY(45%); }
+    }
+
+    .hero-inner {
+      position: relative;
+      z-index: 2;
+      margin-top: 1rem;
+    }
+
+    .hero-logo {
+      width: clamp(320px, 55vw, 600px);
+      max-width: 100%;
+      height: auto;
+      display: block;
+      margin: 0 auto 1rem auto;
+    }
+
+    .hero-wordmark {
+      margin-bottom: 0.6rem;
+    }
+
+    .hero-wordmark a {
+      display: block;
+    }
+
+    .hero-wordmark img {
+      width: clamp(360px, 60vw, 400px);
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .hero-tag {
+      font-size: 1.15rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* Sections (matches index.html) */
+
+    section {
+      position: relative;
+      padding: 4.5rem 0 4rem 0;
+      opacity: 0;
+      transform: translateY(25px);
+      transition: all 0.8s ease;
+    }
+
+    section::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    section.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    section.panel { background: var(--panel); }
+    section.panel-strong { background: var(--panel-strong); }
+
+    .section-head {
+      margin-bottom: 1.2rem;
+    }
+
+    .section-head small {
+      display: block;
+      font-size: 0.7rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0.7;
+      margin-bottom: 0.6rem;
+    }
+
+    .section-head h2 {
+      font-weight: 600;
+      font-size: 2.1rem;
+      letter-spacing: -0.01em;
+    }
+
+    p {
+      color: var(--muted);
+      margin-bottom: 1.2rem;
+      font-size: 1rem;
+      max-width: 68ch;
+    }
+
+    p strong {
+      color: var(--text);
+      font-weight: 500;
+    }
+
+    code {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.85em;
+      color: rgba(255, 255, 255, 0.85);
+      background: rgba(255, 255, 255, 0.07);
+      padding: 1px 6px;
+      border-radius: 4px;
+    }
+
+    /* TELEMETRY: headline numbers */
+
+    .numbers {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1.5rem;
+      margin-top: 2rem;
+    }
+
+    .number-card {
+      text-align: center;
+      padding: 2.5rem 1.5rem;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0));
+      border-radius: 4px;
+    }
+
+    .number-card .big {
+      font-size: clamp(3.5rem, 8vw, 5.5rem);
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .number-card .label {
+      margin-top: 1rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .number-card .sub {
+      margin-top: 0.6rem;
+      color: var(--muted);
+      font-size: 0.82rem;
+      letter-spacing: 0.02em;
+    }
+
+    .number-card.connected .big { color: rgba(255, 255, 255, 0.55); }
+    .number-card.detected  .big { color: rgba(255, 255, 255, 0.98); }
+    .number-card.missed    .big { color: rgba(255, 255, 255, 0.3); }
+
+    /* TELEMETRY: data cards */
+
+    .data-block {
+      margin-top: 2.5rem;
+    }
+
+    .data-card {
+      margin-top: 1.5rem;
+      background: #fbfaf7;
+      border-radius: 6px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .data-card img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .video-card {
+      margin-top: 1.5rem;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #000;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .video-card video {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    /* TELEMETRY: callouts */
+
+    .callout {
+      margin-top: 2.5rem;
+      padding: 2rem 2.25rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-left: 2px solid rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.02);
+      border-radius: 4px;
+    }
+
+    .callout .section-head {
+      margin-bottom: 0.8rem;
+    }
+
+    .callout .section-head h2 {
+      font-size: 1.5rem;
+    }
+
+    .callout p:last-child {
+      margin-bottom: 0;
+    }
+
+    /* TELEMETRY: deep stats strip */
+
+    .stats-strip {
+      margin-top: 2.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2rem 3rem;
+    }
+
+    .stat-row {
+      padding: 1rem 0;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .stat-row .v {
+      font-size: 1.4rem;
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .stat-row .l {
+      margin-top: 0.3rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    /* Attribution (matches index.html) */
+
+    .attribution {
+      position: relative;
+      padding: 3rem 0;
+      font-size: 0.9rem;
+      background: var(--panel-strong);
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .attribution::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: var(--divider);
+    }
+
+    .attribution a {
+      color: var(--text);
+      text-decoration: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+    }
+
+    .attribution a:hover {
+      opacity: 0.7;
+    }
+
+    .attribution .back {
+      display: inline-block;
+      margin-bottom: 1rem;
+      font-size: 0.7rem;
+      letter-spacing: 0.28em;
+      text-transform: uppercase;
+      color: var(--muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+    }
+
+    .attribution .back:hover {
+      color: var(--text);
+      border-bottom-color: rgba(255, 255, 255, 0.6);
+    }
+
+    .attribution .source {
+      display: block;
+      margin-top: 0.6rem;
+      font-size: 0.8rem;
+    }
+
+    /* Mobile */
+
+    @media (max-width: 900px) {
+      .numbers {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+
+      .stats-strip {
+        grid-template-columns: 1fr;
+        gap: 0;
+      }
+
+      .callout {
+        padding: 1.5rem 1.5rem;
+      }
+    }
+
+    /* MaccTech run report additions */
+    .session-video {
+      width: 100%;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: block;
+      background: #000;
+      margin-top: 1.5rem;
+    }
+    .clip-caption { color: var(--muted); font-size: 0.8rem; margin-top: 0.6rem; }
+    .bars { margin: 1.6rem 0 0.5rem; }
+    .bar-row { display: flex; align-items: center; gap: 0.7rem; margin: 3px 0; font-size: 0.75rem; }
+    .bar-row .id { width: 64px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .bar-row .bar { height: 10px; background: linear-gradient(to right, rgba(255,255,255,0.75), rgba(255,255,255,0.35)); border-radius: 2px; }
+    .bar-row .t { color: var(--muted); font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+
+<body>
+
+  <section class="hero visible">
+    <div class="bg-grid"></div>
+    <div class="wrapper hero-inner">
+
+      <img src="/public/pixelmesh-icon.svg" class="hero-logo" alt="pixelmesh logo">
+
+      <h1 class="hero-wordmark">
+        <a href="/" aria-label="pixelmesh home">
+          <img src="/public/pixelmesh_text.svg" alt="pixelmesh">
+        </a>
+      </h1>
+
+      <p class="hero-tag">
+        RUN REPORT &middot; WHAT THE CAMERA ACTUALLY SAW
+      </p>
+
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>About this page</small>
+        <h2>Where the numbers come from</h2>
+      </div>
+      <p>
+        Everything below is pulled from the pixelmesh detection pipeline's own debug capture of
+        the MaccTech meetup in Macclesfield, 22 July 2026: per-phone decode timings, confidence
+        scores, and the controller's annotated video of the run. No estimates; this is the
+        system's own paper trail.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>The room</small>
+        <h2>The first perfect detection</h2>
+      </div>
+      <p>
+        Every phone still connected at the end of the run was found. That is a first: at every
+        previous show there were stragglers. The auto-stop ("all clients found") had never fired
+        in front of an audience; tonight it fired twice.
+      </p>
+      <p>
+        The honest denominator: 21 phones held blink IDs mid-run. Two dropped their connections
+        before the end, almost certainly locked or backgrounded phones, since both were found
+        first in the follow-up run, at 13.6s and 13.9s, right at the warmup floor.
+      </p>
+
+      <div class="numbers">
+        <div class="number-card connected">
+          <div class="big">21</div>
+          <div class="label">Connected</div>
+          <div class="sub">mid-run peak</div>
+        </div>
+        <div class="number-card detected">
+          <div class="big">19</div>
+          <div class="label">Detected</div>
+          <div class="sub">100% of still-connected &middot; median 22.3s</div>
+        </div>
+        <div class="number-card missed">
+          <div class="big">2</div>
+          <div class="label">Dropped mid-run</div>
+          <div class="sub">both found instantly next run</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel-strong">
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>The session</small>
+        <h2>As recorded</h2>
+      </div>
+      <p>
+        The controller's annotated view, real time: grid activity and binary streams during
+        detection, green ID boxes accumulating to 19, then the effects reel: wave, gradient,
+        pulse, rainbow, click-fired ripples, spotlight, groups, sparkle, sections.
+      </p>
+      <video class="session-video" controls preload="metadata"
+             src="/public/video/macctech-2026-07-run.mp4"></video>
+      <p class="clip-caption">Run urban-glacier-45 &middot; detection from 19:11:24, 46.2s to auto-stop &middot; 3m14s</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>Timings</small>
+        <h2>Time to detect, phone by phone</h2>
+      </div>
+      <p>
+        Fastest find 13.6s, barely past the 13.2s warmup floor. Half the room inside 22.3s,
+        everyone by 25.7s.
+      </p>
+      <div class="bars" id="bars"></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>The fix, proven</small>
+        <h2>One log line, one recovered phone</h2>
+      </div>
+      <p>
+        At the Birmingham show, a phone that decoded perfectly was silently discarded for the
+        whole run because it sat within 60px of an already-found neighbour: the detector's
+        phantom-suppression radius treating a real phone as a duplicate. The fix shipped the
+        following week: IDs that belong to connected phones are exempt from that dedup.
+      </p>
+      <p>
+        Tonight it earned its first live save. The log reads
+        <b>kept valid ID=20 conf=0.93 inside cluster of ID=17</b>: the Birmingham failure mode,
+        caught and kept. Without it, tonight would have been 18 of 19. Alongside it, phantom
+        rejection kept working: a spurious decode of ID 64 was rejected seven times and never
+        placed.
+      </p>
+    </div>
+  </section>
+
+  <section class="panel-strong">
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>Watch items</small>
+        <h2>Honest footnotes</h2>
+      </div>
+      <div class="stats-strip">
+        <div class="stat-row">
+          <div class="v">conf 0.22</div>
+          <div class="l">One low-confidence accept (phone 4). Its Birmingham cousin placed
+          within a pixel of truth; placement looked right in the effects. Watching at Leeds.</div>
+        </div>
+        <div class="stat-row">
+          <div class="v">Lock screens</div>
+          <div class="l">The two mid-run drops point at screens locking, not detection. The wake
+          lock asks; iOS does not always oblige. The real open problem at bigger scale.</div>
+        </div>
+        <div class="stat-row">
+          <div class="v">One crash</div>
+          <div class="l">The GUI wedged on a projector unplug (a GLFW display-topology
+          limitation, not detection). Full recovery in ~90s including a 20/20 re-detection.
+          Runbook updated: displays connect before start.</div>
+        </div>
+        <div class="stat-row">
+          <div class="v">19 phones</div>
+          <div class="l">The smallest crowd yet. Leeds in September is the test of whether 100%
+          survives at Birmingham-and-beyond scale, before Brighton Dome.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrapper narrow full-text">
+      <div class="section-head">
+        <small>Thanks</small>
+        <h2>MaccTech - thank you</h2>
+      </div>
+      <p>
+        A brilliant, curious room at Blue Beck. Nineteen phones, one camera, and the first time
+        the detector has ever run out of things to find.
+      </p>
+    </div>
+  </section>
+
+  <script>
+    const ttd = [
+      [16, 13.57], [19, 14.02], [21, 14.16], [7, 15.75], [3, 16.51],
+      [10, 17.32], [4, 19.55], [17, 21.71], [15, 22.34], [14, 22.34],
+      [22, 22.99], [20, 23.11], [11, 23.53], [1, 23.73], [9, 23.95],
+      [18, 24.69], [8, 25.58], [2, 25.59], [5, 25.70],
+    ];
+    const bars = document.getElementById('bars');
+    for (const [id, t] of ttd) {
+      const row = document.createElement('div');
+      row.className = 'bar-row';
+      row.innerHTML = '<span class="id">phone ' + id + '</span>' +
+        '<div class="bar" style="width:' + ((t / 26) * 66) + '%"></div>' +
+        '<span class="t">' + t.toFixed(1) + 's</span>';
+      bars.appendChild(row);
+    }
+  </script>
+
+  <div class="attribution">
+    Built and designed by
+    <a href="https://www.adamdavis.co.uk" target="_blank">
+      Adam Davis
+    </a>
+  </div>
+
+  <script>
+    const sections = document.querySelectorAll("section");
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+        }
+      });
+    }, { threshold: 0.15 });
+    sections.forEach(section => observer.observe(section));
+  </script>
+
+</body>
+
+</html>
