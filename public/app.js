@@ -262,8 +262,11 @@ function setView(name) {
   for (const [k, el] of Object.entries(CARDS)) {
     el.style.display = k === active ? CARD_DISPLAY[k] : "none";
   }
-  // Connection chrome only where it can't pollute the show
-  statusBar.style.display = (name === "waiting" || name === "located") ? "flex" : "none";
+  // Connection chrome only where it can't pollute the show. Before the
+  // first-ever connect the idle card also carries it, so a fresh load
+  // reads as "connecting" rather than a blank screen.
+  statusBar.style.display =
+    (name === "waiting" || name === "located" || !everConnected) ? "flex" : "none";
 }
 
 // ------------------------------------------------------------------ //
@@ -273,6 +276,13 @@ function setView(name) {
 // iOS Safari permits pinch zoom even with user-scalable=no; block its
 // proprietary gesture events so the page can never end up stuck zoomed.
 // (Double-tap zoom is already suppressed by touch-action: manipulation.)
+// Pre-connect boot state: the idle card is pure black by design, but a
+// fresh page-load should never look broken - show the status bar in its
+// connecting state until the first socket opens.
+waitingId.textContent = "Connecting…";
+statusBar.classList.add("warn");
+statusBar.style.display = "flex";
+
 ["gesturestart", "gesturechange", "gestureend"].forEach((t) =>
   document.addEventListener(t, (e) => e.preventDefault())
 );
@@ -443,6 +453,7 @@ const gameWinnerPhone   = document.getElementById("gameWinnerPhone");
 const gameWinnerTime    = document.getElementById("gameWinnerTime");
 
 let ws              = null;
+let everConnected   = false;  // false until the first successful WS open this page-load
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
 let reloadTimer     = null;  // hard deadline for handing over to the holding page
@@ -556,6 +567,7 @@ function connect() {
 
   ws.onopen = () => {
     clearTimeout(connectWatchdog);
+    everConnected = true;
     reconnectDelay = 500;
     disconnectedSince = 0;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
@@ -577,13 +589,14 @@ function connect() {
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     stopSync();
     // Pre-show drops keep the waiting card up with an amber status bar
-    // instead of cutting to black; every other view blacks out as before.
-    if (view !== "waiting") {
+    // instead of cutting to black; a page that has never connected keeps
+    // its Connecting state; every other view blacks out as before.
+    if (view !== "waiting" && everConnected) {
       goBlack();
     } else {
       // Text change re-centres the bar and moves the dot; nudge a
       // repaint in the same frame so iOS retires the old layer.
-      waitingId.textContent = "Reconnecting…";
+      waitingId.textContent = everConnected ? "Reconnecting…" : "Connecting…";
       statusBar.classList.add("warn");
       statusBar.style.transform = "translateX(-50%) translateZ(0)";
     }
