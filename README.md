@@ -527,6 +527,13 @@ The dashboard serves whatever was pasted last — re-paste after editing the fil
 4. Put the account authtoken in the default agent config (`ngrok config add-authtoken …`).
    Nothing to configure for the internal endpoint — the agent claims it on start.
 
+**Region:** the domain's "Region & IP resolution" is pinned to **Europe** in the dashboard
+(Jul 2026). It defaults to global latency-aware DNS, but `pixelmesh.show` reaches ngrok via a
+Namecheap ALIAS record, and ALIAS flattening resolves from Namecheap's US servers - so "global"
+answered with US PoPs and every audience message crossed the Atlantic twice (RTT p50 273ms at
+500 clients; 55ms once pinned EU). If the domain setup ever changes, re-verify with
+`python3 tools/load_test.py --host pixelmesh.show --wss`.
+
 **Verifying the three states** (from `run.sh`, `s` starts everything):
 
 - Nothing running → `pixelmesh.show` shows the holding page (served at the edge).
