@@ -14,6 +14,9 @@
 <meta http-equiv="Expires" content="0">
 <title>pixelmesh</title>
 <link rel="icon" href="data:,">
+<!-- Start the app.js fetch during HTML parse instead of after it; the
+     cache-bust token is stamped by the server like the script tag's -->
+<link rel="preload" href="/public/app.js?v=__CACHE_BUST__" as="script">
 
 <style>
 *, *::before, *::after { box-sizing: border-box; }
