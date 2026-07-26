@@ -49,7 +49,8 @@ class Stats:
 
 async def client(i: int, args, stats: Stats, storm_gate: asyncio.Event,
                  storm_members: set, stop: asyncio.Event):
-    uri = f"ws://{args.host}/ws"
+    scheme = "wss" if args.wss else "ws"
+    uri = f"{scheme}://{args.host}/ws"
     device_id = f"loadtest-{i:04d}"
     t0 = time.time()
     try:
@@ -146,7 +147,10 @@ async def monitor_server(samples: list, stop: asyncio.Event):
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clients", type=int, default=500)
-    ap.add_argument("--host", default="127.0.0.1:8000")
+    ap.add_argument("--host", default="127.0.0.1:8000",
+                    help="host[:port], or a bare domain with --wss")
+    ap.add_argument("--wss", action="store_true",
+                    help="connect wss:// (TLS) - use for the public domain")
     ap.add_argument("--ramp", type=int, default=100, help="new clients per second")
     ap.add_argument("--hold", type=int, default=45, help="seconds at full load")
     args = ap.parse_args()
@@ -168,7 +172,7 @@ async def main():
 
     mon = asyncio.create_task(monitor_server(samples, stop))
     print(f"ramping {args.clients} clients at {args.ramp}/s "
-          f"against ws://{args.host}/ws ...")
+          f"against {'wss' if args.wss else 'ws'}://{args.host}/ws ...")
     tasks = []
     t_start = time.time()
     for i in range(args.clients):
@@ -206,7 +210,8 @@ async def main():
            if stats.like_recv_ts else [])
 
     print("\n" + "=" * 58)
-    print(f"  LOAD TEST - {n} clients @ ws://{args.host}")
+    print(f"  LOAD TEST - {n} clients @ "
+          f"{'wss' if args.wss else 'ws'}://{args.host}")
     print("=" * 58)
     print(f"  connected+assigned   {ok}/{n}  "
           f"(fail={stats.connect_fail} timeout={stats.assign_timeout} "
