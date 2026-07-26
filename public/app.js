@@ -170,6 +170,32 @@ waitingId.textContent = "Connecting…";
 statusBar.classList.add("warn");
 statusBar.style.display = "flex";
 
+// Liveness watchdog, outside the WS event flow entirely. The 8s
+// handover lives inside onclose, which never fires if the constructor
+// hung, the assign never arrived, or iOS froze the page's timers in the
+// background and resurrected it with a dead socket. Wall-clock checks
+// catch all of those; the reload lands on the cloud endpoint, which
+// serves whichever of show or holding page is right.
+const bootTime = Date.now();
+function _livenessCheck() {
+  if (document.hidden) return;
+  if (view !== "idle") return;      // any assigned/show state is alive
+  const now = Date.now();
+  if (!everConnected) {
+    if (now - bootTime > 15000) location.reload();
+  } else if (ws && ws.readyState === WebSocket.OPEN) {
+    // open socket but never left idle: assign lost somewhere
+    if (lastOpenTs && now - lastOpenTs > 10000) location.reload();
+  } else if (disconnectedSince && now - disconnectedSince > 10000) {
+    // the 8s reloadTimer should have fired; frozen timers backstop
+    location.reload();
+  }
+}
+setInterval(_livenessCheck, 3000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) _livenessCheck();
+});
+
 ["gesturestart", "gesturechange", "gestureend"].forEach((t) =>
   document.addEventListener(t, (e) => e.preventDefault())
 );
@@ -341,6 +367,7 @@ const gameWinnerTime    = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let everConnected   = false;  // false until the first successful WS open this page-load
+let lastOpenTs      = 0;      // wall-clock of the most recent successful WS open
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
 let reloadTimer     = null;  // hard deadline for handing over to the holding page
@@ -444,7 +471,16 @@ function connect() {
   if (ws) { try { ws.close(); } catch {} ws = null; }
 
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  // Constructor can throw synchronously in some in-app browsers; without
+  // this the page would sit on Connecting forever with no retry loop.
+  try {
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+  } catch (e) {
+    ws = null;
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+    return;
+  }
 
   connectWatchdog = setTimeout(() => {
     if (ws && ws.readyState === WebSocket.CONNECTING) {
@@ -455,6 +491,7 @@ function connect() {
   ws.onopen = () => {
     clearTimeout(connectWatchdog);
     everConnected = true;
+    lastOpenTs = Date.now();
     reconnectDelay = 500;
     disconnectedSince = 0;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
