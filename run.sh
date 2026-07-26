@@ -174,6 +174,12 @@ start_all() {
     sleep 0.5; (( i++ ))
   done
   PIXELMESH_LAUNCHED=1 $PYTHON controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
+  local ctl_pid=$!
+
+  # No sleep, no display dim, no idle nap while the show runs. Tied to
+  # the controller pid, so it exits with the controller - nothing to
+  # clean up on stop/reload.
+  caffeinate -dis -w "$ctl_pid" &
 
   LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"
