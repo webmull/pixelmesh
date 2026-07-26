@@ -274,8 +274,8 @@ html, body {
   /* Centre the like cluster in the free space between the quote box
      and the status bar (paired with #likeHint's margin-bottom) */
   margin-top: auto;
-  width: 84px;
-  height: 84px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
   background: rgba(255,255,255,0.05);
   border: 1px solid rgba(255,255,255,0.18);
@@ -284,12 +284,29 @@ html, body {
   align-items: center;
   justify-content: center;
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
   pointer-events: auto;
   position: relative;
   z-index: 2;
+  transition: background 80ms linear;
 }
-#likeBtn:active { transform: scale(0.85); background: rgba(255,255,255,0.12); }
-#likeBtn svg { display: block; width: 36px; height: 36px; }
+/* Generous invisible hit area beyond the visible circle */
+#likeBtn::after {
+  content: "";
+  position: absolute;
+  inset: -18px;
+  border-radius: 50%;
+}
+#likeBtn:active { transform: scale(0.9); }
+#likeBtn svg { display: block; width: 42px; height: 42px; }
+#likeBtn svg path { transition: fill 80ms linear; }
+
+/* Tap = a screen blink: the circle flashes white, thumb goes dark */
+#likeBtn.flash {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+#likeBtn.flash svg path { fill: #020204; }
 
 @keyframes like-pop {
   0%   { transform: scale(1); }
@@ -319,10 +336,34 @@ html, body {
 .fly-like {
   position: fixed;
   pointer-events: none;
-  width: 20px;
-  height: 20px;
-  animation: fly-up 1.8s ease-out forwards;
+  width: 22px;
+  height: 22px;
+  animation: fly-up 1.4s ease-out forwards;
   z-index: 9999;
+}
+
+.fly-pixel {
+  position: fixed;
+  pointer-events: none;
+  background: #ffffff;
+  border-radius: 1px;
+  animation: pixel-scatter 0.9s ease-out forwards;
+  z-index: 9999;
+}
+
+@keyframes pixel-scatter {
+  0%   { opacity: 0.95; transform: translate(0, 0); }
+  100% { opacity: 0;    transform: translate(var(--dx), var(--dy)); }
+}
+
+@keyframes count-pop {
+  0%   { transform: scale(1); }
+  35%  { transform: scale(1.18); }
+  100% { transform: scale(1); }
+}
+
+#likeCount.count-pop {
+  animation: count-pop 0.28s ease-out;
 }
 
 @keyframes fly-up {
