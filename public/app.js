@@ -30,7 +30,6 @@ function encodeId(blinkId) {
 
 const waitingId      = document.getElementById("waitingId");
 const statusBar      = document.getElementById("statusBar");
-const crowdMsg       = document.getElementById("crowdMsg");
 const likeBtn        = document.getElementById("likeBtn");
 const likeCount      = document.getElementById("likeCount");
 const positionCanvas = document.getElementById("positionCanvas");
@@ -78,118 +77,6 @@ likeBtn.addEventListener("pointerdown", (e) => {
 // ------------------------------------------------------------------ //
 // Crowd count + rotating messages
 // ------------------------------------------------------------------ //
-
-let _crowdCount = 0;
-let _msgIndex   = 0;
-let _msgDeck    = [];   // shuffled queue — exhausted before any message repeats
-let _msgTimer   = null;
-
-// Combined pool — functions require a crowd count, strings always show.
-// When alone, only strings are picked; when others are present the full
-// pool is used so facts and crowd-count messages interleave naturally.
-const _msgs = [
-  // crowd-count messages
-  n => n === 1 ? `You're amongst 1 other beautiful person`           : `You're amongst ${n} other beautiful people`,
-  n => n === 1 ? `1 other phone in the room`                         : `${n} phones in the room and counting`,
-  n => n === 1 ? `1 stranger about to become one screen with you`    : `${n} strangers about to become one screen`,
-  n => n === 1 ? `Joined by 1 other. The more the merrier`          : `Joined by ${n} others. The more the merrier`,
-  n => n === 1 ? `1 other person hasn't closed this screen either`   : `${n} people haven't closed this screen either`,
-  n => n === 1 ? `Just you and 1 other so far`                       : `${n} people and the show hasn't even started`,
-  n => n === 1 ? `1 other pixel in the room`                         : `${n} pixels and counting`,
-  n => n === 1 ? `You're not alone. 1 other is here`                : `You're one of ${n + 1}. Make it count`,
-  n => n === 1 ? `1 other person keeping their screen on`            : `${n} people all staring at a black screen. Trust the process`,
-  n => n === 1 ? `Almost a crowd`                                    : `${n} phones. 1 show. Let's go`,
-  n => n === 1 ? `You and 1 other are part of something`             : `${n} strangers, one room, one moment`,
-  n => n === 1 ? `1 other person turned their brightness up`         : `${n} people who actually read the instructions`,
-  n => n === 1 ? `You and 1 other are early`                         : `${n} people here before the magic starts`,
-  n => n === 1 ? `1 other phone, fully charged hopefully`            : `${n} phones. Please be charged`,
-  n => n === 1 ? `You're basically the warm-up act`                  : `${n} people warming up the room`,
-  n => n === 1 ? `Just 1 other. This is either intimate or awkward` : `${n} people who didn't sit at the back`,
-  n => n === 1 ? `1 other person wondering what this is`             : `${n} people wondering what this is`,
-  n => n === 1 ? `You and 1 other. The beginning of something`       : `${n} screens about to become one`,
-  n => n === 1 ? `1 other person trusting the process`               : `${n} people trusting the process`,
-  n => n === 1 ? `You're patient. So is 1 other person`              : `${n} patient people`,
-  n => n === 1 ? `1 other person in the dark with you`               : `${n} people in the dark with you`,
-  n => n === 1 ? `You and 1 other are already part of the show`      : `You and ${n} others are already part of the show`,
-  n => n === 1 ? `The person next to you is also staring at a phone` : `Everyone around you is staring at their phone. For once, that's correct`,
-  n => n === 1 ? `1 other person hasn't put their phone away`        : `${n} people who didn't put their phone away`,
-  n => n === 1 ? `You're a pixel. So is 1 other person`              : `You're all pixels now`,
-  n => n === 1 ? `1 other person is also being patient`              : `${n} people. 0 of them know what's about to happen`,
-  n => n === 1 ? `Just you, 1 other, and a black screen`             : `${n} phones pointed at the ceiling and the show hasn't started`,
-  n => n === 1 ? `1 other person is already doing better than most`  : `${n} people already doing better than the ones who closed this`,
-  n => n === 1 ? `You and 1 other are the early ones`                : `${n} people in the room. Only you lot connected`,
-  n => n === 1 ? `Hold tight. 1 other is doing the same`             : `Hold tight. ${n} others are doing the same`,
-  // always-shown messages
-  `You're the first one here`,
-  `Others will join soon`,
-  `Keep this screen open`,
-  `You're early. That's a good thing`,
-  `The room is filling up`,
-  `A group of flamingos is called a flamboyance`,
-  `Cleopatra lived closer in time to the Moon landing than to the pyramids being built`,
-  `Otters hold hands while sleeping so they don't drift apart`,
-  `A day on Venus is longer than a year on Venus`,
-  `Oxford University is older than the Aztec Empire`,
-  `Wombats produce cube-shaped poo`,
-  `The blob of toothpaste on your brush is called a nurdle`,
-  `Bananas are slightly radioactive`,
-  `A group of owls is called a parliament`,
-  `Honey never goes off. They found 3000-year-old honey in Egyptian tombs and it was fine`,
-  `Crows can recognise human faces and hold grudges`,
-  `There are more possible games of chess than atoms in the observable universe`,
-  `Penguins propose to their mates with a pebble`,
-  `The inventor of the Pringles can is buried in one`,
-];
-
-function _shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-function _eligibleIndices() {
-  return _crowdCount >= 1
-    ? _msgs.map((_, i) => i)
-    : _msgs.reduce((a, v, i) => (typeof v === 'string' ? [...a, i] : a), []);
-}
-
-function _renderMsg(idx) {
-  const item = _msgs[idx];
-  return typeof item === 'function' ? item(_crowdCount) : item;
-}
-
-function _advanceMsgIndex() {
-  const eligible = _eligibleIndices();
-  // Drop any queued indices that are no longer eligible (e.g. crowd left)
-  _msgDeck = _msgDeck.filter(i => eligible.includes(i));
-  // Refill and shuffle when deck is exhausted, never repeat current
-  if (_msgDeck.length === 0) {
-    _msgDeck = _shuffle(eligible.filter(i => i !== _msgIndex));
-  }
-  _msgIndex = _msgDeck.shift();
-}
-
-function _rotateCrowdMsg() {
-  _advanceMsgIndex();
-  crowdMsg.textContent = _renderMsg(_msgIndex);
-}
-
-function _setCrowdCount(n) {
-  _crowdCount = n;
-  crowdMsg.textContent = _renderMsg(_msgIndex);
-  if (!_msgTimer) _msgTimer = setInterval(_rotateCrowdMsg, 5000);
-}
-
-function _startMsgTimer() {
-  if (_msgTimer) { crowdMsg.textContent = _renderMsg(_msgIndex); return; }
-  // Start at a random string (fact) entry
-  const stringIndices = _msgs.reduce((a, v, i) => (typeof v === 'string' ? [...a, i] : a), []);
-  _msgIndex = stringIndices[Math.floor(Math.random() * stringIndices.length)];
-  crowdMsg.textContent = _renderMsg(_msgIndex);
-  _msgTimer = setInterval(_rotateCrowdMsg, 5000);
-}
 
 const projCanvas   = document.getElementById("projectionCanvas");
 const effectCanvas = document.getElementById("effectCanvas");
@@ -659,7 +546,6 @@ function handleMessage(msg) {
     } else {
       waitingId.textContent = `Connected · Phone ID ${myBlinkId + 1}`;
       _statusBarOk(true);
-      _startMsgTimer();
       requestWakeLock();
       setView("waiting");
     }
@@ -788,11 +674,6 @@ function handleMessage(msg) {
     return;
   }
 
-  if (msg.type === "crowd_count") {
-    _setCrowdCount(msg.count - 1); // subtract self
-    return;
-  }
-
   if (msg.type === "effect_stop") {
     currentEffect = null;
     return;
@@ -804,7 +685,6 @@ function handleMessage(msg) {
     _cleanupGame();
     waitingId.textContent = myBlinkId !== null ? `Connected · Phone ID ${myBlinkId + 1}` : "Connecting…";
     statusBar.classList.toggle("warn", myBlinkId === null);
-    _startMsgTimer();
     requestWakeLock();
     setView("waiting");
     return;
