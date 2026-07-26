@@ -177,10 +177,17 @@ statusBar.style.display = "flex";
 // catch all of those; the reload lands on the cloud endpoint, which
 // serves whichever of show or holding page is right.
 const bootTime = Date.now();
+let lastVisibleTs = Date.now();
 function _livenessCheck() {
   if (document.hidden) return;
   if (view !== "idle") return;      // any assigned/show state is alive
   const now = Date.now();
+  // Grace after returning to foreground: frozen clocks otherwise read
+  // as instantly over-limit and reload a socket that is mid-reconnect.
+  if (now - lastVisibleTs < 5000) return;
+  // A handshake in flight is never stuck: the 3s connect watchdog
+  // closes hung CONNECTING sockets, so this state is always young.
+  if (ws && ws.readyState === WebSocket.CONNECTING) return;
   if (!everConnected) {
     if (now - bootTime > 15000) location.reload();
   } else if (ws && ws.readyState === WebSocket.OPEN) {
@@ -193,7 +200,11 @@ function _livenessCheck() {
 }
 setInterval(_livenessCheck, 3000);
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) _livenessCheck();
+  if (document.hidden) return;
+  lastVisibleTs = Date.now();
+  // Restart the disconnect clock too: it may have aged while frozen,
+  // and the reconnect deserves its full window in the foreground.
+  if (disconnectedSince) disconnectedSince = Date.now();
 });
 
 ["gesturestart", "gesturechange", "gestureend"].forEach((t) =>
@@ -532,7 +543,11 @@ function connect() {
       // localStorage, so an early handover costs nothing. A timer
       // (not an onclose check) so backoff gaps can't stretch the wait.
       reloadTimer = setTimeout(() => {
-        if (!ws || ws.readyState !== WebSocket.OPEN) location.reload();
+        // CONNECTING is a live handshake (watchdog-bounded), not stuck;
+        // the liveness interval backstops if it dies.
+        if (ws && (ws.readyState === WebSocket.OPEN ||
+                   ws.readyState === WebSocket.CONNECTING)) return;
+        location.reload();
       }, 8000);
     }
     setTimeout(connect, reconnectDelay);
