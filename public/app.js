@@ -43,13 +43,15 @@ function _spawnFlyLikes() {
   const rect = likeBtn.getBoundingClientRect();
   const cx   = rect.left + rect.width  / 2;
   const cy   = rect.top  + rect.height / 2;
-  const SIZE = 20;
   const NS   = "http://www.w3.org/2000/svg";
+
+  // One thumb up the middle...
+  const SIZE = 22;
   const wrap = document.createElement("div");
   wrap.className = "fly-like";
   wrap.style.left = (cx - SIZE / 2) + "px";
   wrap.style.top  = (cy - SIZE / 2) + "px";
-  wrap.style.setProperty("--dx", ((Math.random() - 0.5) * 60) + "px");
+  wrap.style.setProperty("--dx", ((Math.random() - 0.5) * 50) + "px");
   const svg  = document.createElementNS(NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("width",  SIZE);
@@ -61,6 +63,21 @@ function _spawnFlyLikes() {
   wrap.appendChild(svg);
   document.body.appendChild(wrap);
   wrap.addEventListener("animationend", () => wrap.remove());
+
+  // ...escorted by a burst of pixels (the brand's square-dot motif)
+  for (let i = 0; i < 5; i++) {
+    const px = document.createElement("div");
+    px.className = "fly-pixel";
+    const s = 5 + Math.random() * 4;
+    px.style.width = px.style.height = s + "px";
+    px.style.left = (cx - s / 2 + (Math.random() - 0.5) * rect.width * 0.7) + "px";
+    px.style.top  = (cy - s / 2 + (Math.random() - 0.5) * 16) + "px";
+    px.style.setProperty("--dx", ((Math.random() - 0.5) * 110) + "px");
+    px.style.setProperty("--dy", (-(70 + Math.random() * 90)) + "px");
+    px.style.animationDelay = (Math.random() * 90) + "ms";
+    document.body.appendChild(px);
+    px.addEventListener("animationend", () => px.remove());
+  }
 }
 
 likeBtn.addEventListener("pointerdown", (e) => {
@@ -70,6 +87,9 @@ likeBtn.addEventListener("pointerdown", (e) => {
   likeBtn.classList.remove("popped");
   void likeBtn.offsetWidth;
   likeBtn.classList.add("popped");
+  // Screen-blink flash: white circle, dark thumb, back in 140ms
+  likeBtn.classList.add("flash");
+  setTimeout(() => likeBtn.classList.remove("flash"), 140);
   _spawnFlyLikes(e.clientX, e.clientY);
 });
 
@@ -728,6 +748,9 @@ function handleMessage(msg) {
 
   if (msg.type === "like_count") {
     likeCount.textContent = msg.count === 1 ? "1 like" : `${msg.count} likes`;
+    likeCount.classList.remove("count-pop");
+    void likeCount.offsetWidth;
+    likeCount.classList.add("count-pop");
     return;
   }
 
