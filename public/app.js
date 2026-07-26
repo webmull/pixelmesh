@@ -573,12 +573,17 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "server_hello") {
-    const stored = localStorage.getItem("pm_build_id");
-    localStorage.setItem("pm_build_id", msg.build_id);
-    if (stored !== null && stored !== msg.build_id) {
+    // Compare against the build THIS PAGE is actually running (embedded
+    // in the script tag's cache-bust param), not localStorage history.
+    // The old localStorage comparison reloaded freshly-loaded, already
+    // current pages after every deploy: connect, flash, pointless
+    // reload, double connect. Now only genuinely stale parked pages
+    // reload; a fresh page always matches and stays put.
+    const tag = document.querySelector('script[src*="app.js"]');
+    const myBuild = tag && (tag.src.match(/[?&]v=([^&]+)/) || [])[1];
+    if (myBuild && msg.build_id && myBuild !== msg.build_id) {
       document.body.style.background = "#00e676";
       setTimeout(() => location.reload(), 200);
-      return;
     }
     return;
   }
