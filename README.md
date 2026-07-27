@@ -250,7 +250,8 @@ per-run calibration logs and debug captures, every show leaves a full paper trai
 
 ### Foot controller (BOSS FS-1-WL)
 
-A wireless three-switch pedal for hands-free operation: switch 1 toggles detection, switch 2
+A wireless three-switch pedal for hands-free operation: switch 1 starts a fresh detection run
+(reset, then detect; stomp again to stop), switch 2
 steps through the effects (wave, gradient, pulse, rainbow, sparkle, sections), switch 3 toggles
 video recording. One-time setup: pair via Audio MIDI Setup → MIDI Studio →
 Bluetooth, then run `python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's

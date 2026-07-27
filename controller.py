@@ -2047,9 +2047,22 @@ def main():
             state.syncing = on
         post_json_async("/admin/sync", {"sync": on})
 
+    def _midi_toggle_detection():
+        # Pedal semantics: switch 1 starting detection means "fresh run" -
+        # reset first (clears positions server-side and locally), settle so
+        # the async /admin/reset lands before /admin/detect, then start.
+        # Stomping while detecting just stops, no reset. Keyboard D keeps
+        # plain toggle semantics.
+        with state.lock:
+            detecting = state.detecting
+        if not detecting:
+            reset_server()
+            time.sleep(0.4)
+        toggle_detection()
+
     midi.midi.start(
         trigger_effect = lambda name: ui_queue.put(("_midi_effect", name)),
-        toggle_detect  = toggle_detection,
+        toggle_detect  = _midi_toggle_detection,
         set_iso        = lambda v: elgato.set_iso(v),
         set_recording  = _midi_set_recording,
         set_overlays   = _midi_set_overlays,
