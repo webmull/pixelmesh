@@ -1936,7 +1936,7 @@ def main():
         post_json_async("/admin/sync", {"sync": on})
 
     midi.midi.start(
-        trigger_effect = None,                       # wired up later
+        trigger_effect = lambda name: ui_queue.put(("_midi_effect", name)),
         toggle_detect  = toggle_detection,
         set_iso        = lambda v: elgato.set_iso(v),
         set_recording  = _midi_set_recording,
@@ -2160,6 +2160,14 @@ def main():
                                     dpg.bind_item_theme(btn, "fx_active_theme")
                                 else:
                                     dpg.bind_item_theme(btn, None)
+                        continue
+                    if tag == "_midi_effect":
+                        # Pedal-fired effect: same UI-thread constraint as
+                        # _refire_effect (trigger_effect reads dpg values).
+                        try:
+                            effects.trigger_effect(value)
+                        except Exception as e:
+                            log.warning(f"[effect] pedal fire failed: {e}")
                         continue
                     if tag == "_refire_effect":
                         # Debounced re-fire from effects._on_settings_changed
