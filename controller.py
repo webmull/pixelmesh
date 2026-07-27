@@ -1714,7 +1714,7 @@ def setup_ui(holder: dict):
     if _os.path.exists(_FONT_PATH):
         with dpg.font_registry():
             _ui_font  = dpg.add_font(_FONT_PATH, 32)
-            _tab_font = dpg.add_font(_FONT_PATH, 42)   # tab labels: effective 21px
+            _tab_font = dpg.add_font(_FONT_PATH, 52)   # tab labels: effective 26px
         dpg.bind_font(_ui_font)
         dpg.set_global_font_scale(0.5)
 
@@ -1819,6 +1819,10 @@ def setup_ui(holder: dict):
                 # pinned to the window bottom with dead space above it.
                 with dpg.child_window(auto_resize_y=True, border=False):
                     with dpg.tab_bar(tag="main_tabs"):
+                        # Invisible leading pad approximates centred tabs
+                        # (ImGui tab bars are inherently left-aligned)
+                        dpg.add_tab_button(label="  ", tag="tab_pad",
+                                           no_reorder=True)
 
                         # ---- SCENE tab (default) ----
                         with dpg.tab(label="SCENE"):
@@ -1946,6 +1950,21 @@ def setup_ui(holder: dict):
                                             width=30,
                                         )
 
+
+                                # ---- MIDI panel ----
+                                dpg.add_spacer(height=8)
+                                dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                                dpg.add_separator()
+                                # Newest command big and bright, history dim below it,
+                                # boxed so the panel reads as a unit at a glance.
+                                with dpg.child_window(height=150, border=True):
+                                    dpg.add_spacer(height=2)
+                                    dpg.add_text("no commands yet", tag="midi_last_text",
+                                                 color=(255, 200, 50), indent=6, wrap=290)
+                                    dpg.add_separator()
+                                    dpg.add_text("", tag="midi_history_text",
+                                                 color=(130, 130, 130), indent=6, wrap=290)
+
                         # ---- GAME tab ----
                         with dpg.tab(label="GAME"):
                             with dpg.group(tag="game_body"):
@@ -1962,19 +1981,6 @@ def setup_ui(holder: dict):
                                                callback=heart_toggle,
                                                indent=_PAD, width=-(_PAD + 1))
 
-                # ---- MIDI panel (below the tabs, always visible) ----
-                dpg.add_spacer(height=8)
-                dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
-                dpg.add_separator()
-                # Newest command big and bright, history dim below it,
-                # boxed so the panel reads as a unit at a glance.
-                with dpg.child_window(height=150, border=True):
-                    dpg.add_spacer(height=2)
-                    dpg.add_text("no commands yet", tag="midi_last_text",
-                                 color=(255, 200, 50), indent=6, wrap=290)
-                    dpg.add_separator()
-                    dpg.add_text("", tag="midi_history_text",
-                                 color=(130, 130, 130), indent=6, wrap=290)
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
@@ -2001,10 +2007,27 @@ def setup_ui(holder: dict):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
+    # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
+    # attempts never showed) - set it through AppKit instead.
+    try:
+        from AppKit import NSApplication, NSImage
+        _icon_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                   "public", "app_icon.png")
+        _icon = NSImage.alloc().initWithContentsOfFile_(_icon_path)
+        if _icon:
+            NSApplication.sharedApplication().setApplicationIconImage_(_icon)
+    except Exception as e:
+        log.info(f"[gui] dock icon not set: {e}")
     # Tab labels get the larger face; each tab's body group rebinds the
     # normal font so content is unaffected (item fonts cascade in DPG).
     if _tab_font is not None:
         dpg.bind_item_font("main_tabs", _tab_font)
+        with dpg.theme() as _pad_theme:
+            with dpg.theme_component(dpg.mvTabButton):
+                dpg.add_theme_color(dpg.mvThemeCol_Tab,        (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (0, 0, 0, 0))
+                dpg.add_theme_color(dpg.mvThemeCol_TabActive,  (0, 0, 0, 0))
+        dpg.bind_item_theme("tab_pad", _pad_theme)
         for _body in ("scene_body", "run_body", "game_body"):
             if dpg.does_item_exist(_body):
                 dpg.bind_item_font(_body, _ui_font)
