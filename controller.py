@@ -1710,6 +1710,17 @@ def setup_ui(holder: dict):
     game.init(state, set_status, post_json, fetch_json, _render_order, ui_queue=ui_queue)
     dpg.create_context()
 
+    # Real font instead of the 13px bitmap default: Verdana was designed
+    # for screen legibility at small sizes. Loaded at 2x and drawn at
+    # 0.5 global scale so glyphs rasterise retina-crisp at an effective
+    # 16px (up from 13).
+    _FONT_PATH = "/System/Library/Fonts/Supplemental/Verdana.ttf"
+    if _os.path.exists(_FONT_PATH):
+        with dpg.font_registry():
+            _ui_font = dpg.add_font(_FONT_PATH, 32)
+        dpg.bind_font(_ui_font)
+        dpg.set_global_font_scale(0.5)
+
     # Global dark theme: pure-black chrome matching the brand (#020204).
     # Interactive fills stay a step lighter so controls keep affordance.
     with dpg.theme() as _global_black:
