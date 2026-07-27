@@ -1710,6 +1710,37 @@ def setup_ui(holder: dict):
     game.init(state, set_status, post_json, fetch_json, _render_order, ui_queue=ui_queue)
     dpg.create_context()
 
+    # Global dark theme: pure-black chrome matching the brand (#020204).
+    # Interactive fills stay a step lighter so controls keep affordance.
+    with dpg.theme() as _global_black:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg,        (2, 2, 4, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg,         (2, 2, 4, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg,         (8, 8, 12, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_MenuBarBg,       (2, 2, 4, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg,         (2, 2, 4, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive,   (8, 8, 12, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg,         (18, 18, 24, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered,  (30, 30, 38, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive,   (40, 40, 50, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Button,          (22, 22, 28, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered,   (38, 38, 48, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive,    (50, 50, 62, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Header,          (24, 24, 30, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered,   (36, 36, 45, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive,    (46, 46, 58, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Tab,             (10, 10, 14, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered,      (36, 36, 45, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive,       (28, 28, 36, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Border,          (255, 255, 255, 24))
+            dpg.add_theme_color(dpg.mvThemeCol_Separator,       (255, 255, 255, 24))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg,     (2, 2, 4, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab,   (40, 40, 50, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark,       (255, 200, 50, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab,      (120, 120, 135, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive,(255, 200, 50, 255))
+    dpg.bind_theme(_global_black)
+
     # Theme for the currently active effect button
     with dpg.theme(tag="fx_active_theme"):
         with dpg.theme_component(dpg.mvButton):
