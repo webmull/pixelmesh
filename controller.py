@@ -1716,149 +1716,152 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
                 dpg.add_spacer(height=2)
 
-                with dpg.tab_bar():
+                # Tabs scroll in their own region so the MIDI panel
+                # below stays pinned and visible at any tab length.
+                with dpg.child_window(height=-200, border=False):
+                    with dpg.tab_bar():
 
-                    # ---- SCENE tab (default) ----
-                    with dpg.tab(label="SCENE"):
-                        dpg.add_spacer(height=4)
-                        dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        with dpg.group(horizontal=True):
-                            dpg.add_text("Status", indent=_PAD)
-                            dpg.add_text("[OFF]", tag="elgato_status",
-                                         color=(120, 120, 120))
-                        _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
-                        dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
-                        dpg.add_slider_int(label="##iso", tag="sld_iso",
-                                           default_value=elgato._DEFAULT_GAIN,
-                                           min_value=0, max_value=160,
-                                           callback=_set_iso,
-                                           indent=_PAD, width=-(_PAD + 1),
-                                           enabled=False)
-                        dpg.add_text("", tag="iso_hint_text",
-                                     color=(220, 180, 80), indent=_PAD,
-                                     wrap=300, show=False)
+                        # ---- SCENE tab (default) ----
+                        with dpg.tab(label="SCENE"):
+                            dpg.add_spacer(height=4)
+                            dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            with dpg.group(horizontal=True):
+                                dpg.add_text("Status", indent=_PAD)
+                                dpg.add_text("[OFF]", tag="elgato_status",
+                                             color=(120, 120, 120))
+                            _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
+                            dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
+                            dpg.add_slider_int(label="##iso", tag="sld_iso",
+                                               default_value=elgato._DEFAULT_GAIN,
+                                               min_value=0, max_value=160,
+                                               callback=_set_iso,
+                                               indent=_PAD, width=-(_PAD + 1),
+                                               enabled=False)
+                            dpg.add_text("", tag="iso_hint_text",
+                                         color=(220, 180, 80), indent=_PAD,
+                                         wrap=300, show=False)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("PROJECTION", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        _chk("Flip Projection  [F]", "chk_flip_projection",
-                             toggle_flip_projection)
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("PROJECTION", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            _chk("Flip Projection  [F]", "chk_flip_projection",
+                                 toggle_flip_projection)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        with dpg.table(header_row=False, indent=_PAD,
-                                       width=-(_PAD + 1), pad_outerX=True):
-                            dpg.add_table_column()
-                            dpg.add_table_column()
-                            with dpg.table_row():
-                                dpg.add_text("Top %",    color=(180, 180, 180))
-                                dpg.add_text("Bottom %", color=(180, 180, 180))
-                            with dpg.table_row():
-                                dpg.add_slider_int(label="##roi_top",    tag="sld_roi_top",
-                                                   default_value=0, min_value=0, max_value=60,
-                                                   callback=_set_roi, width=-1)
-                                dpg.add_slider_int(label="##roi_bottom", tag="sld_roi_bottom",
-                                                   default_value=0, min_value=0, max_value=60,
-                                                   callback=_set_roi, width=-1)
-                            with dpg.table_row():
-                                dpg.add_text("Left %",  color=(180, 180, 180))
-                                dpg.add_text("Right %", color=(180, 180, 180))
-                            with dpg.table_row():
-                                dpg.add_slider_int(label="##roi_left",  tag="sld_roi_left",
-                                                   default_value=0, min_value=0, max_value=60,
-                                                   callback=_set_roi, width=-1)
-                                dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
-                                                   default_value=0, min_value=0, max_value=60,
-                                                   callback=_set_roi, width=-1)
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            with dpg.table(header_row=False, indent=_PAD,
+                                           width=-(_PAD + 1), pad_outerX=True):
+                                dpg.add_table_column()
+                                dpg.add_table_column()
+                                with dpg.table_row():
+                                    dpg.add_text("Top %",    color=(180, 180, 180))
+                                    dpg.add_text("Bottom %", color=(180, 180, 180))
+                                with dpg.table_row():
+                                    dpg.add_slider_int(label="##roi_top",    tag="sld_roi_top",
+                                                       default_value=0, min_value=0, max_value=60,
+                                                       callback=_set_roi, width=-1)
+                                    dpg.add_slider_int(label="##roi_bottom", tag="sld_roi_bottom",
+                                                       default_value=0, min_value=0, max_value=60,
+                                                       callback=_set_roi, width=-1)
+                                with dpg.table_row():
+                                    dpg.add_text("Left %",  color=(180, 180, 180))
+                                    dpg.add_text("Right %", color=(180, 180, 180))
+                                with dpg.table_row():
+                                    dpg.add_slider_int(label="##roi_left",  tag="sld_roi_left",
+                                                       default_value=0, min_value=0, max_value=60,
+                                                       callback=_set_roi, width=-1)
+                                    dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
+                                                       default_value=0, min_value=0, max_value=60,
+                                                       callback=_set_roi, width=-1)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
-                        dpg.add_text("[REC]", tag="rec_status_text",
-                                     color=(220, 60, 60), indent=_PAD, show=False)
-                        dpg.add_text("", tag="rec_filename_text",
-                                     color=(150, 150, 150), indent=_PAD, show=False,
-                                     wrap=300)
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
+                            dpg.add_text("[REC]", tag="rec_status_text",
+                                         color=(220, 60, 60), indent=_PAD, show=False)
+                            dpg.add_text("", tag="rec_filename_text",
+                                         color=(150, 150, 150), indent=_PAD, show=False,
+                                         wrap=300)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        dpg.add_text("", tag="status_text",  indent=_PAD)
-                        dpg.add_text("", tag="clients_text", indent=_PAD)
-                        dpg.add_text("", tag="detect_text",  indent=_PAD)
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            dpg.add_text("", tag="status_text",  indent=_PAD)
+                            dpg.add_text("", tag="clients_text", indent=_PAD)
+                            dpg.add_text("", tag="detect_text",  indent=_PAD)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("SYNC STATS", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        dpg.add_text("", tag="sync_status_line",
-                                     color=(160, 160, 160), indent=_PAD)
-                        dpg.add_text("  #     RTT     Off    Smp",
-                                     color=(180, 180, 180), indent=_PAD)
-                        with dpg.child_window(tag="sync_stats_panel",
-                                              height=200, width=-(_PAD + 1),
-                                              indent=_PAD, border=False):
-                            dpg.add_text("No sync data - enable Clock Sync.",
-                                         tag="sync_no_data", color=(120, 120, 120))
-                            for i in range(32):
-                                dpg.add_text("", tag=f"sync_row_{i}", show=False)
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("SYNC STATS", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            dpg.add_text("", tag="sync_status_line",
+                                         color=(160, 160, 160), indent=_PAD)
+                            dpg.add_text("  #     RTT     Off    Smp",
+                                         color=(180, 180, 180), indent=_PAD)
+                            with dpg.child_window(tag="sync_stats_panel",
+                                                  height=200, width=-(_PAD + 1),
+                                                  indent=_PAD, border=False):
+                                dpg.add_text("No sync data - enable Clock Sync.",
+                                             tag="sync_no_data", color=(120, 120, 120))
+                                for i in range(32):
+                                    dpg.add_text("", tag=f"sync_row_{i}", show=False)
 
-                    # ---- RUN tab ----
-                    with dpg.tab(label="RUN"):
-                        dpg.add_spacer(height=4)
-                        dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
-                        _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
-                        _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
-                        _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
-                        _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
-                        _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
-                        dpg.add_spacer(height=4)
-                        dpg.add_button(label="Reset Server  [R]", callback=reset_server,
-                                       indent=_PAD, width=-(_PAD + 1))
+                        # ---- RUN tab ----
+                        with dpg.tab(label="RUN"):
+                            dpg.add_spacer(height=4)
+                            dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
+                            _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
+                            _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
+                            _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
+                            _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
+                            _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
+                            dpg.add_spacer(height=4)
+                            dpg.add_button(label="Reset Server  [R]", callback=reset_server,
+                                           indent=_PAD, width=-(_PAD + 1))
 
-                        dpg.add_spacer(height=8)
-                        effects.build_preview_widget(indent=_PAD)
-                        dpg.add_spacer(height=4)
-                        for _ename, _elabel in effects.EFFECT_LABELS.items():
-                            if _ename == "ripple":
-                                _btn_cb = lambda s, a, u: toggle_ripple_arm()
-                            elif _ename == "spotlight":
-                                _btn_cb = lambda s, a, u: toggle_spotlight_arm()
-                            else:
-                                _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
-                            with dpg.group(horizontal=True, indent=_PAD):
-                                dpg.add_button(
-                                    label=_elabel,
-                                    tag=f"fx_btn_{_ename}",
-                                    callback=_btn_cb,
-                                    user_data=_ename,
-                                    width=262,
-                                )
-                                dpg.add_button(
-                                    label="...",
-                                    callback=lambda s, a, u: effects._open_modal(u),
-                                    user_data=_ename,
-                                    width=30,
-                                )
+                            dpg.add_spacer(height=8)
+                            effects.build_preview_widget(indent=_PAD)
+                            dpg.add_spacer(height=4)
+                            for _ename, _elabel in effects.EFFECT_LABELS.items():
+                                if _ename == "ripple":
+                                    _btn_cb = lambda s, a, u: toggle_ripple_arm()
+                                elif _ename == "spotlight":
+                                    _btn_cb = lambda s, a, u: toggle_spotlight_arm()
+                                else:
+                                    _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
+                                with dpg.group(horizontal=True, indent=_PAD):
+                                    dpg.add_button(
+                                        label=_elabel,
+                                        tag=f"fx_btn_{_ename}",
+                                        callback=_btn_cb,
+                                        user_data=_ename,
+                                        width=262,
+                                    )
+                                    dpg.add_button(
+                                        label="...",
+                                        callback=lambda s, a, u: effects._open_modal(u),
+                                        user_data=_ename,
+                                        width=30,
+                                    )
 
-                    # ---- GAME tab ----
-                    with dpg.tab(label="GAME"):
-                        dpg.add_spacer(height=4)
-                        game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
+                        # ---- GAME tab ----
+                        with dpg.tab(label="GAME"):
+                            dpg.add_spacer(height=4)
+                            game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
 
-                        dpg.add_spacer(height=8)
-                        dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
-                        dpg.add_button(label="Reset Like Counter",
-                                       callback=heart_reset,
-                                       indent=_PAD, width=-(_PAD + 1))
-                        dpg.add_button(label="Enable / Disable Likes",
-                                       callback=heart_toggle,
-                                       indent=_PAD, width=-(_PAD + 1))
+                            dpg.add_spacer(height=8)
+                            dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_separator()
+                            dpg.add_button(label="Reset Like Counter",
+                                           callback=heart_reset,
+                                           indent=_PAD, width=-(_PAD + 1))
+                            dpg.add_button(label="Enable / Disable Likes",
+                                           callback=heart_toggle,
+                                           indent=_PAD, width=-(_PAD + 1))
 
                 # ---- MIDI panel (below the tabs, always visible) ----
                 dpg.add_spacer(height=8)
