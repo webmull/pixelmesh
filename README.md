@@ -264,7 +264,7 @@ A wireless three-switch pedal that runs the whole show hands-free:
 | 3 | Toggle video recording |
 
 One-time setup: pair via Audio MIDI Setup → MIDI Studio → Bluetooth, then run
-`python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's messages depend on
+`python3.14 midi.py --learn` and stomp each switch when prompted (the pedal's messages depend on
 its power-on mode, so they are learned into `midi_map.json`, not hardcoded). The controller scans
 for the pedal every 5 s, so it can connect or wake at any point in a session.
 
