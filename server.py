@@ -771,30 +771,43 @@ _NO_CACHE = {
     "Expires": "0",
 }
 
-_STREAM_PATH     = "/tmp/pixelmesh_stream.jpg"
-_STREAM_INTERVAL = 1.0 / 30   # 30fps per connection
+# Live camera feed: the controller POSTs each encoded frame to
+# /admin/feed_frame; viewers get frames pushed the moment they arrive.
+# In-memory + event-driven replaces the old shared-file-at-30fps design
+# (two stacked 33ms poll cadences and ~8GB/h of /tmp SSD writes).
+_feed_frame: bytes | None = None
+_feed_event = asyncio.Event()
+
+
+@app.post("/admin/feed_frame")
+async def feed_frame(request: Request):
+    global _feed_frame
+    _feed_frame = await request.body()
+    _feed_event.set()     # pulse: wake current waiters,
+    _feed_event.clear()   # new waiters block until the next frame
+    return Response(status_code=204)
+
 
 async def _mjpeg_generator():
-    """Yield MJPEG frames from the shared JPEG file written by controller."""
-    last_sent = 0.0
+    """Push each frame to the viewer as it arrives (up to camera rate)."""
     while True:
-        now = time.time()
-        wait = _STREAM_INTERVAL - (now - last_sent)
-        if wait > 0:
-            await asyncio.sleep(wait)
-        try:
-            with open(_STREAM_PATH, "rb") as f:
-                frame = f.read()
-        except FileNotFoundError:
-            await asyncio.sleep(0.5)
+        if _feed_frame is None:
+            await asyncio.sleep(0.2)
             continue
-        last_sent = time.time()
+        frame = _feed_frame
         yield (
             b"--frame\r\n"
             b"Content-Type: image/jpeg\r\n\r\n" +
             frame +
             b"\r\n"
         )
+        try:
+            # Re-send the last frame after 1s of silence so proxies and
+            # browsers don't time the stream out while the show is idle.
+            await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            pass
+
 
 @app.get("/internal/feed/v1")
 async def stream():

@@ -47,7 +47,7 @@ from camera import apply_gamma, apply_contrast
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
-from network import post_json, post_json_async, fetch_client_count, fetch_json
+from network import post_json, post_json_async, post_bytes, fetch_client_count, fetch_json
 from log import log
 import effects
 import game
@@ -75,10 +75,11 @@ dbg_cap  = DebugCapture()
 # Throttle debug saves: one frame every N camera frames
 DEBUG_SAVE_EVERY = 6
 
-# MJPEG stream: latest canvas frame written atomically for server.py to serve
-_STREAM_PATH      = "/tmp/pixelmesh_stream.jpg"
-_STREAM_INTERVAL  = 1.0 / 30          # 30fps
-_last_stream_ts   = 0.0
+# MJPEG stream: display loop swaps in the latest finished canvas (fresh
+# object per frame, so no tearing); a worker thread encodes and POSTs it
+# to the server at up to 60fps, keeping JPEG cost off the display thread.
+_stream_latest    = None
+_STREAM_FPS       = 60
 ui_queue: Queue = Queue()
 # Set to True while draining the UI queue so checkbox set_value calls
 # don't re-fire toggle callbacks (some DearPyGui versions fire callbacks
@@ -1009,6 +1010,28 @@ def toggle_detection():
         _auto_enable_sync()
         _apply_audience_iso()
         set_status("Detection OFF")
+
+
+def _stream_worker():
+    """Encode and POST the latest display canvas at up to _STREAM_FPS.
+    Runs on its own thread so JPEG cost never touches the display loop;
+    always takes the newest frame, dropping any it was too slow for."""
+    interval = 1.0 / _STREAM_FPS
+    last = None
+    while True:
+        t0 = time.time()
+        frame = _stream_latest
+        if frame is not None and frame is not last:
+            last = frame
+            try:
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ok:
+                    post_bytes("/admin/feed_frame", buf.tobytes())
+            except Exception:
+                pass
+        sleep_for = interval - (time.time() - t0)
+        if sleep_for > 0:
+            time.sleep(sleep_for)
 
 
 def toggle_debug():
@@ -1972,6 +1995,9 @@ def main():
         reset          = reset_server,
     )
 
+    threading.Thread(target=_stream_worker, daemon=True,
+                     name="stream").start()
+
     texture_data = frame_to_texture(no_camera_canvas())
     _dbg_counter = 0   # local to main — throttles debug save_frame calls
 
@@ -2134,15 +2160,10 @@ def main():
                     if dbg_cap.active:
                         dbg_cap.record_frame(display_canvas)
 
-                    # MJPEG stream — write JPEG atomically so server.py
-                    # never reads a partial file.  Capped at 30 fps.
-                    global _last_stream_ts
-                    _now = time.time()
-                    if _now - _last_stream_ts >= _STREAM_INTERVAL:
-                        _last_stream_ts = _now
-                        _tmp = _STREAM_PATH + ".new.jpg"
-                        cv2.imwrite(_tmp, display_canvas, [cv2.IMWRITE_JPEG_QUALITY, 90])
-                        _os.replace(_tmp, _STREAM_PATH)
+                    # MJPEG stream — hand the finished frame to the
+                    # encode/POST worker (reference swap, GIL-atomic).
+                    global _stream_latest
+                    _stream_latest = display_canvas
 
                     texture_data = frame_to_texture(display_canvas)
 
@@ -2290,13 +2311,13 @@ def main():
         cap = holder.get("cap")
         if cap:
             cap.release()
-        # Overwrite the MJPEG cache with a blank frame so /internal/feed/v1
-        # doesn't keep serving the last camera image after shutdown.
+        # Push a blank frame so /internal/feed/v1 doesn't keep serving the
+        # last camera image after shutdown.
         try:
             blank = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8)
-            _tmp = _STREAM_PATH + ".new.jpg"
-            cv2.imwrite(_tmp, blank, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            _os.replace(_tmp, _STREAM_PATH)
+            ok, buf = cv2.imencode(".jpg", blank, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if ok:
+                post_bytes("/admin/feed_frame", buf.tobytes())
         except Exception as e:
             log.info(f"[shutdown] could not blank stream frame: {e}")
         dpg.destroy_context()
