@@ -825,8 +825,9 @@ def update_ui_from_state():
     global _last_midi_hist_version
     if midi.midi.history_version != _last_midi_hist_version:
         _last_midi_hist_version = midi.midi.history_version
-        safe_set("midi_history_text",
-                 "\n".join(midi.midi.history()) or "no commands yet")
+        hist = midi.midi.history()
+        safe_set("midi_last_text", hist[0] if hist else "no commands yet")
+        safe_set("midi_history_text", "\n".join(hist[1:]))
 
     if snapshot == _last_ui_snapshot:
         return
@@ -1863,8 +1864,15 @@ def setup_ui(holder: dict):
                 dpg.add_spacer(height=8)
                 dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
                 dpg.add_separator()
-                dpg.add_text("no commands yet", tag="midi_history_text",
-                             color=(150, 150, 150), indent=_PAD, wrap=300)
+                # Newest command big and bright, history dim below it,
+                # boxed so the panel reads as a unit at a glance.
+                with dpg.child_window(height=150, border=True):
+                    dpg.add_spacer(height=2)
+                    dpg.add_text("no commands yet", tag="midi_last_text",
+                                 color=(255, 200, 50), indent=6, wrap=290)
+                    dpg.add_separator()
+                    dpg.add_text("", tag="midi_history_text",
+                                 color=(130, 130, 130), indent=6, wrap=290)
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,
