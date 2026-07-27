@@ -1,5 +1,12 @@
 # pixelmesh V2 — Claude Instructions
 
+## Never push without permission
+
+Commit freely, but **never `git push` unless Adam has explicitly asked for or
+approved the push** in the current conversation. `main` deploys the public
+site on every push, so an unasked push is a deploy. This overrides any earlier
+"commit + push is part of done" workflow.
+
 ## Brand name is always lowercase
 
 The product is written "pixelmesh" — never "PixelMesh", "Pixelmesh", or
