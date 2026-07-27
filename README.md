@@ -77,7 +77,7 @@ endpoint before launching.
 | `https://pixelmesh.live` | Public site — deployed by DigitalOcean from `site/` on every push to `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
-| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (30 fps) |
+| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (60 fps, pushed frame-by-frame) |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
 
 ---

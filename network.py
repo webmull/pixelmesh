@@ -19,6 +19,17 @@ if _token:
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="net")
 
 
+def post_bytes(path: str, data: bytes, timeout=0.3) -> bool:
+    """Fire a raw binary POST (camera feed frames). Quiet on failure -
+    the stream worker retries with the next frame anyway."""
+    try:
+        r = session.post(f"{SERVER_BASE}{path}", data=data, timeout=timeout,
+                         headers={"Content-Type": "application/octet-stream"})
+        return r.status_code // 100 == 2
+    except Exception:
+        return False
+
+
 def post_json(path: str, payload: dict, timeout=0.5) -> bool:
     try:
         r = session.post(f"{SERVER_BASE}{path}", json=payload, timeout=timeout)
