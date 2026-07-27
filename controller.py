@@ -1893,10 +1893,8 @@ def setup_ui(holder: dict):
                                     dpg.add_text("waiting for pedal", tag="midi_conn_text",
                                                  color=(120, 120, 120))
                                 dpg.add_spacer(height=2)
-                                # Newest command big and bright, history dim below it,
-                                # boxed so the panel reads as a unit at a glance.
-                                # (No separator above: the box border is the line.)
-                                with dpg.child_window(height=260, border=True):
+                                # Newest command big and bright, history dim below.
+                                with dpg.child_window(height=260, border=False):
                                     dpg.add_spacer(height=2)
                                     dpg.add_text("no commands yet", tag="midi_last_text",
                                                  color=(255, 200, 50), indent=6, wrap=290)
