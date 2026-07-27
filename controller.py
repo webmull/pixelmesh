@@ -97,9 +97,14 @@ def _perf_tick(frame_start):
     if now - _perf["t0"] >= 5.0:
         if _perf["t0"] > 0 and _perf["n"]:
             n = _perf["n"]
-            log.info(f"[perf] frames={n} avg={_perf['frame']/n*1000:.0f}ms "
-                     f"dpg_items={len(dpg.get_all_items())} "
-                     f"threads={threading.active_count()}")
+            avg_ms = _perf["frame"] / n * 1000
+            # Sentinel, not chatter: only speak when pacing degrades.
+            # (24-40ms is healthy; sustained 45+ is how the save_frame
+            # display-thread stall of Jul 2026 would have been caught.)
+            if avg_ms > 45:
+                log.warning(f"[perf] display avg={avg_ms:.0f}ms over {n} frames - "
+                            f"dpg_items={len(dpg.get_all_items())} "
+                            f"threads={threading.active_count()}")
         _perf["t0"] = now
         _perf["n"] = 0
         _perf["frame"] = 0.0
