@@ -853,9 +853,6 @@ def update_ui_from_state():
         return
     _last_ui_snapshot = snapshot
 
-    safe_set("status_text",    status)
-    safe_set("clients_text",   f"Clients: {clients}")
-    safe_set("detect_text",    f"Clients detected: {len(_detected_ids)}")
     # state.current_effect now carries "ripple" while armed (set by
     # _set_ripple_armed), so the highlight follows naturally.
     ui_queue.put(("_active_effect", effect))
@@ -1886,13 +1883,6 @@ def setup_ui(holder: dict):
                             dpg.add_text("", tag="rec_filename_text",
                                          color=(150, 150, 150), indent=_PAD, show=False,
                                          wrap=300)
-
-                            dpg.add_spacer(height=8)
-                            dpg.add_text("INFORMATION", color=(160, 160, 160), indent=_PAD)
-                            dpg.add_separator()
-                            dpg.add_text("", tag="status_text",  indent=_PAD)
-                            dpg.add_text("", tag="clients_text", indent=_PAD)
-                            dpg.add_text("", tag="detect_text",  indent=_PAD)
 
                             dpg.add_spacer(height=8)
                             dpg.add_text("SYNC STATS", color=(160, 160, 160), indent=_PAD)
