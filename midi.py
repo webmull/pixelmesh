@@ -100,9 +100,9 @@ class MidiInput:
         self._map     = None          # action → {"status", "data1"}
         self._state   = {"recording": False}
         self._fx_idx  = -1            # last fired index into EFFECT_CYCLE
-        # Last 10 events for the sidebar MIDI panel. version bumps on
+        # Last 15 events for the sidebar MIDI panel. version bumps on
         # every append so the UI refresh can cheaply skip when idle.
-        self._hist    = deque(maxlen=10)
+        self._hist    = deque(maxlen=15)
         self.history_version = 0
         self.connected = False   # live pedal link state for the sidebar
 

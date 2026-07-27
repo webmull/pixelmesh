@@ -1890,29 +1890,6 @@ def setup_ui(holder: dict):
                                              color=(150, 150, 150), indent=_PAD, show=False,
                                              wrap=300)
 
-                                dpg.add_spacer(height=8)
-                                dpg.add_text("SYNC", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                dpg.add_text("No sync data - enable Clock Sync.",
-                                             tag="sync_devices", color=(150, 150, 150),
-                                             indent=_PAD)
-                                with dpg.table(tag="sync_table", header_row=True,
-                                               show=False, width=-(_PAD + 1),
-                                               indent=_PAD,
-                                               borders_innerH=True,
-                                               policy=dpg.mvTable_SizingStretchProp):
-                                    dpg.add_table_column(label="")
-                                    dpg.add_table_column(label="avg")
-                                    dpg.add_table_column(label="worst")
-                                    with dpg.table_row():
-                                        dpg.add_text("RTT", color=(180, 180, 180))
-                                        dpg.add_text("-", tag="sync_rtt_avg")
-                                        dpg.add_text("-", tag="sync_rtt_worst")
-                                    with dpg.table_row():
-                                        dpg.add_text("Drift", color=(180, 180, 180))
-                                        dpg.add_text("-", tag="sync_drift_avg")
-                                        dpg.add_text("-", tag="sync_drift_worst")
-
                                 # ---- MIDI panel ----
                                 dpg.add_spacer(height=8)
                                 with dpg.group(horizontal=True):
@@ -1923,7 +1900,7 @@ def setup_ui(holder: dict):
                                 # Newest command big and bright, history dim below it,
                                 # boxed so the panel reads as a unit at a glance.
                                 # (No separator above: the box border is the line.)
-                                with dpg.child_window(height=150, border=True):
+                                with dpg.child_window(height=260, border=True):
                                     dpg.add_spacer(height=2)
                                     dpg.add_text("no commands yet", tag="midi_last_text",
                                                  color=(255, 200, 50), indent=6, wrap=290)
@@ -2068,7 +2045,6 @@ def main():
     setup_ui(holder)
 
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
-    threading.Thread(target=poll_sync_stats, daemon=True).start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
     threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
@@ -2396,31 +2372,6 @@ def main():
                             else:
                                 dpg.disable_item(item)
                         continue
-                    if tag == "_sync_stats_rows":
-                        rows = value
-                        rtts = [r["rtt_ms"] for r in rows if r.get("rtt_ms") is not None]
-                        offs = [abs(r["offset_ms"]) for r in rows if r.get("offset_ms") is not None]
-                        with state.lock:
-                            _conn = state.client_count
-                        if not rows:
-                            dpg.set_value("sync_devices",
-                                          f"{_conn} connected - sync not running"
-                                          if _conn else
-                                          "No clients connected")
-                            dpg.configure_item("sync_table", show=False)
-                        else:
-                            dpg.set_value("sync_devices",
-                                          f"{len(rows)}/{_conn} devices synced")
-                            dpg.configure_item("sync_table", show=True)
-                            dpg.set_value("sync_rtt_avg",
-                                          f"{sum(rtts)/len(rtts):.0f}ms" if rtts else "-")
-                            dpg.set_value("sync_rtt_worst",
-                                          f"{max(rtts):.0f}ms" if rtts else "-")
-                            dpg.set_value("sync_drift_avg",
-                                          f"{sum(offs)/len(offs):.0f}ms" if offs else "-")
-                            dpg.set_value("sync_drift_worst",
-                                          f"{max(offs):.0f}ms" if offs else "-")
-                        continue
                     try:
                         dpg.set_value(tag, value)
                     except Exception as e:
@@ -2612,17 +2563,6 @@ def poll_clients():
         _refresh_valid_blink_ids()
         time.sleep(1.0)
 
-
-def poll_sync_stats():
-    """Background thread: fetch /admin/sync_stats every 2s and refresh the debug table."""
-    while state.running:
-        time.sleep(2.0)
-        data = fetch_json("/admin/sync_stats")
-        if data is None:
-            continue
-        rows = data.get("stats", [])
-        # Rebuild table rows in DearPyGui (must run on main thread via ui_queue)
-        ui_queue.put(("_sync_stats_rows", rows))
 
 
 if __name__ == "__main__":
