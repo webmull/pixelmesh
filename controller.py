@@ -1772,7 +1772,7 @@ def setup_ui(holder: dict):
                     dpg.add_spacer(height=4)
                     # 546x107 source at ~0.36 scale fits the 314px sidebar
                     dpg.add_image("wordmark_texture", width=196, height=38,
-                                  indent=_PAD)
+                                  indent=(_SIDEBAR_WIDTH - 196) // 2 - 4)
                     dpg.add_spacer(height=2)
                 else:
                     dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
