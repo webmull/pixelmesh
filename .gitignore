@@ -8,3 +8,4 @@ Screenshot *.png
 .DS_Store
 __pycache__/
 !site/public/video/*.mp4
+midi_map.json

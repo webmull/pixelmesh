@@ -275,6 +275,14 @@ per-run calibration logs and debug captures, every show leaves a full paper trai
 
 ![Spatial map of a real show — every phone plotted at its detected position, shaded by time-to-decode](public/stats/07_spatial_labelled.png)
 
+### Foot controller (BOSS FS-1-WL)
+
+A wireless three-switch pedal for hands-free operation: switch 1 toggles detection, switch 2
+clock sync, switch 3 video recording. One-time setup: pair via Audio MIDI Setup → MIDI Studio →
+Bluetooth, then run `python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's
+messages depend on its power-on mode, so they are learned into `midi_map.json`, not hardcoded).
+The controller scans for the pedal every 5 s, so it can connect or wake at any point in a session.
+
 ### Controller hotkeys
 
 | Key | Action |
