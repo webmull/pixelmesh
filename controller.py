@@ -1879,19 +1879,11 @@ def setup_ui(holder: dict):
                                          wrap=300)
 
                             dpg.add_spacer(height=8)
-                            dpg.add_text("SYNC STATS", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_text("SYNC", color=(160, 160, 160), indent=_PAD)
                             dpg.add_separator()
-                            dpg.add_text("", tag="sync_status_line",
-                                         color=(160, 160, 160), indent=_PAD)
-                            dpg.add_text("  #     RTT     Off    Smp",
-                                         color=(180, 180, 180), indent=_PAD)
-                            with dpg.child_window(tag="sync_stats_panel",
-                                                  height=200, width=-(_PAD + 1),
-                                                  indent=_PAD, border=False):
-                                dpg.add_text("No sync data - enable Clock Sync.",
-                                             tag="sync_no_data", color=(120, 120, 120))
-                                for i in range(32):
-                                    dpg.add_text("", tag=f"sync_row_{i}", show=False)
+                            dpg.add_text("No sync data - enable Clock Sync.",
+                                         tag="sync_summary", color=(150, 150, 150),
+                                         indent=_PAD, wrap=300)
 
                         # ---- RUN tab ----
                         with dpg.tab(label="RUN"):
@@ -2339,25 +2331,20 @@ def main():
                         continue
                     if tag == "_sync_stats_rows":
                         rows = value
-                        ts = time.strftime("%H:%M:%S")
-                        dpg.set_value("sync_status_line",
-                                      f"{len(rows)} dev  ({ts})")
-                        dpg.configure_item("sync_no_data", show=(len(rows) == 0))
-                        for i in range(32):
-                            if i < len(rows):
-                                r = rows[i]
-                                rtt  = f"{r['rtt_ms']:.0f}"    if r["rtt_ms"]    is not None else "-"
-                                off  = f"{r['offset_ms']:+.0f}" if r["offset_ms"] is not None else "-"
-                                bid_str = str(r['blink_id'])
-                                line = (f"{bid_str:>3}  "
-                                        f"{rtt:>5}  "
-                                        f"{off:>5}  "
-                                        f"{r['samples']:>4}")
-                                dpg.set_value(f"sync_row_{i}", line)
-                                dpg.configure_item(f"sync_row_{i}", show=True)
-                            else:
-                                dpg.set_value(f"sync_row_{i}", "")
-                                dpg.configure_item(f"sync_row_{i}", show=False)
+                        rtts = [r["rtt_ms"] for r in rows if r.get("rtt_ms") is not None]
+                        offs = [abs(r["offset_ms"]) for r in rows if r.get("offset_ms") is not None]
+                        if not rows:
+                            dpg.set_value("sync_summary",
+                                          "No sync data - enable Clock Sync.")
+                        else:
+                            line = f"{len(rows)} devices synced"
+                            if rtts:
+                                line += (f"\nRTT   avg {sum(rtts)/len(rtts):.0f}ms"
+                                         f"   worst {max(rtts):.0f}ms")
+                            if offs:
+                                line += (f"\nDrift avg {sum(offs)/len(offs):.0f}ms"
+                                         f"   worst {max(offs):.0f}ms")
+                            dpg.set_value("sync_summary", line)
                         continue
                     try:
                         dpg.set_value(tag, value)
