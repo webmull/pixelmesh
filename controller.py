@@ -141,6 +141,7 @@ _timing_log_handles: list = []      # open file handles paired with _timing_log_
 _detection_amplitudes: list[float] = []
 _iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
 _last_midi_hist_version: int = -1    # sidebar MIDI panel refresh guard
+_last_midi_conn = None               # pedal link indicator guard
 
 # Two-phase ISO: detection wants the lowest sensible gain so dark phases
 # read near-zero (sensor noise floor matters more than nominal range —
@@ -842,6 +843,13 @@ def update_ui_from_state():
     )
     # MIDI history has its own version guard, outside the main snapshot
     # dedup, so pedal events appear immediately without joining it.
+    global _last_midi_conn
+    if midi.midi.connected != _last_midi_conn:
+        _last_midi_conn = midi.midi.connected
+        safe_set("midi_conn_text",
+                 "connected" if _last_midi_conn else "waiting for pedal")
+        ui_queue.put(("_midi_conn_color", _last_midi_conn))
+
     global _last_midi_hist_version
     if midi.midi.history_version != _last_midi_hist_version:
         _last_midi_hist_version = midi.midi.history_version
@@ -1819,10 +1827,6 @@ def setup_ui(holder: dict):
                 # pinned to the window bottom with dead space above it.
                 with dpg.child_window(auto_resize_y=True, border=False):
                     with dpg.tab_bar(tag="main_tabs"):
-                        # Invisible leading pad approximates centred tabs
-                        # (ImGui tab bars are inherently left-aligned)
-                        dpg.add_tab_button(label="  ", tag="tab_pad",
-                                           no_reorder=True)
 
                         # ---- SCENE tab (default) ----
                         with dpg.tab(label="SCENE"):
@@ -1953,7 +1957,10 @@ def setup_ui(holder: dict):
 
                                 # ---- MIDI panel ----
                                 dpg.add_spacer(height=8)
-                                dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                                with dpg.group(horizontal=True):
+                                    dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                                    dpg.add_text("waiting for pedal", tag="midi_conn_text",
+                                                 color=(120, 120, 120))
                                 dpg.add_separator()
                                 # Newest command big and bright, history dim below it,
                                 # boxed so the panel reads as a unit at a glance.
@@ -2022,12 +2029,6 @@ def setup_ui(holder: dict):
     # normal font so content is unaffected (item fonts cascade in DPG).
     if _tab_font is not None:
         dpg.bind_item_font("main_tabs", _tab_font)
-        with dpg.theme() as _pad_theme:
-            with dpg.theme_component(dpg.mvTabButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Tab,        (0, 0, 0, 0))
-                dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (0, 0, 0, 0))
-                dpg.add_theme_color(dpg.mvThemeCol_TabActive,  (0, 0, 0, 0))
-        dpg.bind_item_theme("tab_pad", _pad_theme)
         for _body in ("scene_body", "run_body", "game_body"):
             if dpg.does_item_exist(_body):
                 dpg.bind_item_font(_body, _ui_font)
@@ -2374,6 +2375,10 @@ def main():
                         continue
                     if tag == "_rec_filename_show":
                         dpg.configure_item("rec_filename_text", show=value)
+                        continue
+                    if tag == "_midi_conn_color":
+                        dpg.configure_item("midi_conn_text",
+                                           color=(80, 200, 80) if value else (120, 120, 120))
                         continue
                     if tag == "_iso_hint_show":
                         dpg.configure_item("iso_hint_text", show=value)
