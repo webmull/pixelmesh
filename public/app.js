@@ -123,11 +123,10 @@ const VIEW_CARD = {
   idle:      "blink",    // disconnected / black
   waiting:   "waiting",  // "Get ready" screen
   blinking:  "blink",    // detection active — flashing
-  game_wait: "blink",    // game in progress, not my turn — black
   located:   "located",  // position confirmed
   missed:    "blink",    // detection ended, not found — red flash
   effects:   "effects",  // showtime effect playing
-  game:      "game",     // game card (countdown / bug / winner)
+  game:      "game",     // avatar race card
 };
 
 let view = "idle";
@@ -374,27 +373,6 @@ function _ordinalLabel(rank) {
   return rank + "th";
 }
 
-// ---- Bug-tap game (Game 1) ----
-let bugTapHandlerOn   = false;
-let bugShowAt         = 0;        // server-time ms when this phone's bug appears
-let bugSlotMs         = 1400;
-let bugTapped         = false;
-let bugReactionMs     = null;
-let bugTimer          = null;
-let bugCountdownTimer = null;
-let bugRoundStartAt   = 0;        // server timestamp when 20s round begins
-const gameSlotBar       = document.getElementById("gameSlotBar");
-const gameProgress      = document.getElementById("gameProgress");
-const countdownText     = document.getElementById("countdownText");
-const bugHappy          = document.getElementById("bugHappy");
-const bugScared         = document.getElementById("bugScared");
-const gamePrompt        = document.getElementById("gamePrompt");
-const gameResult        = document.getElementById("gameResult");
-const gameWinner        = document.getElementById("gameWinner");
-const gameMyBannerLabel = document.getElementById("gameMyBannerLabel");
-const gameMyBannerTime  = document.getElementById("gameMyBannerTime");
-const gameWinnerPhone   = document.getElementById("gameWinnerPhone");
-const gameWinnerTime    = document.getElementById("gameWinnerTime");
 
 let ws              = null;
 let everConnected   = false;  // false until the first successful WS open this page-load
@@ -775,7 +753,7 @@ function handleMessage(msg) {
     raceActive    = true;
     raceInRoster  = (msg.blink_ids || []).includes(myBlinkId);
     raceRosterSize = (msg.blink_ids || []).length;
-    CARDS.game.classList.remove("mode-bug");
+
     CARDS.game.classList.add("mode-race");
     _resetRaceView();
     setView("game");
@@ -806,44 +784,6 @@ function handleMessage(msg) {
     return;
   }
 
-  // ---- Bug-tap game (Game 1) ----
-  if (msg.type === "game_countdown") {
-    bugReactionMs    = null;
-    bugTapped        = false;
-    currentEffect    = null;
-    bugRoundStartAt  = msg.start_at + 3000;
-    _cleanupGame();
-    CARDS.game.classList.add("mode-bug");
-    gameProgress.style.display = "none";
-    setView("game");
-    _bugStartCountdown(msg.start_at);
-    return;
-  }
-
-  if (msg.type === "game_show") {
-    bugShowAt    = msg.show_at;
-    bugSlotMs    = msg.slot_ms;
-    bugTapped    = false;
-    bugReactionMs = null;
-    bugHappy.style.display  = "none";
-    bugScared.style.display = "none";
-    gameResult.textContent  = "";
-    setView("game");
-    const delay = bugShowAt - serverNow();
-    bugTimer = setTimeout(_bugShowHappy, Math.max(0, delay));
-    return;
-  }
-
-  if (msg.type === "game_progress") {
-    gameProgress.textContent   = `${msg.tapped} / ${msg.total} tapped`;
-    gameProgress.style.display = "block";
-    return;
-  }
-
-  if (msg.type === "game_winner" || msg.type === "game_end") {
-    _bugShowWinner(msg);
-    return;
-  }
 }
 
 function _statusBarOk(flash) {
@@ -915,10 +855,6 @@ function _drawPositionMap() {
     ctx.fill();
   }
 }
-
-// ------------------------------------------------------------------ //
-// Bug game
-// ------------------------------------------------------------------ //
 
 // ------------------------------------------------------------------ //
 // Avatar race
@@ -1002,175 +938,8 @@ function _cleanupGame() {
   if (raceWinner)    raceWinner.classList.remove("show", "you-won");
   if (raceBarMine)   raceBarMine.style.width   = "0%";
   if (raceBarLeader) raceBarLeader.style.width = "0%";
-  // Bug teardown
-  if (bugTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onBugTap);
-    bugTapHandlerOn = false;
-  }
-  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
-  _bugStopCountdown();
-  if (gameSlotBar) {
-    gameSlotBar.style.transition = "none";
-    gameSlotBar.style.transform  = "scaleX(0)";
-  }
-  if (gamePrompt)   gamePrompt.classList.remove("pulsing");
-  if (gameWinner) { gameWinner.style.display = "none"; gameWinner.classList.remove("show"); }
-  if (gameProgress) gameProgress.style.display = "none";
   // Card-level state
-  CARDS.game.classList.remove("mode-bug", "mode-race", "tapping");
-}
-
-// ------------------------------------------------------------------ //
-// Bug-tap game (Game 1)
-// ------------------------------------------------------------------ //
-
-function _bugStartCountdown(startAt) {
-  _bugStopCountdown();
-  bugHappy.style.display  = "none";
-  bugScared.style.display = "none";
-  gameResult.textContent  = "";
-
-  function _tick() {
-    const elapsed   = serverNow() - startAt;
-    const remaining = Math.ceil((3000 - elapsed) / 1000);
-    const label     = remaining > 0 ? String(remaining) : "GO!";
-    if (countdownText.textContent !== label) {
-      countdownText.classList.remove("pop");
-      void countdownText.offsetWidth;
-      countdownText.textContent = label;
-      countdownText.classList.add("pop");
-    }
-    if (elapsed >= 3800) {
-      _bugStopCountdown();
-    }
-  }
-  _tick();
-  bugCountdownTimer = setInterval(_tick, 100);
-}
-
-function _bugStopCountdown() {
-  if (bugCountdownTimer) { clearInterval(bugCountdownTimer); bugCountdownTimer = null; }
-  if (countdownText) {
-    countdownText.classList.remove("pop");
-    countdownText.textContent = "";
-  }
-}
-
-function _bugShowHappy() {
-  _bugStopCountdown();
-  bugTapped = false;
-  bugHappy.style.display  = "block";
-  bugScared.style.display = "none";
-  gamePrompt.textContent  = "TAP!";
-  gamePrompt.classList.add("pulsing");
-  gameResult.textContent  = "";
-  CARDS.game.addEventListener("pointerdown", _onBugTap);
-  bugTapHandlerOn = true;
-  // Slot-bar timer from server clock, then transition to 0 over the
-  // remaining round window so phones share the same drain animation.
-  const elapsed   = Math.max(0, serverNow() - bugRoundStartAt);
-  const remaining = Math.max(0, 20000 - elapsed);
-  gameSlotBar.style.transition = "none";
-  gameSlotBar.style.transform  = `scaleX(${remaining / 20000})`;
-  void gameSlotBar.offsetWidth;
-  gameSlotBar.style.transition = `transform ${remaining}ms linear`;
-  gameSlotBar.style.transform  = "scaleX(0)";
-  bugTimer = setTimeout(_bugHideAfterMiss, bugSlotMs);
-}
-
-function _onBugTap(e) {
-  if (bugTapped) return;
-  bugTapped = true;
-  e.preventDefault();
-  CARDS.game.removeEventListener("pointerdown", _onBugTap);
-  bugTapHandlerOn = false;
-  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
-
-  bugReactionMs = Math.round(serverNow() - bugShowAt);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "game_tap", reaction_ms: bugReactionMs }));
-  }
-  gameSlotBar.style.transition = "none";
-  gamePrompt.classList.remove("pulsing");
-  gamePrompt.textContent  = "";
-  bugHappy.style.display  = "none";
-  bugScared.style.display = "block";
-  gameResult.textContent  = `${bugReactionMs} ms`;
-}
-
-function _bugHideAfterMiss() {
-  if (bugTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onBugTap);
-    bugTapHandlerOn = false;
-  }
-  bugHappy.style.display = "none";
-  gamePrompt.classList.remove("pulsing");
-  gamePrompt.textContent = "";
-}
-
-function _bugShowWinner(msg) {
-  if (bugTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onBugTap);
-    bugTapHandlerOn = false;
-  }
-  if (bugTimer) { clearTimeout(bugTimer); bugTimer = null; }
-  _bugStopCountdown();
-  gameSlotBar.style.transition = "none";
-  gamePrompt.classList.remove("pulsing");
-  gamePrompt.textContent = "";
-  gameProgress.style.display = "none";
-
-  const isDraw  = msg.draw === true;
-  const drawIds = msg.blink_ids || [];
-  const iWon    = !isDraw && msg.blink_id !== undefined && msg.blink_id === myBlinkId;
-  const iDrew   = isDraw && drawIds.includes(myBlinkId);
-
-  if (iWon) {
-    gameMyBannerLabel.textContent = "YOU WIN";
-    gameMyBannerLabel.style.color = "#ffd740";
-    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.5)";
-    gameMyBannerTime.textContent  = bugReactionMs !== null ? `${bugReactionMs} ms` : "";
-    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
-  } else if (iDrew) {
-    gameMyBannerLabel.textContent = "IT'S A DRAW";
-    gameMyBannerLabel.style.color = "#ffd740";
-    gameMyBannerLabel.style.textShadow = "0 0 32px rgba(255,200,0,0.3)";
-    gameMyBannerTime.textContent  = bugReactionMs !== null ? `${bugReactionMs} ms` : "";
-    gameMyBannerTime.style.color  = "rgba(255,210,80,0.65)";
-  } else if (bugReactionMs !== null) {
-    gameMyBannerLabel.textContent = "NOT THIS TIME";
-    gameMyBannerLabel.style.color = "rgba(255,255,255,0.75)";
-    gameMyBannerLabel.style.textShadow = "none";
-    gameMyBannerTime.textContent  = `Your time: ${bugReactionMs} ms`;
-    gameMyBannerTime.style.color  = "rgba(255,255,255,0.35)";
-  } else {
-    gameMyBannerLabel.textContent = "YOU MISSED IT";
-    gameMyBannerLabel.style.color = "rgba(255,80,80,0.85)";
-    gameMyBannerLabel.style.textShadow = "none";
-    gameMyBannerTime.textContent  = "";
-  }
-
-  if (isDraw) {
-    gameWinnerPhone.textContent = `Draw: ${drawIds.map(b => `#${b + 1}`).join(" & ")}`;
-    gameWinnerTime.textContent  = `${msg.reaction_ms} ms each`;
-  } else if (msg.blink_id !== undefined) {
-    gameWinnerPhone.textContent = `Phone #${msg.blink_id + 1}`;
-    gameWinnerTime.textContent  = `${msg.reaction_ms} ms`;
-  } else {
-    gameWinnerPhone.textContent = "No taps recorded";
-    gameWinnerTime.textContent  = "";
-  }
-
-  bugHappy.style.display   = "none";
-  bugScared.style.display  = "none";
-  gameResult.textContent   = "";
-  gameWinner.style.display = "flex";
-  gameWinner.classList.remove("show");
-  void gameWinner.offsetWidth;
-  gameWinner.classList.add("show");
-  CARDS.game.classList.remove("mode-race");
-  CARDS.game.classList.add("mode-bug");
-  setView("game");
+  CARDS.game.classList.remove("mode-race", "tapping");
 }
 
 // ------------------------------------------------------------------ //
@@ -1200,7 +969,7 @@ function updateBlink() {
     return;
   }
 
-  // idle / game_wait / any other blink-card view
+  // idle / any other blink-card view
   card.style.background = "#000";
 }
 

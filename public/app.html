@@ -390,9 +390,8 @@ html, body {
   position: fixed;
 }
 
-/* Sub-views — only one is visible at a time, driven by the mode-bug /
-   mode-race class on #card-game. */
-#bugGameView, #raceGameView {
+/* Race sub-view - shown via the mode-race class on #card-game. */
+#raceGameView {
   display: none;
   width: 100%;
   height: 100%;
@@ -400,16 +399,7 @@ html, body {
   align-items: stretch;
   justify-content: space-between;
 }
-#card-game.mode-bug  #bugGameView  {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-  position: relative;
-}
 #card-game.mode-race #raceGameView { display: flex; }
-/* Bug mode uses a plain black backdrop, no team gradient. */
-#card-game.mode-bug { background: #000 !important; }
 
 /* ---- Game card (avatar race) ---- */
 #card-game.mode-race {
@@ -588,146 +578,6 @@ html, body {
   letter-spacing: 3px;
 }
 
-/* ---- Bug-tap game ---- */
-#gameSlotBar {
-  position: absolute;
-  top: 0; left: 0;
-  height: 4px;
-  width: 100%;
-  background: rgba(255,255,255,0.85);
-  transform-origin: left center;
-  transform: scaleX(0);
-  border-radius: 0 0 2px 0;
-  pointer-events: none;
-}
-#gameBugWrap {
-  padding: 24px;
-  pointer-events: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-#gameBugWrap img {
-  width: clamp(140px, 38vmin, 220px);
-  height: auto;
-  pointer-events: none;
-  display: block;
-}
-#gamePrompt {
-  color: #fff;
-  font: 800 32px -apple-system, system-ui, sans-serif;
-  letter-spacing: 2px;
-  text-align: center;
-  pointer-events: none;
-}
-@keyframes tap-pulse {
-  0%, 100% { opacity: 1;   transform: scale(1);    }
-  50%      { opacity: 0.5; transform: scale(1.12); }
-}
-#gamePrompt.pulsing { animation: tap-pulse 0.5s ease-in-out infinite; }
-@keyframes bug-bounce {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-14px); }
-}
-#bugHappy img { animation: bug-bounce 0.6s ease-in-out infinite; }
-#bugHappy, #bugScared { display: none; }
-#gameResult {
-  color: rgba(255,255,255,0.8);
-  font: 700 28px -apple-system, system-ui, sans-serif;
-}
-@keyframes cd-pop {
-  0%   { opacity: 0; transform: scale(1.6); }
-  15%  { opacity: 1; transform: scale(1);   }
-  80%  { opacity: 1; transform: scale(1);   }
-  100% { opacity: 0; transform: scale(0.7); }
-}
-#countdownText {
-  display: none;
-  font: 800 110px -apple-system, system-ui, sans-serif;
-  color: #fff;
-  letter-spacing: -4px;
-  pointer-events: none;
-}
-#countdownText.pop {
-  display: block;
-  animation: cd-pop 1s ease forwards;
-}
-#gameProgress {
-  position: fixed;
-  top: max(16px, env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(255,255,255,0.12);
-  color: rgba(255,255,255,0.7);
-  font: 500 13px -apple-system, system-ui, sans-serif;
-  padding: 5px 14px;
-  border-radius: 20px;
-  pointer-events: none;
-  display: none;
-  z-index: 200;
-  white-space: nowrap;
-}
-#gameWinner {
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  background: radial-gradient(ellipse at center, rgba(255,180,0,0.12) 0%, transparent 70%);
-  border-radius: 24px;
-  padding: 28px 36px 20px;
-}
-@keyframes winner-pop {
-  0%   { transform: scale(0.6); opacity: 0; }
-  60%  { transform: scale(1.1); opacity: 1; }
-  100% { transform: scale(1);   opacity: 1; }
-}
-#gameWinner.show { display: flex; animation: winner-pop 0.4s ease forwards; }
-#gameMyBanner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-}
-#gameMyBannerLabel {
-  font: 800 36px -apple-system, system-ui, sans-serif;
-  letter-spacing: -0.5px;
-  text-align: center;
-}
-#gameMyBannerTime {
-  font: 500 18px -apple-system, system-ui, sans-serif;
-  color: rgba(255,255,255,0.45);
-  min-height: 22px;
-}
-.winner-sep {
-  width: 60px;
-  height: 1px;
-  background: rgba(255,255,255,0.12);
-  margin: 4px 0;
-}
-#gameWinnerSection {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-}
-#gameWinnerLabel {
-  color: rgba(255,195,0,0.75);
-  font: 700 12px -apple-system, system-ui, sans-serif;
-  letter-spacing: 3px;
-  text-transform: uppercase;
-}
-#gameWinnerPhone {
-  color: #ffd740;
-  font: 800 48px -apple-system, system-ui, sans-serif;
-  text-shadow: 0 0 32px rgba(255,200,0,0.45);
-}
-#gameWinnerTime {
-  color: rgba(255,210,80,0.7);
-  font: 600 20px -apple-system, system-ui, sans-serif;
-}
 </style>
 </head>
 <body>
@@ -775,9 +625,6 @@ html, body {
   <canvas id="effectCanvas"></canvas>
 </div>
 
-<!-- Bug-game progress pill — floats above all cards -->
-<div id="gameProgress"></div>
-
 <div id="card-game" style="display:none">
   <!-- Game 2: Avatar race -->
   <div id="raceGameView" style="position:relative">
@@ -807,33 +654,6 @@ html, body {
     </div>
   </div>
 
-  <!-- Game 1: Bug-tap reaction game -->
-  <div id="bugGameView">
-    <div id="gameSlotBar"></div>
-    <div id="countdownText"></div>
-    <div id="gameBugWrap">
-      <div id="bugHappy">
-        <img src="/public/assets/bug_happy.svg" alt="" draggable="false">
-      </div>
-      <div id="bugScared">
-        <img src="/public/assets/bug_scared.svg" alt="" draggable="false">
-      </div>
-      <div id="gamePrompt">TAP!</div>
-    </div>
-    <div id="gameResult"></div>
-    <div id="gameWinner">
-      <div id="gameMyBanner">
-        <div id="gameMyBannerLabel"></div>
-        <div id="gameMyBannerTime"></div>
-      </div>
-      <div class="winner-sep"></div>
-      <div id="gameWinnerSection">
-        <div id="gameWinnerLabel">Winner</div>
-        <div id="gameWinnerPhone"></div>
-        <div id="gameWinnerTime"></div>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- Sticky connection status: shown on waiting + located views only -->

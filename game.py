@@ -5,8 +5,6 @@ pixelmesh V2 — Audience games (dual-mode)
 Two games sit behind the same /admin/game/* endpoints, dispatched by
 game_mode set on round start:
 
-  Game 1 — "bug"  : reaction-time tap.  Each phone gets a randomly-timed
-                    bug to tap; fastest wins, results compared across phones.
 
   Game 2 — "race" : avatar race.  Each phone gets a procedurally-generated
                     character on the stage projection and races left→right
@@ -89,30 +87,10 @@ def init(state, set_status, post_json, fetch_json, render_order, ui_queue=None):
 # Shared state                                                         #
 # ------------------------------------------------------------------ #
 
-GAME_MODE_BUG  = "bug"
 GAME_MODE_RACE = "race"
 
 game_mode:   str  = GAME_MODE_RACE
 game_active: bool = False
-
-# Back-compat shims so report.py and the controller's _save_report keep
-# working — these reflect bug-game results only.
-game_results: dict[int, float] = {}
-game_order:   list[int]        = []
-
-
-# ------------------------------------------------------------------ #
-# Bug-game state + tunables                                            #
-# ------------------------------------------------------------------ #
-
-BUG_GAME_DURATION_MS = 20_000   # total round length
-bug_slot_ms:    int            = 1400   # window for each phone to tap once its bug appears
-
-_bug_shown_set:    set         = set()  # blink_ids whose bug has been sent
-_bug_missed_set:   set         = set()  # blink_ids whose slot expired without a tap
-_bug_phone_tasks:  list        = []
-_bug_end_task                  = None
-_bug_countdown_task            = None
 
 
 # ------------------------------------------------------------------ #
@@ -141,268 +119,27 @@ _race_progress_task: asyncio.Task | None = None
 
 @router.post("/admin/game/start")
 async def game_start(payload: dict):
-    """Start a round.  payload selects the mode:
-        {"mode": "race", "blink_ids": [<int>, ...]}
-        {"mode": "bug",  "order": [<blink_id>, ...], "slot_ms": int}
-    Default mode if absent is "race"."""
-    global game_mode
-    mode = payload.get("mode", GAME_MODE_RACE)
-    if mode == GAME_MODE_BUG:
-        game_mode = GAME_MODE_BUG
-        return await _start_bug_round(payload)
-    game_mode = GAME_MODE_RACE
+    """Start a race round: {"blink_ids": [<int>, ...]}"""
     return await _start_race_round(payload)
 
 
 @router.post("/admin/game/stop")
 async def game_stop():
-    """Abort the current round (whichever mode)."""
-    if game_mode == GAME_MODE_BUG:
-        return await _stop_bug_round()
+    """Abort the current round."""
     return await _stop_race_round()
 
 
 @router.get("/admin/game/state")
 async def game_state():
-    """Snapshot used by the controller's poll loop.  Shape varies by mode
-    so the controller poll knows which sidebar fields to update."""
-    if game_mode == GAME_MODE_BUG:
-        return _bug_state_snapshot()
+    """Snapshot used by the controller's poll loop."""
     return _race_state_snapshot()
 
 
-@router.get("/admin/game/results")
-async def game_results_endpoint():
-    """Legacy bug-game results endpoint — only useful in bug mode."""
-    if game_mode != GAME_MODE_BUG:
-        return {"results": [], "no_tap": [], "active": False, "total": 0}
-    rows = sorted(
-        [{"blink_id": bid, "reaction_ms": ms} for bid, ms in game_results.items()],
-        key=lambda r: r["reaction_ms"],
-    )
-    for i, r in enumerate(rows):
-        r["rank"] = i + 1
-    no_tap = [bid for bid in game_order if bid not in game_results]
-    return {"results": rows, "no_tap": no_tap, "active": game_active,
-            "total": len(game_order)}
-
-
 async def handle_tap(device_id: str, reaction_ms: float = 0.0):
-    """Routed from the WS handler.  Dispatches by current game_mode."""
+    """Routed from the WS handler."""
     if not game_active:
         return
-    if game_mode == GAME_MODE_BUG:
-        await _bug_handle_tap(device_id, reaction_ms)
-    else:
-        await _race_handle_tap(device_id)
-
-
-# ------------------------------------------------------------------ #
-# Bug game — server                                                    #
-# ------------------------------------------------------------------ #
-
-async def _start_bug_round(payload: dict) -> dict:
-    global game_active, game_order, game_results, bug_slot_ms
-    global _bug_countdown_task
-
-    # Cancel anything still running
-    if _bug_countdown_task and not _bug_countdown_task.done():
-        _bug_countdown_task.cancel()
-    for t in _bug_phone_tasks:
-        if not t.done():
-            t.cancel()
-    if _bug_end_task and not _bug_end_task.done():
-        _bug_end_task.cancel()
-    await _cancel_race_progress()
-
-    game_order   = list(payload.get("order", []))
-    bug_slot_ms  = int(payload.get("slot_ms", 1400))
-    game_active  = True
-    game_results = {}
-    _bug_countdown_task = asyncio.create_task(_bug_countdown_then_start())
-    return {"ok": True}
-
-
-async def _bug_countdown_then_start():
-    if _stop_effects:
-        await _stop_effects()
-    if _enable_sync:
-        await _enable_sync()
-    if _broadcast:
-        await _broadcast({
-            "type":     "game_countdown",
-            "start_at": int(time.time() * 1000),
-        })
-    await asyncio.sleep(3)
-    if game_active:
-        await _bug_start_parallel()
-
-
-async def _bug_start_parallel():
-    """Schedule each phone's bug at a random time within the game window."""
-    global _bug_phone_tasks, _bug_end_task, _bug_shown_set, _bug_missed_set
-    _bug_shown_set    = set()
-    _bug_missed_set   = set()
-    _bug_phone_tasks  = []
-
-    # Leave at least slot_ms of window after the bug appears so every phone
-    # gets a fair chance to tap before the round-end timer fires.
-    max_delay_ms = max(0, BUG_GAME_DURATION_MS - bug_slot_ms - 500)
-
-    for blink_id in game_order:
-        delay_ms = random.randint(0, max_delay_ms)
-        task = asyncio.create_task(_bug_show(blink_id, delay_ms))
-        _bug_phone_tasks.append(task)
-
-    _bug_end_task = asyncio.create_task(_bug_end_timer())
-    await _bug_broadcast_progress()
-
-
-async def _bug_show(blink_id: int, delay_ms: int):
-    """Wait delay_ms then send game_show to this phone."""
-    await asyncio.sleep(delay_ms / 1000)
-    if not game_active:
-        return
-    device_id = _blink_to_device(int(blink_id))
-    if not device_id or device_id not in _connections:
-        _bug_missed_set.add(blink_id)
-        await _bug_check_finish_early()
-        return
-    show_at = int(time.time() * 1000)
-    ws = _connections[device_id]
-    try:
-        await ws.send_json({
-            "type":    "game_show",
-            "show_at": show_at,
-            "slot_ms": bug_slot_ms,
-        })
-        _bug_shown_set.add(blink_id)
-    except Exception:
-        _bug_missed_set.add(blink_id)
-        await _bug_check_finish_early()
-        return
-    _bug_phone_tasks.append(asyncio.create_task(_bug_slot_expiry(blink_id)))
-
-
-async def _bug_slot_expiry(blink_id: int):
-    """Wait one slot; if the phone hasn't tapped, count it as missed."""
-    await asyncio.sleep(bug_slot_ms / 1000)
-    if not game_active:
-        return
-    if blink_id in game_results:
-        return
-    _bug_missed_set.add(blink_id)
-    await _bug_check_finish_early()
-
-
-async def _bug_check_finish_early():
-    """End the round as soon as every phone has either tapped or missed."""
-    global game_active, _bug_end_task
-    if not game_active:
-        return
-    total = len(game_order)
-    if total == 0:
-        return
-    if len(game_results) + len(_bug_missed_set) < total:
-        return
-    game_active = False
-    if _bug_end_task and not _bug_end_task.done():
-        _bug_end_task.cancel()
-    await _bug_broadcast_winner()
-
-
-async def _bug_end_timer():
-    """Wall-clock fallback — ends the round after BUG_GAME_DURATION_MS."""
-    await asyncio.sleep(BUG_GAME_DURATION_MS / 1000)
-    global game_active
-    if game_active:
-        game_active = False
-        await _bug_broadcast_winner()
-
-
-async def _bug_broadcast_progress():
-    if _broadcast is None:
-        return
-    await _broadcast({
-        "type":   "game_progress",
-        "tapped": len(game_results),
-        "total":  len(game_order),
-    })
-
-
-async def _bug_broadcast_winner():
-    if _broadcast is None:
-        return
-    if not game_results:
-        await _broadcast({"type": "game_end"})
-        return
-    min_ms  = round(min(game_results.values()))
-    winners = [bid for bid, ms in game_results.items() if round(ms) == min_ms]
-    if len(winners) > 1:
-        await _broadcast({
-            "type":        "game_winner",
-            "draw":        True,
-            "blink_ids":   winners,
-            "reaction_ms": min_ms,
-        })
-    else:
-        await _broadcast({
-            "type":        "game_winner",
-            "blink_id":    winners[0],
-            "reaction_ms": min_ms,
-        })
-    # No auto default-wave: the winner screen stays up until the operator
-    # fires the next effect or starts a new game.
-
-
-async def _stop_bug_round() -> dict:
-    global game_active, _bug_countdown_task, _bug_end_task
-    if not game_active and _bug_countdown_task is None:
-        return {"ok": True}
-    game_active = False
-    if _bug_countdown_task and not _bug_countdown_task.done():
-        _bug_countdown_task.cancel()
-    _bug_countdown_task = None
-    for t in _bug_phone_tasks:
-        if not t.done():
-            t.cancel()
-    _bug_phone_tasks.clear()
-    if _bug_end_task and not _bug_end_task.done():
-        _bug_end_task.cancel()
-    _bug_end_task = None
-    if _broadcast:
-        await _broadcast({"type": "game_end"})
-    await _start_default_wave()
-    return {"ok": True}
-
-
-async def _bug_handle_tap(device_id: str, reaction_ms: float):
-    blink_id = _blink_assignments.get(device_id)
-    if blink_id is None:
-        return
-    if blink_id not in _bug_shown_set:
-        return
-    if blink_id in game_results:
-        return
-    if blink_id in _bug_missed_set:
-        # Slot already lapsed and was counted as missed — a late tap must not
-        # record a result (it would double-count in the finish tally and could
-        # even let a visibly-missed phone win).
-        return
-    game_results[blink_id] = float(reaction_ms)
-    await _bug_broadcast_progress()
-    await _bug_check_finish_early()
-
-
-def _bug_state_snapshot() -> dict:
-    return {
-        "mode":   GAME_MODE_BUG,
-        "active": game_active,
-        "tapped": len(game_results),
-        "total":  len(game_order),
-        "missed": len(_bug_missed_set),
-        "shown":  len(_bug_shown_set),
-    }
+    await _race_handle_tap(device_id)
 
 
 # ------------------------------------------------------------------ #
@@ -415,16 +152,9 @@ async def _start_race_round(payload: dict) -> dict:
     global game_active, race_positions, race_taps_total
     global race_winner, race_start_at, race_end_at
     global _race_progress_task, _race_last_tap_at
-    global game_order, game_results
 
-    # Cancel anything still running in the other modes
-    await _cancel_bug_tasks()
+    # Cancel anything still running from a previous round
     await _cancel_race_progress()
-
-    # Clear bug-game back-compat fields so a stale round doesn't leak
-    # into the post-show report.
-    game_order   = []
-    game_results = {}
 
     blink_ids = [int(b) for b in payload.get("blink_ids", [])]
     race_positions    = {bid: 0.0 for bid in blink_ids}
@@ -553,20 +283,6 @@ def _race_state_snapshot() -> dict:
 # Shared helpers                                                       #
 # ------------------------------------------------------------------ #
 
-async def _cancel_bug_tasks():
-    global _bug_countdown_task, _bug_end_task
-    if _bug_countdown_task and not _bug_countdown_task.done():
-        _bug_countdown_task.cancel()
-    _bug_countdown_task = None
-    for t in _bug_phone_tasks:
-        if not t.done():
-            t.cancel()
-    _bug_phone_tasks.clear()
-    if _bug_end_task and not _bug_end_task.done():
-        _bug_end_task.cancel()
-    _bug_end_task = None
-
-
 async def _start_default_wave():
     """Fire a calm wave so audience phones aren't stuck on the game card."""
     if _start_effect is None:
@@ -589,32 +305,6 @@ async def _start_default_wave():
 # ------------------------------------------------------------------ #
 # Controller — start/stop helpers                                      #
 # ------------------------------------------------------------------ #
-
-def start_bug_game():
-    """Controller-side: kick off a bug-tap round on whichever phones are
-    currently calibrated, sorted left-to-right by render order."""
-    with _state.lock:
-        positions = dict(_state.calibrated_positions)
-    if not positions:
-        _set_status("No detected phones - run detection first")
-        return
-    if _render_order:
-        ordered = sorted(_render_order.keys(),
-                         key=lambda bid: _render_order[bid])
-    else:
-        ordered = sorted(positions, key=lambda bid: positions[bid].get("u", 0.0))
-    payload = {"mode": GAME_MODE_BUG, "order": ordered, "slot_ms": bug_slot_ms}
-    ok = _post_json("/admin/game/start", payload)
-    if not ok:
-        _set_status("Bug game start failed")
-        return
-    with _state.lock:
-        _state.current_effect = None
-    set_active_btn("game_start_bug")
-    _set_status(f"Bug game - {len(ordered)} phones / "
-                f"{BUG_GAME_DURATION_MS // 1000}s round")
-    _start_poll()
-
 
 def start_race_game():
     """Avatar race: every calibrated phone gets a generated avatar on
@@ -658,7 +348,7 @@ def stop_game():
 def set_active_btn(tag: str | None):
     """Bind the active-orange theme to the named Start button (or clear
     all if tag is None)."""
-    for btn in ("game_start_bug", "game_start_race"):
+    for btn in ("game_start_race",):
         try:
             if dpg.does_item_exist(btn):
                 dpg.bind_item_theme(btn,
@@ -694,21 +384,15 @@ def _start_poll():
             data = _fetch_json("/admin/game/state")
             if data is None:
                 continue
-            mode = data.get("mode", GAME_MODE_RACE)
             try:
-                if mode == GAME_MODE_BUG:
-                    line = (f"Bug: tapped {data.get('tapped', 0)}/"
-                            f"{data.get('total', 0)}   "
-                            f"missed {data.get('missed', 0)}")
-                else:
-                    leader = data.get("leader")
-                    leader_pos = data.get("leader_pos", 0)
-                    runners    = data.get("runners", 0)
-                    leader_str = f"#{int(leader)+1}" if leader is not None else "—"
-                    line = (
-                        f"Race — {runners} runners\n"
-                        f"Leader {leader_str}  {leader_pos:>3.0%}"
-                    )
+                leader = data.get("leader")
+                leader_pos = data.get("leader_pos", 0)
+                runners    = data.get("runners", 0)
+                leader_str = f"#{int(leader)+1}" if leader is not None else "—"
+                line = (
+                    f"Race — {runners} runners\n"
+                    f"Leader {leader_str}  {leader_pos:>3.0%}"
+                )
                 if _ui_queue is not None:
                     _ui_queue.put(("game_status_text", line))
                 else:
@@ -739,15 +423,7 @@ def _start_poll():
 def build_sidebar_buttons(indent: int, pad: int):
     """Sidebar block with game modes and a shared Stop."""
     dpg.add_spacer(height=4)
-    dpg.add_text("GAME 1 - BUG", color=(160, 160, 160), indent=indent)
-    dpg.add_separator()
-    dpg.add_button(label="Start Bug Game",
-                   tag="game_start_bug",
-                   callback=start_bug_game,
-                   indent=indent, width=-(pad + 1))
-
-    dpg.add_spacer(height=8)
-    dpg.add_text("GAME 2 - AVATAR RACE", color=(160, 160, 160), indent=indent)
+    dpg.add_text("AVATAR RACE", color=(160, 160, 160), indent=indent)
     dpg.add_separator()
     dpg.add_button(label="Start Avatar Race",
                    tag="game_start_race",

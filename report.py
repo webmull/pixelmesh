@@ -20,8 +20,6 @@ def generate(
     detection_start:   float,  # epoch; 0 = detection never ran this session
     like_count:        int,
     total_connected:   int,    # phones that received a blink_id this session
-    game_results:      dict,   # blink_id → reaction_ms  (empty if no game)
-    game_order:        list,   # blink_ids that played  (empty if no game)
 ) -> str:
     """Write report to debug/reports/ and return the file path."""
     os.makedirs(_REPORT_DIR, exist_ok=True)
@@ -33,8 +31,6 @@ def generate(
         detection_start   = detection_start,
         like_count        = like_count,
         total_connected   = total_connected,
-        game_results      = game_results,
-        game_order        = game_order,
     )
     with open(path, "w") as f:
         f.write(text)
@@ -44,7 +40,7 @@ def generate(
 # ------------------------------------------------------------------ #
 
 def _build(*, detected_ids, detection_timings, detection_start,
-           like_count, total_connected, game_results, game_order) -> str:
+           like_count, total_connected) -> str:
 
     W   = 46
     sep = "═" * W
@@ -107,34 +103,6 @@ def _build(*, detected_ids, detection_timings, detection_start,
         f"  Likes:          {like_count:>4}",
         "",
     ]
-
-    # ---- Bug game ----
-    if game_order:
-        n_players = len(game_order)
-        n_tapped  = len(game_results)
-        tap_pct   = f"{n_tapped / n_players * 100:.0f}%" if n_players else "—"
-        no_tap    = n_players - n_tapped
-
-        lines.append("BUG GAME")
-        lines.append(f"  Players:        {n_players:>4}")
-        lines.append(f"  Tapped:         {n_tapped:>4}  ({tap_pct})")
-
-        if game_results:
-            min_ms  = min(game_results.values())
-            winners = [b for b, ms in game_results.items() if ms == min_ms]
-            if len(winners) == 1:
-                lines.append(f"  Winner:         Phone {winners[0] + 1}"
-                              f"  —  {min_ms:.0f}ms")
-            else:
-                names = ", ".join(f"Phone {b + 1}" for b in winners)
-                lines.append(f"  Winner:         Draw — {names}"
-                              f"  —  {min_ms:.0f}ms")
-            median_r = statistics.median(game_results.values())
-            lines.append(f"  Median react:   {median_r:.0f}ms")
-
-        if no_tap:
-            lines.append(f"  No tap:         {no_tap:>4}")
-        lines.append("")
 
     lines.append(sep)
     return "\n".join(lines) + "\n"
