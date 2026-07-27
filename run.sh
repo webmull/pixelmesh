@@ -165,9 +165,22 @@ launch_controller() {
 # stops are never resurrected. Bounded: 3 restarts in 60s then give up
 # loudly, so a crash-loop is visible rather than masked.
 controller_watchdog() {
+  local hub_tick=0
   while [[ -f $WATCHDOG_FLAG ]]; do
     sleep 2
     [[ -f $WATCHDOG_FLAG ]] || break
+    # Camera Hub keepalive (checked every ~10s): the AE watchdog and ISO
+    # control die with it, so it is show-critical. open -gja restarts it
+    # in the background without stealing focus mid-show.
+    (( hub_tick++ ))
+    if (( hub_tick >= 5 )); then
+      hub_tick=0
+      if ! pgrep -f "Camera Hub" >/dev/null; then
+        echo "$(date '+%H:%M:%S') watchdog: Camera Hub gone - relaunching" \
+          >> /tmp/pixelmesh-controller.log
+        open -gja "Elgato Camera Hub" 2>/dev/null || true
+      fi
+    fi
     if [[ -z $(pid_of_controller) ]]; then
       local now=$(date +%s)
       # keep only restarts from the last 60s in the flag file
@@ -187,6 +200,14 @@ controller_watchdog() {
 }
 
 start_all() {
+  # Camera Hub must be up before the controller: it owns the Elgato's
+  # exposure state and elgato.py connects to its WebSocket at startup.
+  if ! pgrep -f "Camera Hub" >/dev/null; then
+    echo "${Y}→ Starting Elgato Camera Hub...${RESET}"
+    open -gja "Elgato Camera Hub" 2>/dev/null || true
+    sleep 2
+  fi
+
   echo "${Y}→ Starting server...${RESET}"
   $PYTHON -m uvicorn server:app --host 0.0.0.0 --port 8000 \
     >> /tmp/pixelmesh-server.log 2>&1 &
