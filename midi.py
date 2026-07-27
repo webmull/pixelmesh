@@ -142,6 +142,7 @@ class MidiInput:
     def _loop(self):
         import time
         announced_wait = False
+        last_presence_check = 0.0
         while self._running:
             # (Re)connect: BLE pedals come and go; keep scanning.
             if self._midi_in is None:
@@ -165,6 +166,27 @@ class MidiInput:
                 _mlog.info(f"[midi] listening on: {name}")
                 log.info(f"[midi] FS-1-WL connected: {name}")
                 self._note("pedal connected")
+
+            # BLE disconnects usually do NOT error the open port on macOS -
+            # get_message just goes silent forever. Actively verify the
+            # pedal is still in the system port list every 3s.
+            now = time.time()
+            if now - last_presence_check >= 3.0:
+                last_presence_check = now
+                probe = rtmidi.MidiIn()
+                present = _find_port(probe) is not None
+                del probe
+                if not present:
+                    self.connected = False
+                    self._note("pedal lost")
+                    _mlog.info("[midi] pedal vanished from port list - rescanning")
+                    log.info("[midi] FS-1-WL disconnected")
+                    try:
+                        self._midi_in.close_port()
+                    except Exception:
+                        pass
+                    self._midi_in = None
+                    continue
 
             try:
                 msg = self._midi_in.get_message()
