@@ -6,7 +6,7 @@ Three switches, mapped by a one-time learn step to the three most
 show-useful hands-free actions:
 
     switch 1  →  toggle detection
-    switch 2  →  toggle clock sync
+    switch 2  →  cycle through effects (wave, gradient, pulse, ...)
     switch 3  →  toggle video recording
 
 The FS-1-WL sends different messages depending on its power-on mode
@@ -46,7 +46,11 @@ _mlog.addHandler(_midi_handler)
 _mlog.propagate = False
 
 # Actions in learn order. Names double as midi_map.json keys.
-ACTIONS = ["detection", "sync", "recording"]
+ACTIONS = ["detection", "effects", "recording"]
+
+# Parameter-free effects the pedal steps through, in show order.
+# (ripple needs a click point and groups needs column config - excluded.)
+EFFECT_CYCLE = ["wave", "gradient", "pulse", "rainbow", "sparkle", "sections"]
 
 # Port-name fragments that identify the pedal (BLE MIDI names vary a
 # little between macOS versions; all contain "FS-1").
@@ -91,16 +95,17 @@ class MidiInput:
         self._thread  = None
         self._running = False
         self._map     = None          # action → {"status", "data1"}
-        self._state   = {"sync": False, "recording": False}
+        self._state   = {"recording": False}
+        self._fx_idx  = -1            # last fired index into EFFECT_CYCLE
 
     # Signature kept identical to the LPD8 version so controller.py
     # needs no changes; trigger_effect/set_iso/set_overlays/reset are
     # accepted but unused (three switches, three actions).
     def start(self, trigger_effect, toggle_detect, set_iso, set_recording=None,
               set_overlays=None, set_sync=None, reset=None):
-        self._toggle_detect = toggle_detect
-        self._set_recording = set_recording
-        self._set_sync      = set_sync
+        self._toggle_detect  = toggle_detect
+        self._set_recording  = set_recording
+        self._trigger_effect = trigger_effect
 
         self._map = load_map()
         if self._map is None:
@@ -177,13 +182,13 @@ class MidiInput:
             log.info("[midi] FS-1-WL -> toggle detection")
             if self._toggle_detect:
                 self._toggle_detect()
-        elif action == "sync":
-            self._state["sync"] = not self._state["sync"]
-            on = self._state["sync"]
-            _mlog.info(f"[midi] switch -> sync {'ON' if on else 'OFF'}")
-            log.info(f"[midi] FS-1-WL -> sync {'ON' if on else 'OFF'}")
-            if self._set_sync:
-                self._set_sync(on)
+        elif action == "effects":
+            self._fx_idx = (self._fx_idx + 1) % len(EFFECT_CYCLE)
+            name = EFFECT_CYCLE[self._fx_idx]
+            _mlog.info(f"[midi] switch -> effect '{name}'")
+            log.info(f"[midi] FS-1-WL -> effect '{name}'")
+            if self._trigger_effect:
+                self._trigger_effect(name)
         elif action == "recording":
             self._state["recording"] = not self._state["recording"]
             on = self._state["recording"]
@@ -218,7 +223,7 @@ def _learn():
 
     labels = {
         "detection": "TOGGLE DETECTION",
-        "sync":      "TOGGLE CLOCK SYNC",
+        "effects":   "CYCLE EFFECTS",
         "recording": "TOGGLE VIDEO RECORDING",
     }
     mapping = {}
