@@ -123,16 +123,19 @@ EFFECT_PARAMS = {
     ],
 }
 
+# Order = sidebar grid order. Mouse-driven effects (ripple's click-arm,
+# spotlight's cursor follow, groups' column config) sit at the end so
+# the pedal-friendly ones lead.
 EFFECT_LABELS = {
     "wave":         "Wave",
     "gradient":     "Gradient",
     "pulse":        "Pulse",
     "rainbow":      "Rainbow",
+    "sparkle":      "Sparkle",
+    "sections":     "Sections",
     "ripple":       "Ripple",
     "spotlight":    "Spotlight",
     "groups":       "Groups",
-    "sparkle":      "Sparkle",
-    "sections":     "Sections",
 }
 
 
