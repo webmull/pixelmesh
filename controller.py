@@ -800,15 +800,6 @@ def draw_hud(canvas: np.ndarray, fps: float):
         cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
                     FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
-    # Bottom-right: show friendly debug run name when debug capture is active
-    if dbg_cap.active and dbg_cap.run_dir:
-        run_name = _os.path.basename(dbg_cap.run_dir)
-        h, w = canvas.shape[:2]
-        (nw, nh), _ = cv2.getTextSize(run_name, FONT, font_scale, thickness)
-        nx = w - nw - PAD * 2 - 2
-        ny = h - PAD * 2 - 2
-        cv2.putText(canvas, run_name, (nx, ny),
-                    FONT, font_scale, (60, 180, 255), thickness, cv2.LINE_AA)
 
 # ------------------------------------------------------------------ #
 # UI helpers
