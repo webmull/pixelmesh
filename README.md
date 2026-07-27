@@ -206,30 +206,7 @@ the phone to step forward; first across the finish line wins.
 Launch from the sidebar: **Start Avatar Race**. Open `/stage` on a second screen (or projector)
 to display the race.
 
-### 5. Bug game
-
-A tap-reaction game. All phones receive a bug at random private intervals within a 20-second
-round — each player's bug appears at an unpredictable moment. Lowest reaction time wins.
-
-- **Round:** 20 seconds, hard wall-clock timer
-- **Slot:** 1.4 seconds to tap once the bug appears
-- **Timer bar:** drains over the full 20 s, synced to server time — all phones show the same
-  remaining time regardless of when their bug appeared
-- **Progress pill:** `X / Y tapped` shown live on every device
-
-| Result | Display |
-|--------|---------|
-| Fastest tap | **YOU WIN** in gold |
-| Tied fastest | **IT'S A DRAW** in gold |
-| Tapped but not fastest | **NOT THIS TIME** with your time |
-| Missed the slot | **YOU MISSED IT** in red |
-
-Winner's phone number and time shown below in all cases. The controller leaderboard shows all
-reaction times ranked fastest-first, with no-tap phones listed below a separator.
-
-Launch from the sidebar: **Start Bug Game**. The leaderboard window opens automatically.
-
-### 6. Likes
+### 5. Likes
 
 A global like counter on the waiting screen. Tap the thumbs-up to add to it — flying heart
 animations play locally. Taps are batched server-side at ~3 broadcasts/second so simultaneous
@@ -237,7 +214,7 @@ taps from 300 people don't flood connections.
 
 **Sidebar controls:** Reset Like Counter · Enable/Disable Likes
 
-### 7. Post-show report
+### 6. Post-show report
 
 A plain-text summary is generated automatically every time the server is reset (`R`). The file is
 saved silently to `debug/reports/`; detection-end runs (`D` off) open it in the default editor.
@@ -262,13 +239,6 @@ DETECTION
 
 ENGAGEMENT
   Likes:           284
-
-BUG GAME
-  Players:          43
-  Tapped:           38  (88%)
-  Winner:        Phone 24  —  142ms
-  Median react:   387ms
-  No tap:            5
 
 ══════════════════════════════════════════════
 ```
@@ -320,8 +290,7 @@ Phones cycle through these views as the show progresses:
 | `located` | Position confirmed | Map showing their spot in the crowd |
 | `missed` | Detection ended, not found | 3 red flashes → black |
 | `effects` | Showtime | Synchronised light effect |
-| `game_wait` | Game active, bug not yet appeared | Black screen |
-| `game` | Bug game / avatar race UI | Tap-to-play card with personal avatar + rank (race) or bug-tap target (bug) |
+| `game` | Avatar race active | Tap-to-run card with personal avatar + live rank |
 
 Each card is a fixed full-screen div. `setView()` is the only point that changes the display —
 cards are shown/hidden via `style.display`, never via CSS class toggles.
@@ -423,8 +392,7 @@ The display and detection threads run independently. Frames pass via `Queue(maxs
 detector is busy the frame is dropped and the camera loop continues unblocked.
 
 The sidebar is organised into three tabs: **SCENE** (exposure, ROI sliders, live information
-panel — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME**
-(bug game, likes).
+panel — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME** (avatar race, likes).
 
 | File | Role |
 |------|------|
@@ -433,7 +401,7 @@ panel — opens by default), **RUN** (detection, overlays, effects, server contr
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
-| `game.py` | Bug game + avatar race — server routes, tap dispatch by mode, controller UI |
+| `game.py` | Avatar race — server routes, tap handling, controller UI |
 | `public/stage.js` | Stage projection — avatar race rendering, confetti, winner overlay |
 | `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |

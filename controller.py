@@ -1472,7 +1472,7 @@ def _save_report(auto_open: bool = False):
             import subprocess
             subprocess.Popen(["open", _report_saved_path])
         return
-    if not _detected_ids and not game.game_order:
+    if not _detected_ids:
         return   # nothing to report
 
     # Snapshot state on the caller's (render) thread so the report reflects the
@@ -1485,8 +1485,6 @@ def _save_report(auto_open: bool = False):
         detected_ids      = set(_detected_ids),
         detection_timings = dict(_detection_timings),
         detection_start   = _detection_start_time,
-        game_results      = dict(game.game_results),
-        game_order        = list(game.game_order),
     )
 
     def _work():
@@ -1499,8 +1497,6 @@ def _save_report(auto_open: bool = False):
                 detection_start   = snap["detection_start"],
                 like_count        = stats.get("like_count", 0),
                 total_connected   = stats.get("total_connected", len(snap["detected_ids"])),
-                game_results      = snap["game_results"],
-                game_order        = snap["game_order"],
             )
             _report_saved_path = path
             if auto_open:
