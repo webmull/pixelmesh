@@ -45,7 +45,10 @@ class AppState:
         )
 
         self.camera_active        = False        # True when a camera is open
-        self.flip_projection      = False        # mirror the MJPEG feed horizontally
+        self.flip_projection      = True         # mirror the MJPEG feed horizontally
+                                                 # (default ON: every venue projects, and a
+                                                 # crowd watching itself expects a mirror -
+                                                 # F toggles off for desk work)
 
         # Calibrated positions: blink_id → {"u": float, "v": float}
         self.calibrated_positions = {}
