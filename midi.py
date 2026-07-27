@@ -5,7 +5,7 @@ pixelmesh V2 — MIDI input (BOSS FS-1-WL wireless footswitch)
 Three switches, mapped by a one-time learn step to the three most
 show-useful hands-free actions:
 
-    switch 1  →  toggle detection
+    switch 1  →  fresh detection run (reset, then start; stomp again stops)
     switch 2  →  cycle through effects (wave, gradient, pulse, ...)
     switch 3  →  toggle video recording
 
