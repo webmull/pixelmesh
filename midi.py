@@ -104,6 +104,7 @@ class MidiInput:
         # every append so the UI refresh can cheaply skip when idle.
         self._hist    = deque(maxlen=10)
         self.history_version = 0
+        self.connected = False   # live pedal link state for the sidebar
 
     def _note(self, text: str):
         self._hist.append(f"{_time.strftime('%H:%M:%S')}  {text}")
@@ -130,6 +131,7 @@ class MidiInput:
         self._thread.start()
 
     def stop(self):
+        self.connected = False
         self._running = False
         if self._midi_in:
             self._midi_in.close_port()
@@ -159,6 +161,7 @@ class MidiInput:
                 self._midi_in.open_port(idx)
                 self._midi_in.ignore_types(sysex=True, timing=True, active_sense=True)
                 announced_wait = False
+                self.connected = True
                 _mlog.info(f"[midi] listening on: {name}")
                 log.info(f"[midi] FS-1-WL connected: {name}")
                 self._note("pedal connected")
@@ -167,6 +170,7 @@ class MidiInput:
                 msg = self._midi_in.get_message()
             except Exception:
                 # Pedal slept / BLE dropped - go back to scanning.
+                self.connected = False
                 _mlog.info("[midi] port lost, rescanning")
                 try:
                     self._midi_in.close_port()
