@@ -179,7 +179,8 @@ The active effect is highlighted in orange in the sidebar. An animated thumbnail
 list previews the selected effect in real time.
 
 **Projection flip (`F`):** mirrors the MJPEG feed + controller preview so the projector reads the
-right way round; the HUD redraws onto the flipped canvas so labels stay readable.
+right way round; the HUD redraws onto the flipped canvas so labels stay readable. **On by
+default** - a crowd watching itself expects a mirror; toggle off for desk work.
 
 **Overlay modes (`P`):** toggle between showing blink IDs (0-based) or render order
 (left-to-right spatial rank) on the camera feed. Render order is what the effects engine uses to
