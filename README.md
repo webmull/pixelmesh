@@ -117,7 +117,9 @@ brightness, or ambient light sensor dimming screens.
 HDMI) while the controller runs wedges the GUI — GLFW cannot survive the macOS display-topology
 change (MaccTech, Jul 2026: frozen app, `r` reload, ~90 s to full recovery including
 re-detection). Connect the projector before `run.sh`, and stop the controller before unplugging.
-If it happens mid-show: `r` restarts everything and phones rejoin and re-detect automatically.
+If it happens mid-show: a watchdog in `run.sh` notices a dead controller within ~2 s and
+restarts it automatically (bounded at 3 restarts per 60 s, then it gives up loudly in
+`/tmp/pixelmesh-controller.log` so a crash-loop is visible). `r` remains the manual fallback.
 
 ### 2. Detection
 

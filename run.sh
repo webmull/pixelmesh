@@ -108,6 +108,8 @@ status_line() {
 # ─────────────────────────────────────────────
 kill_all() {
   echo "${Y}→ Stopping all processes...${RESET}"
+  # Disarm the watchdog first so an intentional stop is not resurrected.
+  rm -f "$WATCHDOG_FLAG"
   # Fire all kill signals in parallel — pixelmesh's own ngrok is scoped
   # by its config file so other projects' tunnels are left alone.
   lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
@@ -147,6 +149,42 @@ kill_all() {
 }
 
 PYTHON=python3.10
+WATCHDOG_FLAG=/tmp/pixelmesh-watchdog
+
+launch_controller() {
+  PIXELMESH_LAUNCHED=1 $PYTHON controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
+  local ctl_pid=$!
+  # No sleep, no display dim, no idle nap while the show runs. Tied to
+  # the controller pid, so it exits with the controller.
+  caffeinate -dis -w "$ctl_pid" &
+}
+
+# Auto-restart the controller if it dies (MaccTech: a projector unplug
+# wedged the GUI and recovery was a manual [r]). Runs in the background;
+# the flag file is its kill switch - kill_all removes it so intentional
+# stops are never resurrected. Bounded: 3 restarts in 60s then give up
+# loudly, so a crash-loop is visible rather than masked.
+controller_watchdog() {
+  while [[ -f $WATCHDOG_FLAG ]]; do
+    sleep 2
+    [[ -f $WATCHDOG_FLAG ]] || break
+    if [[ -z $(pid_of_controller) ]]; then
+      local now=$(date +%s)
+      # keep only restarts from the last 60s in the flag file
+      local recent=$(awk -v t=$((now-60)) '$1 > t' "$WATCHDOG_FLAG" 2>/dev/null)
+      local count=$(echo -n "$recent" | grep -c . || true)
+      if (( count >= 3 )); then
+        echo "$(date '+%H:%M:%S') watchdog: controller died 4x in 60s - giving up"           >> /tmp/pixelmesh-controller.log
+        rm -f "$WATCHDOG_FLAG"
+        break
+      fi
+      { echo "$recent"; echo "$now"; } | grep . > "$WATCHDOG_FLAG"
+      echo "$(date '+%H:%M:%S') watchdog: controller died - restarting ($((count+1))/3)"         >> /tmp/pixelmesh-controller.log
+      launch_controller
+      sleep 3   # grace so a fast crash doesn't double-count
+    fi
+  done
+}
 
 start_all() {
   echo "${Y}→ Starting server...${RESET}"
@@ -173,13 +211,10 @@ start_all() {
   while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
     sleep 0.5; (( i++ ))
   done
-  PIXELMESH_LAUNCHED=1 $PYTHON controller.py >> /tmp/pixelmesh-controller.log 2>&1 &
-  local ctl_pid=$!
+  launch_controller
 
-  # No sleep, no display dim, no idle nap while the show runs. Tied to
-  # the controller pid, so it exits with the controller - nothing to
-  # clean up on stop/reload.
-  caffeinate -dis -w "$ctl_pid" &
+  : > "$WATCHDOG_FLAG"
+  controller_watchdog &
 
   LAST_STARTED=$(date "+%d %b %Y  %H:%M:%S")
   echo "${G}  all started.${RESET}"
