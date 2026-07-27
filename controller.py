@@ -1812,9 +1812,10 @@ def setup_ui(holder: dict):
                 dpg.add_separator()
                 dpg.add_spacer(height=2)
 
-                # Tabs scroll in their own region so the MIDI panel
-                # below stays pinned and visible at any tab length.
-                with dpg.child_window(height=-200, border=False):
+                # Tabs region auto-sizes to its content so the MIDI panel
+                # sits directly beneath the active tab instead of being
+                # pinned to the window bottom with dead space above it.
+                with dpg.child_window(auto_resize_y=True, border=False):
                     with dpg.tab_bar():
 
                         # ---- SCENE tab (default) ----
@@ -1882,8 +1883,24 @@ def setup_ui(holder: dict):
                             dpg.add_text("SYNC", color=(160, 160, 160), indent=_PAD)
                             dpg.add_separator()
                             dpg.add_text("No sync data - enable Clock Sync.",
-                                         tag="sync_summary", color=(150, 150, 150),
-                                         indent=_PAD, wrap=300)
+                                         tag="sync_devices", color=(150, 150, 150),
+                                         indent=_PAD)
+                            with dpg.table(tag="sync_table", header_row=True,
+                                           show=False, width=-(_PAD + 1),
+                                           indent=_PAD,
+                                           borders_innerH=True,
+                                           policy=dpg.mvTable_SizingStretchProp):
+                                dpg.add_table_column(label="")
+                                dpg.add_table_column(label="avg")
+                                dpg.add_table_column(label="worst")
+                                with dpg.table_row():
+                                    dpg.add_text("RTT", color=(180, 180, 180))
+                                    dpg.add_text("-", tag="sync_rtt_avg")
+                                    dpg.add_text("-", tag="sync_rtt_worst")
+                                with dpg.table_row():
+                                    dpg.add_text("Drift", color=(180, 180, 180))
+                                    dpg.add_text("-", tag="sync_drift_avg")
+                                    dpg.add_text("-", tag="sync_drift_worst")
 
                         # ---- RUN tab ----
                         with dpg.tab(label="RUN"):
@@ -2334,17 +2351,20 @@ def main():
                         rtts = [r["rtt_ms"] for r in rows if r.get("rtt_ms") is not None]
                         offs = [abs(r["offset_ms"]) for r in rows if r.get("offset_ms") is not None]
                         if not rows:
-                            dpg.set_value("sync_summary",
+                            dpg.set_value("sync_devices",
                                           "No sync data - enable Clock Sync.")
+                            dpg.configure_item("sync_table", show=False)
                         else:
-                            line = f"{len(rows)} devices synced"
-                            if rtts:
-                                line += (f"\nRTT   avg {sum(rtts)/len(rtts):.0f}ms"
-                                         f"   worst {max(rtts):.0f}ms")
-                            if offs:
-                                line += (f"\nDrift avg {sum(offs)/len(offs):.0f}ms"
-                                         f"   worst {max(offs):.0f}ms")
-                            dpg.set_value("sync_summary", line)
+                            dpg.set_value("sync_devices", f"{len(rows)} devices synced")
+                            dpg.configure_item("sync_table", show=True)
+                            dpg.set_value("sync_rtt_avg",
+                                          f"{sum(rtts)/len(rtts):.0f}ms" if rtts else "-")
+                            dpg.set_value("sync_rtt_worst",
+                                          f"{max(rtts):.0f}ms" if rtts else "-")
+                            dpg.set_value("sync_drift_avg",
+                                          f"{sum(offs)/len(offs):.0f}ms" if offs else "-")
+                            dpg.set_value("sync_drift_worst",
+                                          f"{max(offs):.0f}ms" if offs else "-")
                         continue
                     try:
                         dpg.set_value(tag, value)
