@@ -14,7 +14,7 @@ The FS-1-WL sends different messages depending on its power-on mode
 
     1. Pair the pedal once: Audio MIDI Setup → Window → Show MIDI Studio
        → Bluetooth → connect FS-1-WL.
-    2. Run:  python3.10 midi.py --learn
+    2. Run:  python3.14 midi.py --learn
     3. Stomp each switch when prompted. Mappings land in midi_map.json.
 
 At show time the controller listens with the learned map. The pedal is
@@ -124,8 +124,8 @@ class MidiInput:
 
         self._map = load_map()
         if self._map is None:
-            _mlog.warning("[midi] no midi_map.json - run: python3.10 midi.py --learn")
-            log.warning("[midi] FS-1-WL not mapped - run: python3.10 midi.py --learn")
+            _mlog.warning("[midi] no midi_map.json - run: python3.14 midi.py --learn")
+            log.warning("[midi] FS-1-WL not mapped - run: python3.14 midi.py --learn")
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="midi")
         self._thread.start()
@@ -247,7 +247,7 @@ midi = MidiInput()
 
 
 # ------------------------------------------------------------------ #
-# Learn mode: python3.10 midi.py --learn
+# Learn mode: python3.14 midi.py --learn
 # ------------------------------------------------------------------ #
 
 def _learn():

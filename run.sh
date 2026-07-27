@@ -148,7 +148,7 @@ kill_all() {
   sleep 0.3
 }
 
-PYTHON=python3.10
+PYTHON=python3.14
 WATCHDOG_FLAG=/tmp/pixelmesh-watchdog
 
 launch_controller() {
