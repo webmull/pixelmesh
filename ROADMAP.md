@@ -38,6 +38,14 @@ reinforcement (WebAudio, unlocked by the join tap; iOS ringer switch limits cove
   watch-the-projector-for-your-number (high cognitive load mid-crowd).
 - Client + server state change only - no frozen files.
 
+## run.sh crash watchdog
+
+Watch the three processes (server, controller, ngrok agent) and auto-restart any that die,
+with a log line and a bounded retry (e.g. 3 restarts in 60s then stop and alert) so a
+crash-loop is visible rather than silent. Motivated by the MaccTech GUI wedge: recovery was
+manual `r`; a watchdog turns that into seconds without operator attention. Controller restarts
+are already audience-safe (BUILD_ID reload + re-detection path proven live).
+
 ## Blackout command
 
 Instant all-phones-off for dramatic moments.
