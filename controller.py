@@ -987,12 +987,9 @@ def toggle_detection():
         state.detecting = not state.detecting
         val = state.detecting
 
-    if val and not _valid_blink_ids:
-        with state.lock:
-            state.detecting = False
-        set_status("No clients connected")
-        return
-
+    # Zero-client runs are allowed (camera/ROI/overlay testing without
+    # phones): the empty valid-set already rejects every decode, and the
+    # auto-stop guard requires a non-empty set so it cannot fire early.
     if val:
         global _detection_start_time, _detected_ids, _render_order
         global _report_saved_path, _iso_hint
