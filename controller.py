@@ -2359,12 +2359,17 @@ def main():
                         rows = value
                         rtts = [r["rtt_ms"] for r in rows if r.get("rtt_ms") is not None]
                         offs = [abs(r["offset_ms"]) for r in rows if r.get("offset_ms") is not None]
+                        with state.lock:
+                            _conn = state.client_count
                         if not rows:
                             dpg.set_value("sync_devices",
-                                          "No sync data - enable Clock Sync.")
+                                          f"{_conn} connected - sync not running"
+                                          if _conn else
+                                          "No clients connected")
                             dpg.configure_item("sync_table", show=False)
                         else:
-                            dpg.set_value("sync_devices", f"{len(rows)} devices synced")
+                            dpg.set_value("sync_devices",
+                                          f"{len(rows)}/{_conn} devices synced")
                             dpg.configure_item("sync_table", show=True)
                             dpg.set_value("sync_rtt_avg",
                                           f"{sum(rtts)/len(rtts):.0f}ms" if rtts else "-")
