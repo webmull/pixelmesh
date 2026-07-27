@@ -73,7 +73,7 @@ endpoint before launching.
 
 | URL | Description |
 |-----|-------------|
-| `https://pixelmesh.show` | Audience URL — share this on screen. Serves a holding page with a rejoin countdown when the show agent is offline |
+| `https://pixelmesh.show` | Audience URL — share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
 | `https://pixelmesh.live` | Public site — deployed by DigitalOcean from `site/` on every push to `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
@@ -325,10 +325,23 @@ Phones cycle through these views as the show progresses:
 Each card is a fixed full-screen div. `setView()` is the only point that changes the display —
 cards are shown/hidden via `style.display`, never via CSS class toggles.
 
-**Waiting screen** — "Get ready" headline with brightness/auto-lock reminder, a pulsing dot with
-the assigned phone number, rotating crowd messages (solo messages when alone, crowd-count
-messages once others join), the like button with flying-heart animations, and a Wake Lock request
-to keep the phone awake.
+**Waiting screen** — shares the holding page's design language (wordmark, grid background,
+breathing glow) so the audience sees one continuous brand from pre-show to found. A numbered
+three-step card (keep the page open / brightness to full, auto-lock off / how to hold the
+phone), the like button (tap: white screen-blink flash, a burst of scattering pixel squares, a
+flying thumb; the count pops on every update including other people's likes), and a Wake Lock
+request to keep the phone awake.
+
+**Connection status bar** — fixed chrome above the home indicator, shown on the waiting and
+located views only: a black band fading out at the sides with a pixel-square marker. Steady
+pixel with an occasional double-blink wink = connected; continuous hard blinking = reconnecting;
+triple-blink = just joined. Shows "Connecting…" from the instant a fresh page loads, so startup
+can never look like a blank screen.
+
+**Connection resilience** — a fresh page that cannot connect reloads to the holding page after
+15 s; a mid-wait disconnect shows the amber state and hands over after 8 s; a liveness watchdog
+on wall-clock time catches the states no socket event reaches (constructor hangs, iOS freezing
+the page in background), with grace periods so a mid-handshake socket is never reloaded.
 
 **Located screen** — "Found you!" with a position map: white dots for other detected phones, a
 large animated green dot for this phone, and the pre-show reminders ("Hold your screen up when
@@ -554,14 +567,29 @@ answered with US PoPs and every audience message crossed the Atlantic twice (RTT
 - Full stack running → the audience app.
 - Tunnel up but server stopped → still the holding page, via the 5xx catch.
 
+### Load testing
+
+`tools/load_test.py` simulates a crowd against a running server with the real protocol per
+client (hello, assign, heartbeats, sync-ping RTT probes) plus a mid-hold like storm, and
+reports percentiles with pass/fail verdicts. Local: `python3 tools/load_test.py --clients 500`.
+Through the real edge: add `--host pixelmesh.show --wss`. Baselines (Jul 2026, M1 Pro):
+500/500 clients, zero drops, RTT p50 4ms local / 55ms through the EU edge, server at 12% CPU.
+
+### Performance sentinel
+
+The display loop self-monitors frame pacing and logs a `[perf]` warning only when the average
+exceeds 45 ms over a 5 s window (healthy is 24-40 ms) - the signature that caught the July
+save_frame stall. Silence means pacing is fine.
+
 ### Client auto-reload
 
-The server hashes `app.js` at startup into a `BUILD_ID` injected into every page response. On
-connect, `server_hello` sends the current `BUILD_ID`. If the client's stored ID differs, it
-reloads immediately.
+The server hashes `app.js` at startup into a `BUILD_ID`, stamped into both the page's script
+tag and `server_hello`. The client compares the server's build against the one embedded in its
+own page (not localStorage history — that reloaded already-current pages once per deploy), so a
+fresh page always matches and connects once, while a stale parked page reloads exactly once.
 
 - Same code + server restart → same hash, no reload
-- New `app.js` + server restart → new hash, all clients reload within seconds
+- New `app.js` + server restart → new hash, parked clients reload within seconds
 
 ---
 
