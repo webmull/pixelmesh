@@ -85,6 +85,24 @@ DEBUG_SAVE_EVERY = 6
 # to the server at up to 60fps, keeping JPEG cost off the display thread.
 _stream_latest    = None
 _STREAM_FPS       = 60
+
+# Temporary perf probe: per-5s display-loop breakdown + DPG item count
+# (leak detector for the run-over-run sluggish render investigation).
+_perf = {"n": 0, "t0": 0.0, "frame": 0.0}
+def _perf_tick(frame_start):
+    import time as _t
+    now = _t.time()
+    _perf["frame"] += now - frame_start
+    _perf["n"] += 1
+    if now - _perf["t0"] >= 5.0:
+        if _perf["t0"] > 0 and _perf["n"]:
+            n = _perf["n"]
+            log.info(f"[perf] frames={n} avg={_perf['frame']/n*1000:.0f}ms "
+                     f"dpg_items={len(dpg.get_all_items())} "
+                     f"threads={threading.active_count()}")
+        _perf["t0"] = now
+        _perf["n"] = 0
+        _perf["frame"] = 0.0
 ui_queue: Queue = Queue()
 # Set to True while draining the UI queue so checkbox set_value calls
 # don't re-fire toggle callbacks (some DearPyGui versions fire callbacks
@@ -2012,6 +2030,7 @@ def main():
 
     try:
         while dpg.is_dearpygui_running():
+            _frame_t0 = time.time()
             with state.lock:
                 if not state.running:
                     break
@@ -2307,6 +2326,7 @@ def main():
                 _ui_syncing = False
 
             dpg.render_dearpygui_frame()
+            _perf_tick(_frame_t0)
 
     finally:
         # Session-long debug captures are only stopped here or by the user —

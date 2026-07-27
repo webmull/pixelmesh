@@ -70,6 +70,7 @@ class DebugCapture:
         # camera loop on ffmpeg's stdin.  Maxsize=2 keeps memory tiny and
         # drops the oldest pending frame if ffmpeg falls behind.
         self._write_q:  Queue | None = None
+        self._save_q:   Queue | None = None
         self._writer:   threading.Thread | None = None
 
     # ---------------------------------------------------------------- #
@@ -109,6 +110,9 @@ class DebugCapture:
         self.active     = True
         self._ffmpeg_proc = None   # opened lazily on first record_frame
         self._write_q   = Queue(maxsize=2)
+        self._save_q    = Queue(maxsize=2)
+        threading.Thread(target=self._saver_loop, daemon=True,
+                         name="dbg-save").start()
         self._writer    = threading.Thread(
             target=self._writer_loop, daemon=True, name="dbg-write",
         )
@@ -123,6 +127,11 @@ class DebugCapture:
         self.active = False
         # Sentinel tells the writer to flush + exit; join briefly so the
         # ffmpeg close below sees no further writes.
+        if self._save_q is not None:
+            try:
+                self._save_q.put_nowait(None)
+            except Exception:
+                pass
         if self._write_q is not None:
             try:
                 self._write_q.put_nowait(None)
@@ -209,15 +218,46 @@ class DebugCapture:
 
     # ---------------------------------------------------------------- #
 
-    def save_frame(
-        self,
-        raw:        np.ndarray,
-        gray:       np.ndarray,
-        thresh:     np.ndarray,
-        overlay:    np.ndarray,
-        blobs:      list,
-        detections: list,
-    ):
+    def save_frame(self, raw, gray, thresh, overlay, blobs, detections):
+        """Enqueue for the saver thread. Four JPEG encodes plus a
+        per-point JSON dump used to run on the display thread and were
+        measured stalling it (cost scales with active-point count);
+        drop-oldest semantics under load, like the ffmpeg writer.
+        History values are snapshotted here because the detector keeps
+        mutating point histories after this call returns."""
+        if not self.active or self._save_q is None:
+            return
+        snap = []
+        for pt in blobs:
+            if not pt.history:
+                continue
+            # Raw slice only - rounding happens on the saver thread.
+            snap.append((pt.px, pt.py, pt.history[-40:],
+                         pt.decoded_id, pt.confidence, pt.decode_fail_reason))
+        item = (raw, gray, thresh, overlay, snap, list(detections))
+        try:
+            self._save_q.put_nowait(item)
+        except Full:
+            try:
+                self._save_q.get_nowait()
+            except Exception:
+                pass
+            try:
+                self._save_q.put_nowait(item)
+            except Full:
+                pass
+
+    def _saver_loop(self):
+        while True:
+            item = self._save_q.get()
+            if item is None:
+                return
+            try:
+                self._save_frame_impl(*item)
+            except Exception:
+                pass
+
+    def _save_frame_impl(self, raw, gray, thresh, overlay, snap, detections):
         if not self.active:
             return
 
@@ -236,26 +276,30 @@ class DebugCapture:
         hist = cv2.calcHist([gray], [0], None, [256], [0, 256]).flatten().tolist()
 
         # --- JSON frame summary (only interesting grid points) ---
-        blob_data = []
-        for pt in blobs:
-            vals = [round(v, 3) for _, v in pt.history]
-            if not vals:
-                continue
+        # Snapshot tuples from save_frame; history capped at the last 40
+        # samples and the point list at the 400 highest-contrast entries
+        # so noisy scenes (bright monitors: 1400+ active points) cannot
+        # produce multi-hundred-ms dumps.
+        scored = []
+        for px, py, hist, decoded_id, confidence, fail in snap:
+            vals = [round(v, 3) for _, v in hist]
             lo, hi = min(vals), max(vals)
             contrast = hi - lo
-            if contrast < 0.03 and pt.decoded_id is None:
+            if contrast < 0.03 and decoded_id is None:
                 continue
-            blob_data.append({
-                "px":               pt.px,
-                "py":               pt.py,
+            scored.append((contrast, {
+                "px":               px,
+                "py":               py,
                 "history_len":      len(vals),
                 "brightness_range": [lo, hi],
                 "contrast":         round(contrast, 3),
                 "last_20":          vals[-20:],
-                "decoded_id":       pt.decoded_id,
-                "confidence":       round(pt.confidence, 3),
-                "fail":             pt.decode_fail_reason,
-            })
+                "decoded_id":       decoded_id,
+                "confidence":       round(confidence, 3),
+                "fail":             fail,
+            }))
+        scored.sort(key=lambda t: (t[1]["decoded_id"] is None, -t[0]))
+        blob_data = [b for _, b in scored[:400]]
 
         det_data = [
             {"blink_id": d.blink_id, "cx": round(d.cx_px, 1),
