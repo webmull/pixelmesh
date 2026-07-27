@@ -111,6 +111,7 @@ _timing_log_handles: list = []      # open file handles paired with _timing_log_
 # captured at decode time.  Used at detection end to suggest an ISO adjustment.
 _detection_amplitudes: list[float] = []
 _iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
+_last_midi_hist_version: int = -1    # sidebar MIDI panel refresh guard
 
 # Two-phase ISO: detection wants the lowest sensible gain so dark phases
 # read near-zero (sensor noise floor matters more than nominal range —
@@ -819,6 +820,14 @@ def update_ui_from_state():
         state.overlay_show_render, dbg_cap.active, state.flip_projection,
         elgato.connected, elgato.ae_on, elgato.iso_gain,
     )
+    # MIDI history has its own version guard, outside the main snapshot
+    # dedup, so pedal events appear immediately without joining it.
+    global _last_midi_hist_version
+    if midi.midi.history_version != _last_midi_hist_version:
+        _last_midi_hist_version = midi.midi.history_version
+        safe_set("midi_history_text",
+                 "\n".join(midi.midi.history()) or "no commands yet")
+
     if snapshot == _last_ui_snapshot:
         return
     _last_ui_snapshot = snapshot
@@ -1849,6 +1858,13 @@ def setup_ui(holder: dict):
                         dpg.add_button(label="Enable / Disable Likes",
                                        callback=heart_toggle,
                                        indent=_PAD, width=-(_PAD + 1))
+
+                # ---- MIDI panel (below the tabs, always visible) ----
+                dpg.add_spacer(height=8)
+                dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                dpg.add_separator()
+                dpg.add_text("no commands yet", tag="midi_history_text",
+                             color=(150, 150, 150), indent=_PAD, wrap=300)
 
             # ---- Preview panel ----
             with dpg.child_window(tag="preview_panel", border=False,

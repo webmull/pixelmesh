@@ -283,6 +283,9 @@ video recording. One-time setup: pair via Audio MIDI Setup → MIDI Studio →
 Bluetooth, then run `python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's
 messages depend on its power-on mode, so they are learned into `midi_map.json`, not hardcoded).
 The controller scans for the pedal every 5 s, so it can connect or wake at any point in a session.
+A **MIDI panel** at the bottom of the sidebar (below the tabs, visible from any tab) shows the
+last 10 received commands, newest first - stomps, effect fires, connects, and any unmapped
+presses - so pedal activity is verifiable at a glance mid-show.
 
 ### Controller hotkeys
 
