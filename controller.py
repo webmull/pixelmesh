@@ -1845,10 +1845,6 @@ def setup_ui(holder: dict):
                                 dpg.add_text("", tag="iso_hint_text",
                                              color=(220, 180, 80), indent=_PAD,
                                              wrap=300, show=False)
-
-                                dpg.add_spacer(height=8)
-                                dpg.add_text("PROJECTION", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
                                 _chk("Flip Projection  [F]", "chk_flip_projection",
                                      toggle_flip_projection)
 
