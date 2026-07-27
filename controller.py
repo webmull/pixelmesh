@@ -2069,8 +2069,17 @@ def main():
             time.sleep(0.4)
         toggle_detection()
 
+    def _midi_fire_effect(name):
+        # Showtime stomp: kill all camera overlays first (the H toggle,
+        # forced off rather than flipped) so the projected feed is clean
+        # the moment effects start.
+        with state.lock:
+            if state.show_overlays:
+                state.show_overlays = False
+        ui_queue.put(("_midi_effect", name))
+
     midi.midi.start(
-        trigger_effect = lambda name: ui_queue.put(("_midi_effect", name)),
+        trigger_effect = _midi_fire_effect,
         toggle_detect  = _midi_toggle_detection,
         set_iso        = lambda v: elgato.set_iso(v),
         set_recording  = _midi_set_recording,
