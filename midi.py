@@ -29,6 +29,9 @@ import json
 import logging
 import os
 import threading
+import time as _time
+from collections import deque
+
 import rtmidi
 
 from log import log
@@ -97,6 +100,17 @@ class MidiInput:
         self._map     = None          # action → {"status", "data1"}
         self._state   = {"recording": False}
         self._fx_idx  = -1            # last fired index into EFFECT_CYCLE
+        # Last 10 events for the sidebar MIDI panel. version bumps on
+        # every append so the UI refresh can cheaply skip when idle.
+        self._hist    = deque(maxlen=10)
+        self.history_version = 0
+
+    def _note(self, text: str):
+        self._hist.append(f"{_time.strftime('%H:%M:%S')}  {text}")
+        self.history_version += 1
+
+    def history(self) -> list[str]:
+        return list(reversed(self._hist))   # newest first
 
     # Signature kept identical to the LPD8 version so controller.py
     # needs no changes; trigger_effect/set_iso/set_overlays/reset are
@@ -147,6 +161,7 @@ class MidiInput:
                 announced_wait = False
                 _mlog.info(f"[midi] listening on: {name}")
                 log.info(f"[midi] FS-1-WL connected: {name}")
+                self._note("pedal connected")
 
             try:
                 msg = self._midi_in.get_message()
@@ -174,12 +189,14 @@ class MidiInput:
             if m["status"] == sig["status"] and m["data1"] == sig["data1"]:
                 self._dispatch(action)
                 return
+        self._note(f"? unmapped {sig['status']}/{sig['data1']}")
         _mlog.warning(f"[midi] unmapped press: {msg} - re-run learn if switches changed mode")
 
     def _dispatch(self, action: str):
         if action == "detection":
             _mlog.info("[midi] switch -> toggle detection")
             log.info("[midi] FS-1-WL -> toggle detection")
+            self._note("toggle detection")
             if self._toggle_detect:
                 self._toggle_detect()
         elif action == "effects":
@@ -187,6 +204,7 @@ class MidiInput:
             name = EFFECT_CYCLE[self._fx_idx]
             _mlog.info(f"[midi] switch -> effect '{name}'")
             log.info(f"[midi] FS-1-WL -> effect '{name}'")
+            self._note(f"effect: {name}")
             if self._trigger_effect:
                 self._trigger_effect(name)
         elif action == "recording":
@@ -194,6 +212,7 @@ class MidiInput:
             on = self._state["recording"]
             _mlog.info(f"[midi] switch -> recording {'ON' if on else 'OFF'}")
             log.info(f"[midi] FS-1-WL -> recording {'ON' if on else 'OFF'}")
+            self._note(f"recording {'ON' if on else 'OFF'}")
             if self._set_recording:
                 self._set_recording(on)
 
