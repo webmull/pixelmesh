@@ -61,7 +61,7 @@ in a `tmux` session named `pixelmesh`; re-running it reattaches if the session a
 
 | Key | Action |
 |-----|--------|
-| `s` | Start server, ngrok, and controller |
+| `s` | Start server, ngrok, and controller (plus `caffeinate` for the show's lifetime, a controller crash watchdog, and the Elgato Camera Hub if it isn't running) |
 | `r` | Reload — kill everything and restart |
 | `d` | Die — kill everything |
 | `q` | Quit |
@@ -103,7 +103,9 @@ own internal AE loop. **The only reliable fix is Elgato Camera Hub:**
 
 **Watchdog:** `elgato.py` connects to Camera Hub via its local WebSocket API and monitors AE
 throughout the session. Camera Hub occasionally re-enables AE on its own — the watchdog forces it
-back off within 5 seconds. The sidebar shows live status, current AE state, and an ISO slider for
+back off within 5 seconds. `run.sh` also keeps the Hub itself alive: it launches it before the
+stack if absent and relaunches it in the background (~10 s check) if it dies, since the AE
+watchdog and ISO control die with it. The sidebar shows live status, current AE state, and an ISO slider for
 live adjustment. Manually-set ISO survives Camera Hub reconnects.
 
 For other cameras: `AVCaptureExposureModeLocked` is applied at startup and re-applied if fps
@@ -162,7 +164,9 @@ changes take effect on the next run.
 
 Click the sidebar buttons to fire effects. Each effect has its own parameter dialog (`...`
 button) — changing a value immediately re-fires with the new settings. Effects are blocked until
-at least one phone has been detected.
+at least one phone has been detected. The grid leads with the six pedal-friendly effects in the
+pedal's cycle order; the three that need the mouse (Ripple's click point, Spotlight's cursor,
+Groups' column colours) sit at the end.
 
 | Effect | Parameters |
 |--------|------------|
@@ -180,7 +184,8 @@ list previews the selected effect in real time.
 
 **Projection flip (`F`):** mirrors the MJPEG feed + controller preview so the projector reads the
 right way round; the HUD redraws onto the flipped canvas so labels stay readable. **On by
-default** - a crowd watching itself expects a mirror; toggle off for desk work.
+default** - a crowd watching itself expects a mirror; toggle off for desk work (checkbox lives
+under CAMERA HUB on the SCENE tab).
 
 **Overlay modes (`P`):** toggle between showing blink IDs (0-based) or render order
 (left-to-right spatial rank) on the camera feed. Render order is what the effects engine uses to
@@ -250,16 +255,23 @@ per-run calibration logs and debug captures, every show leaves a full paper trai
 
 ### Foot controller (BOSS FS-1-WL)
 
-A wireless three-switch pedal for hands-free operation: switch 1 starts a fresh detection run
-(reset, then detect; stomp again to stop), switch 2
-steps through the effects (wave, gradient, pulse, rainbow, sparkle, sections), switch 3 toggles
-video recording. One-time setup: pair via Audio MIDI Setup → MIDI Studio →
-Bluetooth, then run `python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's
-messages depend on its power-on mode, so they are learned into `midi_map.json`, not hardcoded).
-The controller scans for the pedal every 5 s, so it can connect or wake at any point in a session.
-A **MIDI panel** at the bottom of the sidebar (below the tabs, visible from any tab) shows the
-last 10 received commands, newest first - stomps, effect fires, connects, and any unmapped
-presses - so pedal activity is verifiable at a glance mid-show.
+A wireless three-switch pedal that runs the whole show hands-free:
+
+| Switch | Action |
+|---|---|
+| 1 | Fresh detection run: reset, then detect. Stomp again to stop |
+| 2 | Clears all camera overlays, then steps through the effects (wave, gradient, pulse, rainbow, sparkle, sections) |
+| 3 | Toggle video recording |
+
+One-time setup: pair via Audio MIDI Setup → MIDI Studio → Bluetooth, then run
+`python3.10 midi.py --learn` and stomp each switch when prompted (the pedal's messages depend on
+its power-on mode, so they are learned into `midi_map.json`, not hardcoded). The controller scans
+for the pedal every 5 s, so it can connect or wake at any point in a session.
+
+The **MIDI panel** on the SCENE tab shows the pedal link state ("connected" / "waiting for
+pedal") and the last 15 received commands, newest first in gold - stomps, effect fires,
+connects, and any unmapped presses - so pedal activity is verifiable at a glance mid-show.
+Keyboard `D` keeps plain toggle semantics for partial re-detection workflows.
 
 ### Controller hotkeys
 
@@ -392,8 +404,12 @@ browser clients  ──WS──►  server.py (FastAPI)
 The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the
 detector is busy the frame is dropped and the camera loop continues unblocked.
 
-The sidebar is organised into three tabs: **SCENE** (exposure, ROI sliders, live information
-panel — opens by default), **RUN** (detection, overlays, effects, server controls), and **GAME** (avatar race, likes).
+The GUI wears the brand: black chrome (#020204, the site's background), the pixelmesh wordmark
+as the sidebar header, Verdana at an effective 16 px (26 px tab labels), and the cube icon in
+the macOS Dock (set via AppKit at runtime - GLFW ignores viewport icons on Cocoa). The sidebar
+is three tabs: **SCENE** (camera hub: AE, ISO, projection flip; capture; frame ROI; the MIDI
+panel - opens by default), **RUN** (detection, overlays, effects, server controls), and
+**GAME** (avatar race, likes).
 
 | File | Role |
 |------|------|

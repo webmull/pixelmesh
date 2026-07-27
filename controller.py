@@ -1835,6 +1835,8 @@ def setup_ui(holder: dict):
                                 dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
                                 dpg.add_separator()
                                 _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
+                                _chk("Flip Projection  [F]", "chk_flip_projection",
+                                     toggle_flip_projection)
                                 dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
                                 dpg.add_slider_int(label="##iso", tag="sld_iso",
                                                    default_value=elgato._DEFAULT_GAIN,
@@ -1845,8 +1847,6 @@ def setup_ui(holder: dict):
                                 dpg.add_text("", tag="iso_hint_text",
                                              color=(220, 180, 80), indent=_PAD,
                                              wrap=300, show=False)
-                                _chk("Flip Projection  [F]", "chk_flip_projection",
-                                     toggle_flip_projection)
 
                                 dpg.add_spacer(height=8)
                                 dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
