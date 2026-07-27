@@ -1735,6 +1735,16 @@ def setup_ui(holder: dict):
 
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
+        # Wordmark for the sidebar header (white-on-transparent raster of
+        # the site's pixelmesh_text.svg; DPG cannot render SVG directly)
+        _wm = cv2.imread(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                       "public", "pixelmesh_text.png"),
+                         cv2.IMREAD_UNCHANGED)
+        if _wm is not None:
+            _wm = cv2.cvtColor(_wm, cv2.COLOR_BGRA2RGBA).astype(np.float32) / 255.0
+            dpg.add_static_texture(_wm.shape[1], _wm.shape[0],
+                                   _wm.flatten().tolist(), tag="wordmark_texture")
+
         dpg.add_dynamic_texture(PREVIEW_WIDTH, PREVIEW_HEIGHT, blank,
                                 tag="camera_texture")
         effects.register_preview_texture()
@@ -1758,7 +1768,14 @@ def setup_ui(holder: dict):
             with dpg.child_window(width=_SIDEBAR_WIDTH, height=-1, border=True,
                                   tag="sidebar_panel"):
 
-                dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
+                if dpg.does_item_exist("wordmark_texture"):
+                    dpg.add_spacer(height=4)
+                    # 546x107 source at ~0.36 scale fits the 314px sidebar
+                    dpg.add_image("wordmark_texture", width=196, height=38,
+                                  indent=_PAD)
+                    dpg.add_spacer(height=2)
+                else:
+                    dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
                 dpg.add_separator()
                 dpg.add_spacer(height=2)
 
