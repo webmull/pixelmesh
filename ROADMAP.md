@@ -38,6 +38,14 @@ reinforcement (WebAudio, unlocked by the join tap; iOS ringer switch limits cove
   watch-the-projector-for-your-number (high cognitive load mid-crowd).
 - Client + server state change only - no frozen files.
 
+## Sort recording
+
+The two recorders confuse operators: plain video recording (V / pedal switch 3 / checkbox,
+manual only, debug/recordings/) vs the debug capture (auto-arms with first detection, records
+the whole session, debug/<run>/). Open questions: should the plain recording auto-start with
+the show; should the two merge; and the crash-restart behaviour (a watchdog restart leaves the
+plain recording stopped while the debug capture re-arms on next detection).
+
 ## Blackout command
 
 Instant all-phones-off for dramatic moments.
