@@ -48,6 +48,11 @@ from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
 from network import post_json, post_json_async, post_bytes, fetch_client_count, fetch_json
+
+# Detection decode is Python-heavy in 50ms budgeted bursts; the default
+# 5ms GIL switch interval lets it convoy the display thread. Finer
+# switching shortens each stall at negligible throughput cost.
+sys.setswitchinterval(0.002)
 from log import log
 import effects
 import game
@@ -1016,10 +1021,14 @@ def _stream_worker():
     """Encode and POST the latest display canvas at up to _STREAM_FPS.
     Runs on its own thread so JPEG cost never touches the display loop;
     always takes the newest frame, dropping any it was too slow for."""
-    interval = 1.0 / _STREAM_FPS
     last = None
     while True:
         t0 = time.time()
+        # Full 60fps normally; half rate while detecting so the encode
+        # thread isn't competing for the interpreter during decode bursts.
+        with state.lock:
+            detecting = state.detecting
+        interval = (2.0 if detecting else 1.0) / _STREAM_FPS
         frame = _stream_latest
         if frame is not None and frame is not last:
             last = frame
@@ -2342,6 +2351,19 @@ def _detection_worker():
             raw, ts = _detect_queue.get(timeout=0.05)
         except Empty:
             continue
+
+        # Cap the detector at 20fps. It only needs ~10fps for clean
+        # 300ms-phase sampling but was running at whatever the camera
+        # delivered (30-170fps at MaccTech), and its GIL-heavy decode
+        # bursts starved the display thread: measured 240ms display
+        # stalls during the decode window vs a flat 40ms otherwise.
+        # 20fps keeps 6 samples per phase (2x the minimum) and returns
+        # the interpreter to the UI between frames. Decode cadence and
+        # warmup are wall-clock based, so detection times are unchanged.
+        _since = ts - _det_last_ts
+        if _since < 0.05:
+            continue          # maxsize=1 queue: this drop keeps the newest
+        _det_last_ts = ts
 
         try:
             t_frame_start = time.time()
