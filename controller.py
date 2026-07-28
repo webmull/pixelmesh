@@ -706,6 +706,13 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     e2 = _ttf_text(label2, _HUD_ROI_PX, (180, 200, 230))
     tx, ty = x1 + 18, y1 + 18
     if e1 is not None and e2 is not None:
+        pad = 8
+        bw  = max(e1[2], e2[2])
+        bh  = e1[3] + 4 + e2[3]
+        cv2.rectangle(canvas, (tx - pad, ty - pad),
+                      (tx + bw + pad, ty + bh + pad), (8, 8, 10), -1)
+        cv2.rectangle(canvas, (tx - pad, ty - pad),
+                      (tx + bw + pad, ty + bh + pad), color, 1)
         _blit_ttf(canvas, e1, tx, ty)
         _blit_ttf(canvas, e2, tx, ty + e1[3] + 4)
     else:
