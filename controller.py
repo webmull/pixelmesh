@@ -794,7 +794,8 @@ try:
     _hud_ttf_ok = _os.path.exists(_HUD_TTF)
 except ImportError:
     _hud_ttf_ok = False
-_HUD_TTF_PX     = 15    # canvas-space text height, ~matches Hershey 0.5
+_HUD_TTF_PX     = 20    # canvas-space text height; at 15 the glyphs are
+                        # too few pixels for the font to read as Verdana
 _hud_ttf_fonts  = {}
 _hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
 
@@ -854,7 +855,7 @@ def draw_hud(canvas: np.ndarray, fps: float):
 
     PAD = 6
     M   = 8      # margin from the canvas's bottom-right corner
-    TXT = (210, 210, 210)
+    TXT = (235, 235, 235)
     font_scale, thickness = 0.5, 1
     e1 = _ttf_text(label, _HUD_TTF_PX, TXT)
     if e1 is not None:
