@@ -423,8 +423,9 @@ def _start_poll():
 def build_sidebar_buttons(indent: int, pad: int):
     """Sidebar block with game modes and a shared Stop."""
     dpg.add_spacer(height=4)
-    dpg.add_text("AVATAR RACE", color=(160, 160, 160), indent=indent)
-    dpg.add_separator()
+    _t = dpg.add_text("AVATAR RACE", color=(160, 160, 160), indent=indent)
+    if dpg.does_item_exist("heading_font"):
+        dpg.bind_item_font(_t, "heading_font")
     dpg.add_button(label="Start Avatar Race",
                    tag="game_start_race",
                    callback=start_race_game,
