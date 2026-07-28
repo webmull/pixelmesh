@@ -1076,7 +1076,12 @@ def toggle_recording():
         set_status(f"Recording: {_os.path.basename(path)}")
 
 
-_SIDEBAR_WIDTH = 314
+# Sized to the widest fixed-width content: the 310px effect preview at
+# indent 8 (=318) plus the same 8px breathing room on the right, inside
+# ~17px of window chrome (2x8 padding + 1).  The old 314px bar silently
+# clipped the preview and fx rows against its border; over the camera
+# render the clipping shows, so the bar now actually fits its contents.
+_SIDEBAR_WIDTH = 342
 
 
 def toggle_sidebar():
@@ -1088,12 +1093,19 @@ def toggle_sidebar():
     dpg.configure_item("sidebar_panel", show=vis)
 
 
+_sidebar_fit_h = 0
+
+
 def _fit_sidebar_height(*_args):
-    """Keep the sidebar overlay as tall as the window. It no longer sits
-    in a layout row, so nothing stretches it automatically on resize."""
-    if dpg.does_item_exist("sidebar_panel"):
-        dpg.configure_item("sidebar_panel",
-                           height=dpg.get_viewport_client_height())
+    """Keep the sidebar overlay as tall as the window.  Called every frame
+    from the render loop: macOS settles the real window size a few frames
+    after show_viewport (menu bar clamp, maximise), so a one-shot fit after
+    startup lands short.  Reconfigures only when the height changes."""
+    global _sidebar_fit_h
+    vh = dpg.get_viewport_client_height()
+    if vh > 0 and vh != _sidebar_fit_h and dpg.does_item_exist("sidebar_panel"):
+        _sidebar_fit_h = vh
+        dpg.configure_item("sidebar_panel", height=vh)
 
 
 def toggle_device_overlay():
@@ -1996,9 +2008,7 @@ def setup_ui(holder: dict):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
-    # Size the sidebar overlay to the window now and on every resize.
-    dpg.set_viewport_resize_callback(_fit_sidebar_height)
-    _fit_sidebar_height()
+    _fit_sidebar_height()   # first guess now; the render loop keeps it true
     # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
     # attempts never showed) - set it through AppKit instead.
     try:
@@ -2283,6 +2293,8 @@ def main():
 
             # Update texture
             dpg.set_value("camera_texture", texture_data)
+
+            _fit_sidebar_height()
 
             # Fit preview image to available space.  preview_panel spans the
             # whole main_window (the sidebar floats above it), so its rect is
