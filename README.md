@@ -46,10 +46,12 @@ Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
 
 **Requirements**
 
-- Python 3.10+
+- Python 3.14 (Homebrew `python@3.14` · `run.sh` pins `python3.14` · deps live in its global
+  site-packages, no venv)
 - [ngrok](https://ngrok.com) account with the reserved domain `pixelmesh.show`, set up as a
   cloud endpoint (see [Show URL & offline page](#show-url--offline-page))
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
+- Elgato Camera Hub (manual-exposure control · `run.sh` launches and babysits it)
 
 ```bash
 pip install -r requirements.txt
@@ -77,7 +79,7 @@ endpoint before launching.
 | `https://pixelmesh.live` | Public site — deployed by DigitalOcean from `site/` on every push to `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
-| `http://localhost:8000/internal/feed/v1` | MJPEG camera stream (60 fps, pushed frame-by-frame) |
+| `http://localhost:8000/internal/feed/v1` | Live camera feed at up to 60 fps. Browsers get a canvas viewer fed binary JPEG frames over WebSocket (newest frame only, cannot lag); the same URL serves raw MJPEG to `<img>` embeds and curl |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
 
 ---
@@ -111,9 +113,10 @@ live adjustment. Manually-set ISO survives Camera Hub reconnects.
 For other cameras: `AVCaptureExposureModeLocked` is applied at startup and re-applied if fps
 drops below 8. `CAP_PROP_AUTO_EXPOSURE=0` and `CAP_PROP_EXPOSURE=-6` are also set as fallback.
 
-**Signal quality:** if signal range drops below 0.5, an amber dot appears on the HUD. Detection
-still works but takes 25–35 s instead of 13–15 s. Causes: AE compressing amplitude, low phone
-brightness, or ambient light sensor dimming screens.
+**Signal quality:** if the blink amplitude is compressed, detection still works but takes
+25–35 s instead of 13–15 s. Causes: AE cancelling the blink, low phone brightness, or ambient
+light sensors dimming screens. When the exposure monitor spots a fixable cause it surfaces an
+amber hint under the sidebar's ISO slider.
 
 **Displays: plug in before starting, don't hot-unplug.** Disconnecting a display (projector
 HDMI) while the controller runs wedges the GUI — GLFW cannot survive the macOS display-topology
@@ -144,8 +147,12 @@ in the room.
 - **Clean state per run** — the detector's internal candidate set is cleared at the start of every
   detection session, preventing fps degradation across multiple runs without an app restart
 
-Expect 15–20 s from a phone connecting to first detection at typical range. The HUD shows
-`camera fps / detection fps` while detection is active.
+Expect 15–20 s from a phone connecting to first detection at typical range. The bottom-right
+HUD shows `camera fps / detection fps` (text goes green while detecting) plus a
+`found / connected` counter: amber while chasing, green once everyone is found. Both render in
+real Verdana rasterised onto the canvas, so they also appear in recordings and the stream. A
+thick green border marks the active detection region — the inner ROI when one is set, the full
+frame otherwise.
 
 **ROI (Region of Interest):** the detection grid normally covers the entire camera frame. ROI
 crops it — excluding the top, bottom, left, or right edges as a fraction of the frame — so the
@@ -156,9 +163,12 @@ surface — can activate grid points and consume CPU. Trimming the ROI to the au
 eliminates those false sources before they reach the detector; in venues with active stage
 lighting it roughly doubles detection-thread throughput.
 
-Use the sliders in the **SCENE** tab. The excluded region is dimmed on the camera feed and a blue
-boundary line marks where detection begins. Sliders are disabled while detection is active;
-changes take effect on the next run.
+Use the sliders in the **SCENE** tab. Left and Right are display-space: they trim the side you
+see in the preview and keep meaning that under Projection Flip (the camera-space config swaps
+automatically, so slider, dimmed band and label always agree with your eyes). The excluded
+region is dimmed on the camera feed, a boundary line marks where detection begins, and the ROI
+label sits on a dark backing box. Sliders are disabled while detection is active; changes take
+effect on the next run.
 
 ### 3. Effects
 
@@ -182,7 +192,7 @@ Groups' column colours) sit at the end.
 The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect
 list previews the selected effect in real time.
 
-**Projection flip (`F`):** mirrors the MJPEG feed + controller preview so the projector reads the
+**Projection flip (`F`):** mirrors the camera feed + controller preview so the projector reads the
 right way round; the HUD redraws onto the flipped canvas so labels stay readable. **On by
 default** - a crowd watching itself expects a mirror; toggle off for desk work (checkbox lives
 under CAMERA HUB on the SCENE tab).
@@ -282,7 +292,7 @@ Keyboard `D` keeps plain toggle semantics for partial re-detection workflows.
 | `H` | Toggle all camera overlays (blink streams, device IDs, ROI boundary) |
 | `O` | Toggle device ID overlays |
 | `P` | Toggle overlay mode (blink IDs / render order) |
-| `F` | Flip projection (mirror MJPEG + preview) |
+| `F` | Flip projection (mirror feed + preview) |
 | `R` | Reset server |
 | `Tab` | Toggle sidebar |
 | `G` | Start/stop debug capture |
@@ -404,16 +414,26 @@ browser clients  ──WS──►  server.py (FastAPI)
 The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the
 detector is busy the frame is dropped and the camera loop continues unblocked.
 
-The GUI wears the brand: black chrome (#020204, the site's background), the pixelmesh wordmark
-as the sidebar header, Verdana at an effective 16 px (26 px tab labels), and the cube icon in
-the macOS Dock (set via AppKit at runtime - GLFW ignores viewport icons on Cocoa). The sidebar
-is three tabs: **SCENE** (camera hub: AE, ISO, projection flip; capture; frame ROI; the MIDI
-panel - opens by default), **RUN** (detection, overlays, effects, server controls), and
-**GAME** (avatar race, likes).
+The operator feed rides a side channel: a stream thread JPEG-encodes the newest display frame
+and pushes it over one persistent WebSocket to the server (per-frame HTTP POST as automatic
+fallback), and the server fans frames out to feed viewers over WebSocket with per-viewer
+stale-frame dropping · a slow viewer skips to the newest frame instead of building a queue.
+
+The GUI wears the brand: the camera preview fills the whole window and the sidebar floats over
+it on a semi-transparent scrim · `Tab` hides and shows it outright, the preview never moves.
+Black chrome (#020204, the site's background), the pixelmesh wordmark as the sidebar header,
+bold Verdana section headings with no separator lines, Verdana at an effective 16 px throughout
+(26 px tab labels), and the cube icon in the macOS Dock (set via AppKit at runtime - GLFW
+ignores viewport icons on Cocoa). HUD and ROI text is rasterised onto the canvas via PIL in the
+same Verdana: DPG overlay layers (viewport drawlists, autosized floating windows) do not render
+reliably on the macOS Metal backend, so anything that must always be visible stays on the
+canvas. The sidebar is three tabs: **SCENE** (camera hub: AE, ISO, projection flip; capture;
+frame ROI; the MIDI panel - opens by default), **RUN** (detection, overlays, effects, server
+controls), and **GAME** (avatar race, likes).
 
 | File | Role |
 |------|------|
-| `server.py` | WebSocket server, device assignment, effect broadcast, like counter |
+| `server.py` | WebSocket server, device assignment, effect broadcast, like counter, camera feed relay |
 | `controller.py` | Camera loop, GUI, detection thread management, exposure monitor |
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
@@ -423,7 +443,7 @@ panel - opens by default), **RUN** (detection, overlays, effects, server control
 | `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma, contrast helpers |
-| `network.py` | HTTP helpers for controller → server calls |
+| `network.py` | HTTP helpers + feed WebSocket client for controller → server calls |
 | `elgato.py` | Camera Hub watchdog — AE monitor, ISO control via local WebSocket API |
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
@@ -470,6 +490,8 @@ complete before its first decode attempt.
 | Gated history recording | `add_sample` only called for active/gate-crossing points |
 | Pre-allocated texture buffer | Eliminates 14 MB/frame allocation |
 | Batched like broadcasts | ~3/s cap prevents O(clients²) WebSocket storms |
+| WS feed with per-viewer stale-drop | One socket per hop, no per-frame HTTP; slow viewers skip to the newest frame instead of queueing |
+| Cached HUD text rasterisation | Verdana glyphs render once per distinct label; steady state is a tiny numpy blend |
 
 ---
 
