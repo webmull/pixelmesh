@@ -119,7 +119,7 @@ _ui_syncing = False
 # the display thread always runs at full camera speed regardless of detection load.
 _detect_queue  = Queue(maxsize=1)
 _last_dbg_imgs = None   # DebugImages; written by detection thread, read by main
-_detect_fps:   float = 0.0   # EMA fps of detection thread, read by draw_hud
+_detect_fps:   float = 0.0   # EMA fps of detection thread, read by _update_hud
 _camera_fps:   float = 0.0   # EMA fps of camera frame delivery, read by exposure monitor
 
 MIN_RELIABLE_FPS    = 8.0   # below this, assume exposure has crept up in auto mode
@@ -628,6 +628,8 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     `flipped`, swap left↔right inputs so the dimmed band reflects the
     real-world ROI on the mirrored canvas, and the corner label lands
     inside the displayed inner ROI rather than off-screen."""
+    global _roi_label_info
+    _roi_label_info = None
     if not _overlays_on():
         return
     roi_top    = detector.cfg.get("roi_top_frac",    0.0)
@@ -679,24 +681,10 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
         saved_str = f"{saved_px} px"
     label2 = f"saved {saved_str}  ({saved_pct:.0f}%)"
 
-    (tw1, th1), _ = cv2.getTextSize(label1, FONT, 0.4, 1)
-    (tw2, th2), _ = cv2.getTextSize(label2, FONT, 0.4, 1)
-    tw = max(tw1, tw2)
-    line_gap = 6
-    pad_x, pad_y = 10, 7
-    tx = x1 + 18
-    ty1 = y1 + 18 + th1
-    ty2 = ty1 + line_gap + th2
-    bg_x0 = tx - pad_x
-    bg_y0 = ty1 - th1 - pad_y
-    bg_x1 = tx + tw + pad_x
-    bg_y1 = ty2 + pad_y
-    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), (8, 8, 10), -1)
-    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), color, 1)
-    cv2.putText(canvas, label1, (tx, ty1),
-                FONT, 0.4, color, 1, cv2.LINE_AA)
-    cv2.putText(canvas, label2, (tx, ty2),
-                FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
+    # Text itself is drawn crisp by _update_hud on the viewport drawlist
+    # (cv2 text on the 720p canvas upscales fuzzy); export the anchor in
+    # canvas coords plus the strings.  Same render iteration, same thread.
+    _roi_label_info = (x1, y1, label1, label2)
 
 
 _WINNER_HIGHLIGHT_SECS = 6.0
@@ -754,45 +742,94 @@ def draw_detect_border(canvas: np.ndarray):
                   color, thickness, cv2.LINE_AA)
 
 
-def draw_hud(canvas: np.ndarray, fps: float):
+# HUD pills (fps + detected/connected counter) and the ROI label render
+# on a front viewport drawlist instead of the 720p cv2 canvas: canvas text
+# upscales fuzzy, drawlist text rasterises from the 32px Verdana atlas at
+# half size (retina-crisp, same trick as the widget font).  A drawlist
+# also captures no mouse input, so ripple clicks pass straight through.
+_HUD_M    = 12     # margin from the viewport's bottom-right corner
+_HUD_PAD  = 8      # pill inner padding
+_HUD_TXT  = 16     # drawn text size (half the 32px atlas)
+_hud_font = None   # set by setup_ui; get_text_size needs the font handle
+_roi_label_info = None   # (canvas_x, canvas_y, line1, line2) or None
+_hud_last = None
+
+
+def _update_hud(fps: float):
+    """Reposition/retext the crisp HUD, bottom-right of the viewport.
+    Called every frame from the render loop; no-ops until values move."""
+    global _hud_last
+    if _hud_font is None or not dpg.does_item_exist("hud_fps_text"):
+        return
     with state.lock:
-        detecting = state.detecting
+        detecting  = state.detecting
+        sidebar_on = state.sidebar_visible
+    det_str   = f" / {int(_detect_fps + 0.5)}" if detecting else ""
+    fps_label = f"{int(fps + 0.5)}{det_str} fps"
+    n_det, n_conn = len(_detected_ids), len(_valid_blink_ids)
+    found_label = f"{n_det} / {n_conn} found"
+    vw = dpg.get_viewport_client_width()
+    vh = dpg.get_viewport_client_height()
+    roi_info = _roi_label_info
+    key = (fps_label, detecting, found_label, vw, vh, roi_info, sidebar_on)
+    if key == _hud_last:
+        return
+    _hud_last = key
 
-    dot_color  = (40, 210, 80) if detecting else (70, 70, 70)
-    det_str    = f" / {int(_detect_fps + 0.5)}" if detecting else ""
-    label      = f"{int(fps + 0.5)}{det_str} fps"
+    ph = _HUD_TXT + 2 * _HUD_PAD           # pill height
+    y1, y2 = vh - _HUD_M - ph, vh - _HUD_M
+    ty     = y1 + _HUD_PAD - 1
+    dot_w  = 16                            # dot diameter + gap before text
 
-    PAD = 6
-    font_scale, thickness = 0.5, 1
-    (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+    fw  = dpg.get_text_size(fps_label, font=_hud_font)[0] * 0.5
+    fx2 = vw - _HUD_M
+    fx1 = fx2 - (fw + 2 * _HUD_PAD + dot_w)
+    dpg.configure_item("hud_pill_bg", pmin=(fx1, y1), pmax=(fx2, y2))
+    dpg.configure_item("hud_dot", center=(fx1 + _HUD_PAD + 4, (y1 + y2) // 2),
+                       fill=(60, 210, 90, 255) if detecting else (95, 95, 95, 255))
+    dpg.configure_item("hud_fps_text", pos=(fx1 + _HUD_PAD + dot_w, ty),
+                       text=fps_label)
 
-    x, y  = 8, 8
-    bx1   = x + PAD * 2 + 14 + tw
-    by1   = y + PAD * 2 + th
-    mid_y = (y + by1) // 2
-
-    cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
-    cv2.rectangle(canvas, (x, y), (bx1, by1), (55, 55, 55), 1)
-    cv2.circle(canvas, (x + PAD + 5, mid_y), 4, dot_color, -1)
-    cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
-                FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
-
-    # detected / connected counter — pill to the right of the fps pill
-    # while detecting, so the operator can see how many phones are
-    # outstanding without waiting for the post-run calibration log.
+    # detected / connected counter — pill to the left of the fps pill
+    # while detecting.  Green when caught up, amber while still chasing.
+    dpg.configure_item("hud_found_bg",   show=detecting)
+    dpg.configure_item("hud_found_text", show=detecting)
     if detecting:
-        n_det  = len(_detected_ids)
-        n_conn = len(_valid_blink_ids)
-        count_label = f"{n_det} / {n_conn} found"
-        (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
-        cx = bx1 + 16
-        cx2 = cx + PAD * 2 + cw
-        # Colour the box edge green when caught up, amber while still chasing.
-        edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
-        cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
-        cv2.rectangle(canvas, (cx, y), (cx2, by1), edge, 1)
-        cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
-                    FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
+        cw  = dpg.get_text_size(found_label, font=_hud_font)[0] * 0.5
+        cx2 = fx1 - 10
+        cx1 = cx2 - (cw + 2 * _HUD_PAD)
+        col = (60, 210, 90, 255) if n_conn and n_det >= n_conn \
+              else (255, 170, 40, 255)
+        dpg.configure_item("hud_found_bg", pmin=(cx1, y1), pmax=(cx2, y2),
+                           color=col)
+        dpg.configure_item("hud_found_text", pos=(cx1 + _HUD_PAD, ty),
+                           text=found_label)
+
+    # ROI label: canvas-space anchor from draw_roi_overlay mapped into the
+    # preview image's on-screen rect.
+    show_roi = roi_info is not None and dpg.does_item_exist("preview_image")
+    if show_roi:
+        cx, cy, l1, l2 = roi_info
+        ix, iy = dpg.get_item_rect_min("preview_image")
+        iw, ih = dpg.get_item_rect_size("preview_image")
+        if iw < 2:
+            show_roi = False
+        else:
+            sx = ix + cx * iw / PREVIEW_WIDTH + 14
+            sy = iy + cy * ih / PREVIEW_HEIGHT + 14
+            if sidebar_on:               # keep it out from under the sidebar
+                sx = max(sx, _SIDEBAR_WIDTH + 12)
+            w1 = dpg.get_text_size(l1, font=_hud_font)[0] * 0.5
+            w2 = dpg.get_text_size(l2, font=_hud_font)[0] * 0.5
+            bw = max(w1, w2) + 2 * _HUD_PAD
+            bh = 2 * _HUD_TXT + 4 + 2 * _HUD_PAD
+            dpg.configure_item("roi_bg", pmin=(sx, sy), pmax=(sx + bw, sy + bh))
+            dpg.configure_item("roi_line1", text=l1,
+                               pos=(sx + _HUD_PAD, sy + _HUD_PAD - 1))
+            dpg.configure_item("roi_line2", text=l2,
+                               pos=(sx + _HUD_PAD, sy + _HUD_PAD + _HUD_TXT + 3))
+    for _t in ("roi_bg", "roi_line1", "roi_line2"):
+        dpg.configure_item(_t, show=show_roi)
 
 
 # ------------------------------------------------------------------ #
@@ -1747,6 +1784,8 @@ def setup_ui(holder: dict):
                 dpg.add_font(_BOLD_PATH, 32, tag="heading_font")
         dpg.bind_font(_ui_font)
         dpg.set_global_font_scale(0.5)
+    global _hud_font
+    _hud_font = _ui_font
 
     # Global dark theme: pure-black chrome matching the brand (#020204).
     # Interactive fills stay a step lighter so controls keep affordance.
@@ -2005,6 +2044,32 @@ def setup_ui(holder: dict):
 
     # ---- Bug game leaderboard window ----
     game.build_window()
+
+    # ---- Crisp HUD layer (fps/found pills bottom-right + ROI label) ----
+    # Front viewport drawlist: renders above every window, captures no
+    # mouse input.  _update_hud positions everything each frame.
+    with dpg.viewport_drawlist(front=True, tag="hud_draw"):
+        dpg.draw_rectangle((0, 0), (1, 1), tag="hud_pill_bg",
+                           fill=(16, 16, 18, 235), color=(70, 70, 70, 255),
+                           rounding=6)
+        dpg.draw_circle((0, 0), 5, tag="hud_dot", fill=(95, 95, 95, 255),
+                        color=(0, 0, 0, 0))
+        dpg.draw_text((0, 0), "", tag="hud_fps_text", size=_HUD_TXT,
+                      color=(215, 215, 215, 255))
+        dpg.draw_rectangle((0, 0), (1, 1), tag="hud_found_bg",
+                           fill=(16, 16, 18, 235), color=(255, 170, 40, 255),
+                           rounding=6, show=False)
+        dpg.draw_text((0, 0), "", tag="hud_found_text", size=_HUD_TXT,
+                      color=(215, 215, 215, 255), show=False)
+        dpg.draw_rectangle((0, 0), (1, 1), tag="roi_bg",
+                           fill=(10, 10, 12, 235), color=(255, 160, 80, 255),
+                           rounding=4, show=False)
+        dpg.draw_text((0, 0), "", tag="roi_line1", size=_HUD_TXT,
+                      color=(255, 160, 80, 255), show=False)
+        dpg.draw_text((0, 0), "", tag="roi_line2", size=_HUD_TXT,
+                      color=(230, 200, 180, 255), show=False)
+    if _ui_font:
+        dpg.bind_item_font("hud_draw", _ui_font)
 
     # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
     try:
@@ -2274,22 +2339,21 @@ def main():
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
-                    draw_hud(display_canvas, fps)
+                    _update_hud(fps)
                     _draw_spotlight_cursor(display_canvas)
 
-                    # Record AFTER the HUD + spotlight cursor so the
-                    # post-show video matches what was actually on the
-                    # projector — same frame the MJPEG write below sees.
-                    # (Bug fix: previously the recorder ran before these
-                    # draws so the spotlight cursor never made it into
-                    # the .mp4 even though it was visible on stage.)
+                    # Record AFTER the spotlight cursor so the post-show
+                    # video matches what was actually on the projector —
+                    # same frame the MJPEG write below sees.  (The fps and
+                    # found pills moved to the DPG drawlist HUD, so they no
+                    # longer appear in recordings or the stream.)
                     if vid_rec.active:
                         vid_rec.record(display_canvas)
 
-                    # Debug run.mp4 must also record after the HUD/spotlight
-                    # draws: it queues the frame to a writer thread, and the
-                    # old call site (before draw_hud) let those in-place draws
-                    # race the writer — overlays flashed on/off frame to frame.
+                    # Debug run.mp4 must also record after the spotlight
+                    # draw: it queues the frame to a writer thread, and an
+                    # earlier call site let in-place draws race the writer —
+                    # overlays flashed on/off frame to frame.
                     if dbg_cap.active:
                         dbg_cap.record_frame(display_canvas)
 
