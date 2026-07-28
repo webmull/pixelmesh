@@ -697,24 +697,20 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
         saved_str = f"{saved_px} px"
     label2 = f"saved {saved_str}  ({saved_pct:.0f}%)"
 
-    (tw1, th1), _ = cv2.getTextSize(label1, FONT, 0.4, 1)
-    (tw2, th2), _ = cv2.getTextSize(label2, FONT, 0.4, 1)
-    tw = max(tw1, tw2)
-    line_gap = 6
-    pad_x, pad_y = 10, 7
-    tx = x1 + 18
-    ty1 = y1 + 18 + th1
-    ty2 = ty1 + line_gap + th2
-    bg_x0 = tx - pad_x
-    bg_y0 = ty1 - th1 - pad_y
-    bg_x1 = tx + tw + pad_x
-    bg_y1 = ty2 + pad_y
-    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), (8, 8, 10), -1)
-    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), color, 1)
-    cv2.putText(canvas, label1, (tx, ty1),
-                FONT, 0.4, color, 1, cv2.LINE_AA)
-    cv2.putText(canvas, label2, (tx, ty2),
-                FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
+    # Same font strategy as the HUD counters: stroked Verdana via
+    # _ttf_text, with the Hershey pair kept as the no-PIL fallback.
+    e1 = _ttf_text(label1, _HUD_ROI_PX, color)
+    e2 = _ttf_text(label2, _HUD_ROI_PX, (180, 200, 230))
+    tx, ty = x1 + 18, y1 + 18
+    if e1 is not None and e2 is not None:
+        _blit_ttf(canvas, e1, tx, ty)
+        _blit_ttf(canvas, e2, tx, ty + e1[3] + 4)
+    else:
+        (tw1, th1), _ = cv2.getTextSize(label1, FONT, 0.4, 1)
+        cv2.putText(canvas, label1, (tx, ty + th1),
+                    FONT, 0.4, color, 1, cv2.LINE_AA)
+        cv2.putText(canvas, label2, (tx, ty + th1 * 2 + 6),
+                    FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
 
 
 _WINNER_HIGHLIGHT_SECS = 6.0
@@ -794,8 +790,10 @@ try:
     _hud_ttf_ok = _os.path.exists(_HUD_TTF)
 except ImportError:
     _hud_ttf_ok = False
-_HUD_TTF_PX     = 20    # canvas-space text height; at 15 the glyphs are
-                        # too few pixels for the font to read as Verdana
+# 14 canvas px * the ~1.17x window stretch == the sidebar's effective
+# 16px Verdana, so HUD text and widget text read as the same size.
+_HUD_TTF_PX     = 14
+_HUD_ROI_PX     = 14
 _hud_ttf_fonts  = {}
 _hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
 
@@ -803,8 +801,9 @@ _hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
 def _ttf_text(text: str, px: int, color: tuple):
     """Rasterise `text` in Verdana at 2x and downsample, returning
     (premultiplied colour term, inverse alpha, w, h) ready to blend onto
-    the canvas.  Cached per string - the fps label cycles through a small
-    set, so steady state renders nothing."""
+    the canvas.  The glyphs carry a thin dark stroke so boxless text
+    stays readable over bright video.  Cached per (text, px, colour) -
+    the fps label cycles a small set, so steady state renders nothing."""
     global _hud_ttf_ok
     if not _hud_ttf_ok:
         return None
@@ -818,15 +817,25 @@ def _ttf_text(text: str, px: int, color: tuple):
         font = _hud_ttf_fonts.get(px)
         if font is None:
             font = _hud_ttf_fonts[px] = _PILFont.truetype(_HUD_TTF, px * 2)
+        S = 3   # stroke width at 2x == ~1.5px on the canvas
         x0, y0, x1, y1 = _PILDraw.Draw(
             _PILImage.new("L", (1, 1))).textbbox((0, 0), text, font=font)
-        img = _PILImage.new("L", (x1 - x0 + 4, y1 - y0 + 4), 0)
-        _PILDraw.Draw(img).text((2 - x0, 2 - y0), text, fill=255, font=font)
-        a = np.asarray(img, dtype=np.float32) / 255.0
-        a = cv2.resize(a, (img.width // 2, img.height // 2),
-                       interpolation=cv2.INTER_AREA)[:, :, None]
-        entry = (a * np.array(color, dtype=np.float32), 1.0 - a,
-                 a.shape[1], a.shape[0])
+        img = _PILImage.new("RGBA",
+                            (x1 - x0 + 4 + 2 * S, y1 - y0 + 4 + 2 * S),
+                            (0, 0, 0, 0))
+        # canvas is BGR; PIL wants RGB, so flip on the way in and out
+        _PILDraw.Draw(img).text((2 + S - x0, 2 + S - y0), text,
+                                fill=tuple(color[::-1]) + (255,),
+                                stroke_width=S,
+                                stroke_fill=(14, 14, 14, 255), font=font)
+        rgba = np.asarray(img, dtype=np.float32)
+        bgr  = rgba[:, :, 2::-1]
+        a    = rgba[:, :, 3] / 255.0
+        bgr  = cv2.resize(bgr, (img.width // 2, img.height // 2),
+                          interpolation=cv2.INTER_AREA)
+        a    = cv2.resize(a, (img.width // 2, img.height // 2),
+                          interpolation=cv2.INTER_AREA)[:, :, None]
+        entry = (bgr * a, 1.0 - a, a.shape[1], a.shape[0])
         _hud_text_cache[key] = entry
         return entry
     except Exception as e:
@@ -849,60 +858,43 @@ def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
         detecting = state.detecting
 
-    dot_color  = (40, 210, 80) if detecting else (70, 70, 70)
-    det_str    = f" / {int(_detect_fps + 0.5)}" if detecting else ""
-    label      = f"{int(fps + 0.5)}{det_str} fps"
+    det_str = f" / {int(_detect_fps + 0.5)}" if detecting else ""
+    label   = f"{int(fps + 0.5)}{det_str} fps"
 
-    PAD = 6
-    M   = 8      # margin from the canvas's bottom-right corner
-    TXT = (235, 235, 235)
-    font_scale, thickness = 0.5, 1
-    e1 = _ttf_text(label, _HUD_TTF_PX, TXT)
-    if e1 is not None:
-        tw, th = e1[2], e1[3]
-    else:
-        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+    M = 10       # margin from the canvas's bottom-right corner
     h, w = canvas.shape[:2]
-
-    bx1   = w - M
-    by1   = h - M
-    x     = bx1 - (PAD * 2 + 14 + tw)
-    y     = by1 - (PAD * 2 + th)
-    mid_y = (y + by1) // 2
-
-    cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
-    cv2.rectangle(canvas, (x, y), (bx1, by1), (55, 55, 55), 1)
-    cv2.circle(canvas, (x + PAD + 5, mid_y), 4, dot_color, -1)
+    # No pill box: stroked text straight on the video.  Detecting state
+    # shows as the fps text going green (the dot went with the box).
+    color = (90, 220, 110) if detecting else (235, 235, 235)
+    e1 = _ttf_text(label, _HUD_TTF_PX, color)
     if e1 is not None:
-        _blit_ttf(canvas, e1, x + PAD + 14, y + PAD)
+        x = w - M - e1[2]
+        _blit_ttf(canvas, e1, x, h - M - e1[3])
     else:
-        cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
-                    FONT, font_scale, TXT, thickness, cv2.LINE_AA)
+        (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
+        x = w - M - tw
+        cv2.putText(canvas, label, (x + 1, h - M + 1), FONT, 0.55,
+                    (12, 12, 12), 2, cv2.LINE_AA)
+        cv2.putText(canvas, label, (x, h - M), FONT, 0.55,
+                    color, 1, cv2.LINE_AA)
 
-    # detected / connected counter — pill to the left of the fps pill
-    # while detecting, so the operator can see how many phones are
-    # outstanding without waiting for the post-run calibration log.
+    # detected / connected counter — left of the fps text while
+    # detecting.  Green when caught up, amber while still chasing.
     if detecting:
         n_det  = len(_detected_ids)
         n_conn = len(_valid_blink_ids)
         count_label = f"{n_det} / {n_conn} found"
-        e2 = _ttf_text(count_label, _HUD_TTF_PX, TXT)
+        ccol = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
+        e2 = _ttf_text(count_label, _HUD_TTF_PX, ccol)
         if e2 is not None:
-            cw = e2[2]
+            _blit_ttf(canvas, e2, x - 18 - e2[2], h - M - e2[3])
         else:
-            (cw, _), _ = cv2.getTextSize(count_label, FONT,
-                                         font_scale, thickness)
-        cx2 = x - 16
-        cx  = cx2 - (PAD * 2 + cw)
-        # Colour the box edge green when caught up, amber while still chasing.
-        edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
-        cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
-        cv2.rectangle(canvas, (cx, y), (cx2, by1), edge, 1)
-        if e2 is not None:
-            _blit_ttf(canvas, e2, cx + PAD, y + PAD)
-        else:
-            cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
-                        FONT, font_scale, TXT, thickness, cv2.LINE_AA)
+            (cw, _), _ = cv2.getTextSize(count_label, FONT, 0.55, 1)
+            cx = x - 18 - cw
+            cv2.putText(canvas, count_label, (cx + 1, h - M + 1), FONT,
+                        0.55, (12, 12, 12), 2, cv2.LINE_AA)
+            cv2.putText(canvas, count_label, (cx, h - M), FONT, 0.55,
+                        ccol, 1, cv2.LINE_AA)
 
 
 # ------------------------------------------------------------------ #
@@ -1927,6 +1919,11 @@ def setup_ui(holder: dict):
     with dpg.theme(tag="sidebar_theme"):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 0))
+        # Semi-transparent scrim: controls stay readable over bright
+        # video but the camera still shows through.
+        with dpg.theme_component(dpg.mvWindowAppItem):
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (8, 8, 12, 150))
+            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
 
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
@@ -1974,8 +1971,7 @@ def setup_ui(holder: dict):
     with dpg.window(tag="sidebar_panel", pos=(0, 0),
                     width=_SIDEBAR_WIDTH, height=800,
                     no_title_bar=True, no_resize=True, no_move=True,
-                    no_collapse=True, no_background=True,
-                    no_scrollbar=True):
+                    no_collapse=True, no_scrollbar=True):
 
 
         if dpg.does_item_exist("wordmark_texture"):
