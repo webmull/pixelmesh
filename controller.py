@@ -566,13 +566,6 @@ def no_camera_canvas() -> np.ndarray:
         cv2.line(canvas, (x, 0), (x, PREVIEW_HEIGHT), (30, 30, 30), 1)
     for y in range(0, PREVIEW_HEIGHT, 80):
         cv2.line(canvas, (0, y), (PREVIEW_WIDTH, y), (30, 30, 30), 1)
-    # Drawn large: this 1280x720 texture is stretched to the window, so
-    # small glyphs upscale soft.  Bigger strokes survive the stretch.
-    msg = "No camera detected"
-    (tw, _), _ = cv2.getTextSize(msg, FONT, 1.6, 3)
-    cv2.putText(canvas, msg,
-                (PREVIEW_WIDTH // 2 - tw // 2, PREVIEW_HEIGHT // 2),
-                FONT, 1.6, (160, 160, 160), 3, cv2.LINE_AA)
     return canvas
 
 
@@ -1826,10 +1819,14 @@ def setup_ui(holder: dict):
     # ---- Sidebar: transparent overlay window on top of the preview.
     # Tab shows/hides it outright (toggle_sidebar); the preview never
     # reflows because it no longer shares a layout row with the sidebar.
+    # no_scrollbar matters for width: a visible scrollbar steals 14px of
+    # content region and clips the fixed-width rows (fx buttons, MIDI
+    # text).  Wheel scrolling still works if content ever overflows.
     with dpg.window(tag="sidebar_panel", pos=(0, 0),
                     width=_SIDEBAR_WIDTH, height=800,
                     no_title_bar=True, no_resize=True, no_move=True,
-                    no_collapse=True, no_background=True):
+                    no_collapse=True, no_background=True,
+                    no_scrollbar=True):
 
 
         if dpg.does_item_exist("wordmark_texture"):
