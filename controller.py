@@ -779,11 +779,11 @@ def draw_detect_border(canvas: np.ndarray, flipped: bool = False):
                   color, thickness, cv2.LINE_AA)
 
 
-# The HUD is cv2-drawn onto the canvas, top left.  Two crisp-text
-# reworks (front viewport drawlist, then autosized DPG windows) both
-# failed to display reliably on the macOS Metal backend - the canvas
-# pill is fuzzy when upscaled but it has never once not been there,
-# and for show ops present beats pretty.
+# The HUD is cv2-drawn onto the canvas, bottom right.  Crisp-text
+# reworks (front viewport drawlist, then autosized DPG windows) failed
+# to display reliably on the macOS Metal backend - the canvas pill is
+# fuzzy when upscaled but it has never once not been there, and for
+# show ops present beats pretty.
 def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
         detecting = state.detecting
@@ -793,12 +793,15 @@ def draw_hud(canvas: np.ndarray, fps: float):
     label      = f"{int(fps + 0.5)}{det_str} fps"
 
     PAD = 6
+    M   = 8      # margin from the canvas's bottom-right corner
     font_scale, thickness = 0.5, 1
     (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+    h, w = canvas.shape[:2]
 
-    x, y  = 8, 8
-    bx1   = x + PAD * 2 + 14 + tw
-    by1   = y + PAD * 2 + th
+    bx1   = w - M
+    by1   = h - M
+    x     = bx1 - (PAD * 2 + 14 + tw)
+    y     = by1 - (PAD * 2 + th)
     mid_y = (y + by1) // 2
 
     cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
@@ -807,7 +810,7 @@ def draw_hud(canvas: np.ndarray, fps: float):
     cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
                 FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
-    # detected / connected counter — pill to the right of the fps pill
+    # detected / connected counter — pill to the left of the fps pill
     # while detecting, so the operator can see how many phones are
     # outstanding without waiting for the post-run calibration log.
     if detecting:
@@ -815,8 +818,8 @@ def draw_hud(canvas: np.ndarray, fps: float):
         n_conn = len(_valid_blink_ids)
         count_label = f"{n_det} / {n_conn} found"
         (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
-        cx = bx1 + 16
-        cx2 = cx + PAD * 2 + cw
+        cx2 = x - 16
+        cx  = cx2 - (PAD * 2 + cw)
         # Colour the box edge green when caught up, amber while still chasing.
         edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
         cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
