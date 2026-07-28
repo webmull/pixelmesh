@@ -119,7 +119,7 @@ _ui_syncing = False
 # the display thread always runs at full camera speed regardless of detection load.
 _detect_queue  = Queue(maxsize=1)
 _last_dbg_imgs = None   # DebugImages; written by detection thread, read by main
-_detect_fps:   float = 0.0   # EMA fps of detection thread, read by _update_hud
+_detect_fps:   float = 0.0   # EMA fps of detection thread, read by draw_hud
 _camera_fps:   float = 0.0   # EMA fps of camera frame delivery, read by exposure monitor
 
 MIN_RELIABLE_FPS    = 8.0   # below this, assume exposure has crept up in auto mode
@@ -652,8 +652,6 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     `flipped`, swap left↔right inputs so the dimmed band reflects the
     real-world ROI on the mirrored canvas, and the corner label lands
     inside the displayed inner ROI rather than off-screen."""
-    global _roi_label_info
-    _roi_label_info = None
     if not _overlays_on():
         return
     rect = _roi_display_rect(canvas, flipped)
@@ -699,10 +697,24 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
         saved_str = f"{saved_px} px"
     label2 = f"saved {saved_str}  ({saved_pct:.0f}%)"
 
-    # Text itself is drawn crisp by _update_hud on the viewport drawlist
-    # (cv2 text on the 720p canvas upscales fuzzy); export the anchor in
-    # canvas coords plus the strings.  Same render iteration, same thread.
-    _roi_label_info = (x1, y1, label1, label2)
+    (tw1, th1), _ = cv2.getTextSize(label1, FONT, 0.4, 1)
+    (tw2, th2), _ = cv2.getTextSize(label2, FONT, 0.4, 1)
+    tw = max(tw1, tw2)
+    line_gap = 6
+    pad_x, pad_y = 10, 7
+    tx = x1 + 18
+    ty1 = y1 + 18 + th1
+    ty2 = ty1 + line_gap + th2
+    bg_x0 = tx - pad_x
+    bg_y0 = ty1 - th1 - pad_y
+    bg_x1 = tx + tw + pad_x
+    bg_y1 = ty2 + pad_y
+    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), (8, 8, 10), -1)
+    cv2.rectangle(canvas, (bg_x0, bg_y0), (bg_x1, bg_y1), color, 1)
+    cv2.putText(canvas, label1, (tx, ty1),
+                FONT, 0.4, color, 1, cv2.LINE_AA)
+    cv2.putText(canvas, label2, (tx, ty2),
+                FONT, 0.4, (180, 200, 230), 1, cv2.LINE_AA)
 
 
 _WINNER_HIGHLIGHT_SECS = 6.0
@@ -767,76 +779,50 @@ def draw_detect_border(canvas: np.ndarray, flipped: bool = False):
                   color, thickness, cv2.LINE_AA)
 
 
-# The HUD (fps pill + detected/connected counter, bottom right) and the
-# ROI label are small DPG windows, not cv2 text on the canvas: canvas text
-# upscales fuzzy from 720p, windows render crisp in the widget font.  (A
-# front viewport drawlist was tried first; the macOS Metal backend never
-# rendered it.)  The windows do capture the mouse over their rects, but
-# the pill lives in the corner and the ROI label only shows while tuning,
-# so the dead zones don't matter in practice.
-_HUD_M = 12              # margin from the viewport's bottom-right corner
-_roi_label_info = None   # (canvas_x, canvas_y, line1, line2) or None
-_hud_last = None
-
-
-def _update_hud(fps: float):
-    """Retext/recolour/reposition the HUD windows.  Called every frame
-    from the render loop; no-ops until something changes.  Window rects
-    read back one frame stale after a resize, so the measured size is
-    part of the dedup key - the frame after a text change re-anchors."""
-    global _hud_last
-    if not dpg.does_item_exist("hud_panel"):
-        return
+# The HUD is cv2-drawn onto the canvas, top left.  Two crisp-text
+# reworks (front viewport drawlist, then autosized DPG windows) both
+# failed to display reliably on the macOS Metal backend - the canvas
+# pill is fuzzy when upscaled but it has never once not been there,
+# and for show ops present beats pretty.
+def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
-        detecting  = state.detecting
-        sidebar_on = state.sidebar_visible
-    det_str   = f" / {int(_detect_fps + 0.5)}" if detecting else ""
-    fps_label = f"{int(fps + 0.5)}{det_str} fps"
-    n_det, n_conn = len(_detected_ids), len(_valid_blink_ids)
-    found_label = f"{n_det} / {n_conn} found"
-    vw = dpg.get_viewport_client_width()
-    vh = dpg.get_viewport_client_height()
-    roi_info = _roi_label_info
-    pw, ph = dpg.get_item_rect_size("hud_panel")
-    key = (fps_label, detecting, found_label, vw, vh, roi_info,
-           sidebar_on, pw, ph)
-    if key == _hud_last:
-        return
-    _hud_last = key
+        detecting = state.detecting
 
-    dpg.set_value("hud_fps_text", fps_label)
-    dpg.configure_item("hud_fps_text",
-                       color=(110, 220, 130, 255) if detecting
-                       else (200, 200, 200, 255))
-    # Counter sits beside the fps text while detecting: green when caught
-    # up, amber while still chasing.
-    dpg.configure_item("hud_found_text", show=detecting)
+    dot_color  = (40, 210, 80) if detecting else (70, 70, 70)
+    det_str    = f" / {int(_detect_fps + 0.5)}" if detecting else ""
+    label      = f"{int(fps + 0.5)}{det_str} fps"
+
+    PAD = 6
+    font_scale, thickness = 0.5, 1
+    (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+
+    x, y  = 8, 8
+    bx1   = x + PAD * 2 + 14 + tw
+    by1   = y + PAD * 2 + th
+    mid_y = (y + by1) // 2
+
+    cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
+    cv2.rectangle(canvas, (x, y), (bx1, by1), (55, 55, 55), 1)
+    cv2.circle(canvas, (x + PAD + 5, mid_y), 4, dot_color, -1)
+    cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
+                FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
+
+    # detected / connected counter — pill to the right of the fps pill
+    # while detecting, so the operator can see how many phones are
+    # outstanding without waiting for the post-run calibration log.
     if detecting:
-        dpg.set_value("hud_found_text", found_label)
-        dpg.configure_item("hud_found_text",
-                           color=(90, 220, 110, 255)
-                           if n_conn and n_det >= n_conn
-                           else (255, 170, 40, 255))
-    dpg.set_item_pos("hud_panel", [vw - pw - _HUD_M, vh - ph - _HUD_M])
-
-    # ROI label: canvas-space anchor from draw_roi_overlay mapped into the
-    # preview image's on-screen rect.
-    show_roi = roi_info is not None and dpg.does_item_exist("preview_image")
-    if show_roi:
-        cx, cy, l1, l2 = roi_info
-        ix, iy = dpg.get_item_rect_min("preview_image")
-        iw, ih = dpg.get_item_rect_size("preview_image")
-        if iw < 2:
-            show_roi = False
-        else:
-            sx = ix + cx * iw / PREVIEW_WIDTH + 14
-            sy = iy + cy * ih / PREVIEW_HEIGHT + 14
-            if sidebar_on:               # keep it out from under the sidebar
-                sx = max(sx, _SIDEBAR_WIDTH + 12)
-            dpg.set_value("roi_line1", l1)
-            dpg.set_value("roi_line2", l2)
-            dpg.set_item_pos("roi_panel", [sx, sy])
-    dpg.configure_item("roi_panel", show=show_roi)
+        n_det  = len(_detected_ids)
+        n_conn = len(_valid_blink_ids)
+        count_label = f"{n_det} / {n_conn} found"
+        (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
+        cx = bx1 + 16
+        cx2 = cx + PAD * 2 + cw
+        # Colour the box edge green when caught up, amber while still chasing.
+        edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
+        cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
+        cv2.rectangle(canvas, (cx, y), (cx2, by1), edge, 1)
+        cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
+                    FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
 
 
 # ------------------------------------------------------------------ #
@@ -2063,27 +2049,6 @@ def setup_ui(holder: dict):
     # ---- Bug game leaderboard window ----
     game.build_window()
 
-    # ---- Crisp HUD windows (fps/found pill bottom right + ROI label) ----
-    # _update_hud retexts and repositions these every frame.
-    with dpg.theme(tag="hud_theme"):
-        with dpg.theme_component(dpg.mvWindowAppItem):
-            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 10, 6)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 8)
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (16, 16, 18, 235))
-    _hud_flags = dict(no_title_bar=True, no_resize=True, no_move=True,
-                      no_collapse=True, no_scrollbar=True,
-                      no_focus_on_appearing=True,
-                      no_bring_to_front_on_focus=True, autosize=True)
-    with dpg.window(tag="hud_panel", pos=(0, 0), **_hud_flags):
-        with dpg.group(horizontal=True):
-            dpg.add_text("", tag="hud_fps_text", color=(200, 200, 200))
-            dpg.add_text("", tag="hud_found_text", show=False)
-    with dpg.window(tag="roi_panel", pos=(0, 0), show=False, **_hud_flags):
-        dpg.add_text("", tag="roi_line1", color=(255, 160, 80))
-        dpg.add_text("", tag="roi_line2", color=(230, 200, 180))
-    dpg.bind_item_theme("hud_panel", "hud_theme")
-    dpg.bind_item_theme("roi_panel", "hud_theme")
-
     # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
     try:
         from AppKit import NSScreen
@@ -2245,10 +2210,8 @@ def main():
 
             if cap is None:
                 canvas = no_camera_canvas()
+                draw_hud(canvas, 0.0)
                 texture_data = frame_to_texture(canvas)
-                # The HUD windows update here too - without this the fps
-                # pill never appears until a camera frame arrives.
-                _update_hud(0.0)
 
             else:
                 ok, raw = cap.read()
@@ -2355,14 +2318,12 @@ def main():
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
-                    _update_hud(fps)
+                    draw_hud(display_canvas, fps)
                     _draw_spotlight_cursor(display_canvas)
 
-                    # Record AFTER the spotlight cursor so the post-show
-                    # video matches what was actually on the projector —
-                    # same frame the MJPEG write below sees.  (The fps and
-                    # found pills moved to the DPG drawlist HUD, so they no
-                    # longer appear in recordings or the stream.)
+                    # Record AFTER the HUD + spotlight cursor so the
+                    # post-show video matches what was actually on the
+                    # projector — same frame the MJPEG write below sees.
                     if vid_rec.active:
                         vid_rec.record(display_canvas)
 
