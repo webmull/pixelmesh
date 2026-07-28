@@ -84,8 +84,9 @@ DEBUG_SAVE_EVERY = 6
 # object per frame, so no tearing); a worker thread encodes and POSTs it
 # to the server at up to 60fps, keeping JPEG cost off the display thread.
 _stream_latest    = None
-_STREAM_FPS       = 30   # operator monitor feed; 60 made browser viewers
-                         # queue behind and lag (halves again while detecting)
+_STREAM_FPS       = 60   # safe again at full rate: the feed page's canvas
+                         # viewer drops stale frames instead of queueing
+                         # (halves while detecting, as before)
 
 # Temporary perf probe: per-5s display-loop breakdown + DPG item count
 # (leak detector for the run-over-run sluggish render investigation).
