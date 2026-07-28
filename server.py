@@ -809,21 +809,59 @@ async def _mjpeg_generator():
             pass
 
 
+# Canvas-based viewer for humans hitting the feed URL directly.  Chrome's
+# native multipart handling (both top-level and <img>) can queue frames
+# and fall seconds behind; this reader keeps only the NEWEST decoded
+# frame and drops the rest by construction, so it cannot lag.
+_FEED_VIEWER_HTML = """<!doctype html><title>pixelmesh feed</title>
+<style>html,body{margin:0;height:100%;background:#000;display:grid;
+place-items:center}canvas{max-width:100%;max-height:100%}</style>
+<canvas id="c"></canvas>
+<script>
+const c = document.getElementById('c'), ctx = c.getContext('2d');
+(async () => {
+  const r = await fetch('/internal/feed/v1', {headers: {Accept: 'image/*'}});
+  const rd = r.body.getReader();
+  let buf = new Uint8Array(0), latest = null, drawing = false;
+  async function draw() {
+    if (drawing || !latest) return;
+    drawing = true;
+    const bytes = latest; latest = null;
+    try {
+      const bm = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}));
+      if (c.width !== bm.width) { c.width = bm.width; c.height = bm.height; }
+      ctx.drawImage(bm, 0, 0);
+      bm.close();
+    } catch (e) {}
+    drawing = false;
+    if (latest) requestAnimationFrame(draw);
+  }
+  for (;;) {
+    const {done, value} = await rd.read();
+    if (done) break;
+    const nb = new Uint8Array(buf.length + value.length);
+    nb.set(buf); nb.set(value, buf.length); buf = nb;
+    for (;;) {   // extract complete JPEGs (SOI..EOI), keep only the last
+      let s = -1;
+      for (let i = 0; i < buf.length - 1; i++)
+        if (buf[i] === 0xFF && buf[i+1] === 0xD8) { s = i; break; }
+      if (s < 0) { if (buf.length > 2) buf = buf.slice(buf.length - 2); break; }
+      let e = -1;
+      for (let i = s + 2; i < buf.length - 1; i++)
+        if (buf[i] === 0xFF && buf[i+1] === 0xD9) { e = i + 2; break; }
+      if (e < 0) { if (s > 0) buf = buf.slice(s); break; }
+      latest = buf.slice(s, e); buf = buf.slice(e);
+    }
+    if (latest) requestAnimationFrame(draw);
+  }
+})();
+</script>"""
+
+
 @app.get("/internal/feed/v1")
 async def stream(request: Request):
-    # Browsers navigating here get an <img> wrapper page: Chrome's
-    # top-level multipart viewer decodes every queued frame in order and
-    # falls seconds behind at stream rate, while its <img> pipeline drops
-    # stale frames.  <img>/curl requests (no text/html accept) get the
-    # raw MJPEG as before, so the dashboard embed is unaffected.
     if "text/html" in request.headers.get("accept", ""):
-        return HTMLResponse(
-            "<!doctype html><title>pixelmesh feed</title>"
-            "<style>html,body{margin:0;height:100%;background:#000;"
-            "display:grid;place-items:center}img{max-width:100%;"
-            "max-height:100%}</style>"
-            '<img src="/internal/feed/v1">'
-        )
+        return HTMLResponse(content=_FEED_VIEWER_HTML, headers=_NO_CACHE)
     return StreamingResponse(
         _mjpeg_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
