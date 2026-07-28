@@ -1087,14 +1087,20 @@ _SIDEBAR_WIDTH = 314
 
 
 def toggle_sidebar():
+    # The sidebar is a floating overlay window, so hide/show is outright:
+    # the preview underneath never moves or reflows.
     with state.lock:
         state.sidebar_visible = not state.sidebar_visible
         vis = state.sidebar_visible
-    # Width must collapse alongside show=False so the horizontal group
-    # actually reflows; otherwise the sidebar's slot stays reserved.
-    dpg.configure_item("sidebar_panel",
-                       show=vis,
-                       width=_SIDEBAR_WIDTH if vis else 0)
+    dpg.configure_item("sidebar_panel", show=vis)
+
+
+def _fit_sidebar_height(*_args):
+    """Keep the sidebar overlay as tall as the window. It no longer sits
+    in a layout row, so nothing stretches it automatically on resize."""
+    if dpg.does_item_exist("sidebar_panel"):
+        dpg.configure_item("sidebar_panel",
+                           height=dpg.get_viewport_client_height())
 
 
 def toggle_device_overlay():
@@ -1773,6 +1779,13 @@ def setup_ui(holder: dict):
         with dpg.theme_component(dpg.mvWindowAppItem):
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
 
+    # Sidebar overlay: the window itself uses no_background; child windows
+    # inside it must also go clear or they'd paint opaque slabs over the
+    # camera render.
+    with dpg.theme(tag="sidebar_theme"):
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 0))
+
     with dpg.texture_registry(show=False):
         blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
         # Wordmark for the sidebar header (white-on-transparent raster of
@@ -1802,169 +1815,172 @@ def setup_ui(holder: dict):
                     no_resize=True, no_move=True, no_collapse=True,
                     width=-1, height=-1):
 
-        with dpg.group(horizontal=True, horizontal_spacing=0):
+        # ---- Preview: always fills the full window; sidebar floats above ----
+        with dpg.child_window(tag="preview_panel", border=False,
+                              width=-1, height=-1,
+                              no_scrollbar=True, no_scroll_with_mouse=True):
+            dpg.add_image("camera_texture", tag="preview_image",
+                          width=1, height=1)
+    dpg.bind_item_theme("preview_panel", "preview_panel_theme")
 
-            # ---- Sidebar ----
-            with dpg.child_window(width=_SIDEBAR_WIDTH, height=-1, border=True,
-                                  tag="sidebar_panel"):
-
-                if dpg.does_item_exist("wordmark_texture"):
-                    dpg.add_spacer(height=4)
-                    # 546x107 source at ~0.36 scale fits the 314px sidebar
-                    dpg.add_image("wordmark_texture", width=196, height=38,
-                                  indent=(_SIDEBAR_WIDTH - 196) // 2 - 4)
-                    dpg.add_spacer(height=2)
-                else:
-                    dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
-                dpg.add_separator()
-                dpg.add_spacer(height=2)
-
-                # Tabs region auto-sizes to its content so the MIDI panel
-                # sits directly beneath the active tab instead of being
-                # pinned to the window bottom with dead space above it.
-                with dpg.child_window(auto_resize_y=True, border=False):
-                    with dpg.tab_bar(tag="main_tabs"):
-
-                        # ---- SCENE tab (default) ----
-                        with dpg.tab(label="SCENE"):
-                            with dpg.group(tag="scene_body"):
-                                dpg.add_spacer(height=4)
-                                dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
-                                _chk("Flip Projection  [F]", "chk_flip_projection",
-                                     toggle_flip_projection)
-                                dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
-                                dpg.add_slider_int(label="##iso", tag="sld_iso",
-                                                   default_value=elgato._DEFAULT_GAIN,
-                                                   min_value=0, max_value=160,
-                                                   callback=_set_iso,
-                                                   indent=_PAD, width=-(_PAD + 1),
-                                                   enabled=False)
-                                dpg.add_text("", tag="iso_hint_text",
-                                             color=(220, 180, 80), indent=_PAD,
-                                             wrap=300, show=False)
-
-                                dpg.add_spacer(height=8)
-                                dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                with dpg.table(header_row=False, indent=_PAD,
-                                               width=-(_PAD + 1), pad_outerX=True):
-                                    dpg.add_table_column()
-                                    dpg.add_table_column()
-                                    with dpg.table_row():
-                                        dpg.add_text("Top %",    color=(180, 180, 180))
-                                        dpg.add_text("Bottom %", color=(180, 180, 180))
-                                    with dpg.table_row():
-                                        dpg.add_slider_int(label="##roi_top",    tag="sld_roi_top",
-                                                           default_value=0, min_value=0, max_value=60,
-                                                           callback=_set_roi, width=-1)
-                                        dpg.add_slider_int(label="##roi_bottom", tag="sld_roi_bottom",
-                                                           default_value=0, min_value=0, max_value=60,
-                                                           callback=_set_roi, width=-1)
-                                    with dpg.table_row():
-                                        dpg.add_text("Left %",  color=(180, 180, 180))
-                                        dpg.add_text("Right %", color=(180, 180, 180))
-                                    with dpg.table_row():
-                                        dpg.add_slider_int(label="##roi_left",  tag="sld_roi_left",
-                                                           default_value=0, min_value=0, max_value=60,
-                                                           callback=_set_roi, width=-1)
-                                        dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
-                                                           default_value=0, min_value=0, max_value=60,
-                                                           callback=_set_roi, width=-1)
-
-                                dpg.add_spacer(height=8)
-                                dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
-                                dpg.add_text("[REC]", tag="rec_status_text",
-                                             color=(220, 60, 60), indent=_PAD, show=False)
-                                dpg.add_text("", tag="rec_filename_text",
-                                             color=(150, 150, 150), indent=_PAD, show=False,
-                                             wrap=300)
-
-                                # ---- MIDI panel ----
-                                dpg.add_spacer(height=8)
-                                with dpg.group(horizontal=True):
-                                    dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
-                                    dpg.add_text("waiting for pedal", tag="midi_conn_text",
-                                                 color=(120, 120, 120))
-                                dpg.add_spacer(height=2)
-                                # Newest command big and bright, history dim below.
-                                with dpg.child_window(height=260, border=False):
-                                    dpg.add_spacer(height=2)
-                                    dpg.add_text("no commands yet", tag="midi_last_text",
-                                                 color=(255, 200, 50), indent=6, wrap=290)
-                                    dpg.add_separator()
-                                    dpg.add_text("", tag="midi_history_text",
-                                                 color=(130, 130, 130), indent=6, wrap=290)
-
-                        # ---- RUN tab ----
-                        with dpg.tab(label="RUN"):
-                            with dpg.group(tag="run_body"):
-                                dpg.add_spacer(height=4)
-                                dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
-                                _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
-                                _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
-                                _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
-                                _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
-                                _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
-                                dpg.add_spacer(height=4)
-                                dpg.add_button(label="Reset Server  [R]", callback=reset_server,
-                                               indent=_PAD, width=-(_PAD + 1))
-
-                                dpg.add_spacer(height=8)
-                                effects.build_preview_widget(indent=_PAD)
-                                dpg.add_spacer(height=4)
-                                for _ename, _elabel in effects.EFFECT_LABELS.items():
-                                    if _ename == "ripple":
-                                        _btn_cb = lambda s, a, u: toggle_ripple_arm()
-                                    elif _ename == "spotlight":
-                                        _btn_cb = lambda s, a, u: toggle_spotlight_arm()
-                                    else:
-                                        _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
-                                    with dpg.group(horizontal=True, indent=_PAD):
-                                        dpg.add_button(
-                                            label=_elabel,
-                                            tag=f"fx_btn_{_ename}",
-                                            callback=_btn_cb,
-                                            user_data=_ename,
-                                            width=262,
-                                        )
-                                        dpg.add_button(
-                                            label="...",
-                                            callback=lambda s, a, u: effects._open_modal(u),
-                                            user_data=_ename,
-                                            width=30,
-                                        )
+    # ---- Sidebar: transparent overlay window on top of the preview.
+    # Tab shows/hides it outright (toggle_sidebar); the preview never
+    # reflows because it no longer shares a layout row with the sidebar.
+    with dpg.window(tag="sidebar_panel", pos=(0, 0),
+                    width=_SIDEBAR_WIDTH, height=800,
+                    no_title_bar=True, no_resize=True, no_move=True,
+                    no_collapse=True, no_background=True):
 
 
-                        # ---- GAME tab ----
-                        with dpg.tab(label="GAME"):
-                            with dpg.group(tag="game_body"):
-                                dpg.add_spacer(height=4)
-                                game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
+        if dpg.does_item_exist("wordmark_texture"):
+            dpg.add_spacer(height=4)
+            # 546x107 source at ~0.36 scale fits the 314px sidebar
+            dpg.add_image("wordmark_texture", width=196, height=38,
+                          indent=(_SIDEBAR_WIDTH - 196) // 2 - 4)
+            dpg.add_spacer(height=2)
+        else:
+            dpg.add_text("pixelmesh", color=(255, 200, 50), indent=_PAD)
+        dpg.add_separator()
+        dpg.add_spacer(height=2)
 
-                                dpg.add_spacer(height=8)
-                                dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
-                                dpg.add_separator()
-                                dpg.add_button(label="Reset Like Counter",
-                                               callback=heart_reset,
-                                               indent=_PAD, width=-(_PAD + 1))
-                                dpg.add_button(label="Enable / Disable Likes",
-                                               callback=heart_toggle,
-                                               indent=_PAD, width=-(_PAD + 1))
+        # Tabs region auto-sizes to its content so the MIDI panel
+        # sits directly beneath the active tab instead of being
+        # pinned to the window bottom with dead space above it.
+        with dpg.child_window(auto_resize_y=True, border=False):
+            with dpg.tab_bar(tag="main_tabs"):
+
+                # ---- SCENE tab (default) ----
+                with dpg.tab(label="SCENE"):
+                    with dpg.group(tag="scene_body"):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
+                        _chk("Flip Projection  [F]", "chk_flip_projection",
+                             toggle_flip_projection)
+                        dpg.add_text("ISO Gain", color=(180, 180, 180), indent=_PAD)
+                        dpg.add_slider_int(label="##iso", tag="sld_iso",
+                                           default_value=elgato._DEFAULT_GAIN,
+                                           min_value=0, max_value=160,
+                                           callback=_set_iso,
+                                           indent=_PAD, width=-(_PAD + 1),
+                                           enabled=False)
+                        dpg.add_text("", tag="iso_hint_text",
+                                     color=(220, 180, 80), indent=_PAD,
+                                     wrap=300, show=False)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        with dpg.table(header_row=False, indent=_PAD,
+                                       width=-(_PAD + 1), pad_outerX=True):
+                            dpg.add_table_column()
+                            dpg.add_table_column()
+                            with dpg.table_row():
+                                dpg.add_text("Top %",    color=(180, 180, 180))
+                                dpg.add_text("Bottom %", color=(180, 180, 180))
+                            with dpg.table_row():
+                                dpg.add_slider_int(label="##roi_top",    tag="sld_roi_top",
+                                                   default_value=0, min_value=0, max_value=60,
+                                                   callback=_set_roi, width=-1)
+                                dpg.add_slider_int(label="##roi_bottom", tag="sld_roi_bottom",
+                                                   default_value=0, min_value=0, max_value=60,
+                                                   callback=_set_roi, width=-1)
+                            with dpg.table_row():
+                                dpg.add_text("Left %",  color=(180, 180, 180))
+                                dpg.add_text("Right %", color=(180, 180, 180))
+                            with dpg.table_row():
+                                dpg.add_slider_int(label="##roi_left",  tag="sld_roi_left",
+                                                   default_value=0, min_value=0, max_value=60,
+                                                   callback=_set_roi, width=-1)
+                                dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
+                                                   default_value=0, min_value=0, max_value=60,
+                                                   callback=_set_roi, width=-1)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
+                        dpg.add_text("[REC]", tag="rec_status_text",
+                                     color=(220, 60, 60), indent=_PAD, show=False)
+                        dpg.add_text("", tag="rec_filename_text",
+                                     color=(150, 150, 150), indent=_PAD, show=False,
+                                     wrap=300)
+
+                        # ---- MIDI panel ----
+                        dpg.add_spacer(height=8)
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                            dpg.add_text("waiting for pedal", tag="midi_conn_text",
+                                         color=(120, 120, 120))
+                        dpg.add_spacer(height=2)
+                        # Newest command big and bright, history dim below.
+                        with dpg.child_window(height=260, border=False):
+                            dpg.add_spacer(height=2)
+                            dpg.add_text("no commands yet", tag="midi_last_text",
+                                         color=(255, 200, 50), indent=6, wrap=290)
+                            dpg.add_separator()
+                            dpg.add_text("", tag="midi_history_text",
+                                         color=(130, 130, 130), indent=6, wrap=290)
+
+                # ---- RUN tab ----
+                with dpg.tab(label="RUN"):
+                    with dpg.group(tag="run_body"):
+                        dpg.add_spacer(height=4)
+                        dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
+                        _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
+                        _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
+                        _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
+                        _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())
+                        _chk("Debug Capture  [G]", "chk_debug",        lambda: toggle_debug())
+                        dpg.add_spacer(height=4)
+                        dpg.add_button(label="Reset Server  [R]", callback=reset_server,
+                                       indent=_PAD, width=-(_PAD + 1))
+
+                        dpg.add_spacer(height=8)
+                        effects.build_preview_widget(indent=_PAD)
+                        dpg.add_spacer(height=4)
+                        for _ename, _elabel in effects.EFFECT_LABELS.items():
+                            if _ename == "ripple":
+                                _btn_cb = lambda s, a, u: toggle_ripple_arm()
+                            elif _ename == "spotlight":
+                                _btn_cb = lambda s, a, u: toggle_spotlight_arm()
+                            else:
+                                _btn_cb = lambda s, a, u: fire_effect_and_disarm_ripple(u)
+                            with dpg.group(horizontal=True, indent=_PAD):
+                                dpg.add_button(
+                                    label=_elabel,
+                                    tag=f"fx_btn_{_ename}",
+                                    callback=_btn_cb,
+                                    user_data=_ename,
+                                    width=262,
+                                )
+                                dpg.add_button(
+                                    label="...",
+                                    callback=lambda s, a, u: effects._open_modal(u),
+                                    user_data=_ename,
+                                    width=30,
+                                )
 
 
-            # ---- Preview panel ----
-            with dpg.child_window(tag="preview_panel", border=False,
-                                  width=-1, height=-1,
-                                  no_scrollbar=True, no_scroll_with_mouse=True):
-                dpg.add_image("camera_texture", tag="preview_image",
-                              width=1, height=1)
-        dpg.bind_item_theme("preview_panel", "preview_panel_theme")
+                # ---- GAME tab ----
+                with dpg.tab(label="GAME"):
+                    with dpg.group(tag="game_body"):
+                        dpg.add_spacer(height=4)
+                        game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
+
+                        dpg.add_spacer(height=8)
+                        dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
+                        dpg.add_separator()
+                        dpg.add_button(label="Reset Like Counter",
+                                       callback=heart_reset,
+                                       indent=_PAD, width=-(_PAD + 1))
+                        dpg.add_button(label="Enable / Disable Likes",
+                                       callback=heart_toggle,
+                                       indent=_PAD, width=-(_PAD + 1))
+    dpg.bind_item_theme("sidebar_panel", "sidebar_theme")
 
     # ---- Per-effect settings modals (hidden until ... is clicked) ----
     effects.build_window()
@@ -1983,6 +1999,9 @@ def setup_ui(holder: dict):
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
+    # Size the sidebar overlay to the window now and on every resize.
+    dpg.set_viewport_resize_callback(_fit_sidebar_height)
+    _fit_sidebar_height()
     # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
     # attempts never showed) - set it through AppKit instead.
     try:
@@ -2268,9 +2287,9 @@ def main():
             # Update texture
             dpg.set_value("camera_texture", texture_data)
 
-            # Fit preview image to available space.
-            # main_window always fills the full window — subtract sidebar to get
-            # the true available width without relying on viewport client dims.
+            # Fit preview image to available space.  preview_panel spans the
+            # whole main_window (the sidebar floats above it), so its rect is
+            # the full usable area.
             try:
                 pw, ph = dpg.get_item_rect_size("preview_panel")
                 ph_img = max(1, ph)
