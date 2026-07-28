@@ -774,6 +774,9 @@ def _update_hud(fps: float):
     key = (fps_label, detecting, found_label, vw, vh, roi_info, sidebar_on)
     if key == _hud_last:
         return
+    sz = dpg.get_text_size(fps_label, font=_hud_font)
+    if sz is None:
+        return   # font atlas not built until the first rendered frame
     _hud_last = key
 
     ph = _HUD_TXT + 2 * _HUD_PAD           # pill height
@@ -781,7 +784,7 @@ def _update_hud(fps: float):
     ty     = y1 + _HUD_PAD - 1
     dot_w  = 16                            # dot diameter + gap before text
 
-    fw  = dpg.get_text_size(fps_label, font=_hud_font)[0] * 0.5
+    fw  = sz[0] * 0.5
     fx2 = vw - _HUD_M
     fx1 = fx2 - (fw + 2 * _HUD_PAD + dot_w)
     dpg.configure_item("hud_pill_bg", pmin=(fx1, y1), pmax=(fx2, y2))
