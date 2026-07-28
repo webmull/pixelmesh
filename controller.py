@@ -47,7 +47,8 @@ from camera import apply_gamma, apply_contrast
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
-from network import post_json, post_json_async, post_bytes, fetch_client_count, fetch_json
+from network import (post_json, post_json_async, post_bytes,
+                     fetch_client_count, fetch_json, feed_ws_connect)
 
 # Detection decode is Python-heavy in 50ms budgeted bursts; the default
 # 5ms GIL switch interval lets it convoy the display thread. Finer
@@ -1133,10 +1134,15 @@ def toggle_detection():
 
 
 def _stream_worker():
-    """Encode and POST the latest display canvas at up to _STREAM_FPS.
-    Runs on its own thread so JPEG cost never touches the display loop;
-    always takes the newest frame, dropping any it was too slow for."""
+    """Encode and push the latest display canvas at up to _STREAM_FPS
+    over one persistent WebSocket (no per-frame HTTP overhead).  Runs on
+    its own thread so JPEG cost never touches the display loop; always
+    takes the newest frame, dropping any it was too slow for.  Reconnects
+    after failures and falls back to per-frame HTTP POSTs in the gaps so
+    the feed never goes dark."""
     last = None
+    ws = None
+    next_ws_retry = 0.0
     while True:
         t0 = time.time()
         # Full 60fps normally; half rate while detecting so the encode
@@ -1149,10 +1155,31 @@ def _stream_worker():
             last = frame
             try:
                 ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-                if ok:
-                    post_bytes("/admin/feed_frame", buf.tobytes())
             except Exception:
-                pass
+                ok = False
+            if ok:
+                data = buf.tobytes()
+                if ws is None and t0 >= next_ws_retry:
+                    try:
+                        ws = feed_ws_connect()
+                        log.info("[stream] feed WebSocket connected")
+                    except Exception:
+                        ws = None
+                        next_ws_retry = t0 + 5.0
+                sent = False
+                if ws is not None:
+                    try:
+                        ws.send(data)
+                        sent = True
+                    except Exception:
+                        try:
+                            ws.close()
+                        except Exception:
+                            pass
+                        ws = None
+                        next_ws_retry = t0 + 1.0
+                if not sent:
+                    post_bytes("/admin/feed_frame", data)
         sleep_for = interval - (time.time() - t0)
         if sleep_for > 0:
             time.sleep(sleep_for)

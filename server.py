@@ -781,11 +781,53 @@ _feed_event = asyncio.Event()
 
 @app.post("/admin/feed_frame")
 async def feed_frame(request: Request):
+    # Legacy/fallback ingest - the controller normally pushes frames over
+    # /admin/feed_ws and only POSTs here if the WebSocket is unavailable.
     global _feed_frame
     _feed_frame = await request.body()
     _feed_event.set()     # pulse: wake current waiters,
     _feed_event.clear()   # new waiters block until the next frame
     return Response(status_code=204)
+
+
+@app.websocket("/admin/feed_ws")
+async def feed_ws_in(ws: WebSocket):
+    """Binary frame ingest from the controller: one persistent socket
+    instead of an HTTP POST per frame.  AdminTokenMiddleware is HTTP-only,
+    so the token check happens here."""
+    if ws.headers.get("x-admin-token") != _ADMIN_TOKEN:
+        await ws.close(code=4401)
+        return
+    await ws.accept()
+    global _feed_frame
+    try:
+        while True:
+            _feed_frame = await ws.receive_bytes()
+            _feed_event.set()
+            _feed_event.clear()
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/internal/feed/ws")
+async def feed_ws_out(ws: WebSocket):
+    """Push the newest frame to a viewer as it arrives.  A slow viewer
+    blocks in send_bytes and misses pulses, so it naturally skips to the
+    latest frame instead of building a queue.  The 1s idle re-send keeps
+    connections warm while the show is quiet, same as the MJPEG path."""
+    await ws.accept()
+    try:
+        while True:
+            if _feed_frame is None:
+                await asyncio.sleep(0.2)
+                continue
+            await ws.send_bytes(_feed_frame)
+            try:
+                await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+    except WebSocketDisconnect:
+        pass
 
 
 async def _mjpeg_generator():
@@ -809,52 +851,39 @@ async def _mjpeg_generator():
             pass
 
 
-# Canvas-based viewer for humans hitting the feed URL directly.  Chrome's
-# native multipart handling (both top-level and <img>) can queue frames
-# and fall seconds behind; this reader keeps only the NEWEST decoded
-# frame and drops the rest by construction, so it cannot lag.
+# Canvas viewer for humans hitting the feed URL directly.  Binary frames
+# arrive over the feed WebSocket (no multipart parsing, no per-frame HTTP
+# overhead) and only the NEWEST frame is drawn - stale ones are dropped
+# by construction, so the view cannot lag.  Auto-reconnects on close.
 _FEED_VIEWER_HTML = """<!doctype html><title>pixelmesh feed</title>
 <style>html,body{margin:0;height:100%;background:#000;display:grid;
 place-items:center}canvas{max-width:100%;max-height:100%}</style>
 <canvas id="c"></canvas>
 <script>
 const c = document.getElementById('c'), ctx = c.getContext('2d');
-(async () => {
-  const r = await fetch('/internal/feed/v1', {headers: {Accept: 'image/*'}});
-  const rd = r.body.getReader();
-  let buf = new Uint8Array(0), latest = null, drawing = false;
-  async function draw() {
-    if (drawing || !latest) return;
-    drawing = true;
-    const bytes = latest; latest = null;
-    try {
-      const bm = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}));
-      if (c.width !== bm.width) { c.width = bm.width; c.height = bm.height; }
-      ctx.drawImage(bm, 0, 0);
-      bm.close();
-    } catch (e) {}
-    drawing = false;
-    if (latest) requestAnimationFrame(draw);
-  }
-  for (;;) {
-    const {done, value} = await rd.read();
-    if (done) break;
-    const nb = new Uint8Array(buf.length + value.length);
-    nb.set(buf); nb.set(value, buf.length); buf = nb;
-    for (;;) {   // extract complete JPEGs (SOI..EOI), keep only the last
-      let s = -1;
-      for (let i = 0; i < buf.length - 1; i++)
-        if (buf[i] === 0xFF && buf[i+1] === 0xD8) { s = i; break; }
-      if (s < 0) { if (buf.length > 2) buf = buf.slice(buf.length - 2); break; }
-      let e = -1;
-      for (let i = s + 2; i < buf.length - 1; i++)
-        if (buf[i] === 0xFF && buf[i+1] === 0xD9) { e = i + 2; break; }
-      if (e < 0) { if (s > 0) buf = buf.slice(s); break; }
-      latest = buf.slice(s, e); buf = buf.slice(e);
-    }
-    if (latest) requestAnimationFrame(draw);
-  }
-})();
+let latest = null, drawing = false;
+async function draw() {
+  if (drawing || !latest) return;
+  drawing = true;
+  const bytes = latest; latest = null;
+  try {
+    const bm = await createImageBitmap(new Blob([bytes], {type: 'image/jpeg'}));
+    if (c.width !== bm.width) { c.width = bm.width; c.height = bm.height; }
+    ctx.drawImage(bm, 0, 0);
+    bm.close();
+  } catch (e) {}
+  drawing = false;
+  if (latest) requestAnimationFrame(draw);
+}
+function connect() {
+  const ws = new WebSocket(
+    (location.protocol === 'https:' ? 'wss://' : 'ws://')
+    + location.host + '/internal/feed/ws');
+  ws.binaryType = 'arraybuffer';
+  ws.onmessage = (ev) => { latest = ev.data; requestAnimationFrame(draw); };
+  ws.onclose = () => setTimeout(connect, 1000);
+}
+connect();
 </script>"""
 
 

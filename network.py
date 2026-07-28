@@ -19,6 +19,18 @@ if _token:
 _executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="net")
 
 
+def feed_ws_connect():
+    """Open the binary camera-feed WebSocket to the server.  Sync client:
+    the controller's stream worker is a plain thread.  Raises on failure -
+    the worker retries later and falls back to per-frame HTTP POSTs."""
+    from websockets.sync.client import connect
+    ws_base = SERVER_BASE.replace("http://", "ws://", 1)
+    headers = {"X-Admin-Token": _token} if _token else {}
+    return connect(f"{ws_base}/admin/feed_ws",
+                   additional_headers=headers,
+                   open_timeout=1.0, close_timeout=0.5, max_size=None)
+
+
 def post_bytes(path: str, data: bytes, timeout=0.3) -> bool:
     """Fire a raw binary POST (camera feed frames). Quiet on failure -
     the stream worker retries with the next frame anyway."""
