@@ -810,7 +810,20 @@ async def _mjpeg_generator():
 
 
 @app.get("/internal/feed/v1")
-async def stream():
+async def stream(request: Request):
+    # Browsers navigating here get an <img> wrapper page: Chrome's
+    # top-level multipart viewer decodes every queued frame in order and
+    # falls seconds behind at stream rate, while its <img> pipeline drops
+    # stale frames.  <img>/curl requests (no text/html accept) get the
+    # raw MJPEG as before, so the dashboard embed is unaffected.
+    if "text/html" in request.headers.get("accept", ""):
+        return HTMLResponse(
+            "<!doctype html><title>pixelmesh feed</title>"
+            "<style>html,body{margin:0;height:100%;background:#000;"
+            "display:grid;place-items:center}img{max-width:100%;"
+            "max-height:100%}</style>"
+            '<img src="/internal/feed/v1">'
+        )
     return StreamingResponse(
         _mjpeg_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
