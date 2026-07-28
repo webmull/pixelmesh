@@ -948,6 +948,10 @@ def toggle_flip_projection():
         state.flip_projection = not state.flip_projection
         on = state.flip_projection
     set_status(f"Projection flip {'ON' if on else 'OFF'}")
+    # ROI sliders are display-space; the flip changes which camera side
+    # each one maps to, so rewrite cfg from the sliders under the new
+    # orientation.  (No-op while detecting — ROI is locked then anyway.)
+    _set_roi()
 
 
 def _apply_detection_iso():
@@ -1493,6 +1497,15 @@ def _set_roi():
     bottom = dpg.get_value("sld_roi_bottom") / 100.0
     left   = dpg.get_value("sld_roi_left")   / 100.0
     right  = dpg.get_value("sld_roi_right")  / 100.0
+    # Sliders are display-space: "Left %" trims the left of what the
+    # operator sees.  cfg is camera-space (the frozen detector samples the
+    # unflipped frame), so under Flip Projection the sides swap on write —
+    # the display overlay swaps them back, keeping slider, dimmed band and
+    # ROI label all on the same side of the preview.
+    with state.lock:
+        flipped = state.flip_projection
+    if flipped:
+        left, right = right, left
     detector.cfg["roi_top_frac"]    = top
     detector.cfg["roi_bottom_frac"] = bottom
     detector.cfg["roi_left_frac"]   = left
@@ -2233,6 +2246,10 @@ def main():
             if cap is None:
                 canvas = no_camera_canvas()
                 texture_data = frame_to_texture(canvas)
+                # HUD lives on the drawlist, not the canvas: without this
+                # its items stay degenerate until a camera frame arrives
+                # and the fps pill simply never appears.
+                _update_hud(0.0)
 
             else:
                 ok, raw = cap.read()
