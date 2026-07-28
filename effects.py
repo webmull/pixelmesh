@@ -648,8 +648,9 @@ def register_preview_texture():
 def build_preview_widget(indent: int = 8):
     """Call inside the sidebar after the effects buttons."""
     dpg.add_spacer(height=6)
-    dpg.add_text("PREVIEW", color=(160, 160, 160), indent=indent)
-    dpg.add_separator()
+    _t = dpg.add_text("PREVIEW", color=(160, 160, 160), indent=indent)
+    if dpg.does_item_exist("heading_font"):
+        dpg.bind_item_font(_t, "heading_font")
     dpg.add_spacer(height=4)
     dpg.add_image("effect_preview_texture", width=310, height=150,
                   indent=0)

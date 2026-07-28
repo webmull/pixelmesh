@@ -1076,12 +1076,12 @@ def toggle_recording():
         set_status(f"Recording: {_os.path.basename(path)}")
 
 
-# Sized to the widest fixed-width content: the 310px effect preview at
-# indent 8 (=318) plus the same 8px breathing room on the right, inside
-# ~17px of window chrome (2x8 padding + 1).  The old 314px bar silently
-# clipped the preview and fx rows against its border; over the camera
-# render the clipping shows, so the bar now actually fits its contents.
-_SIDEBAR_WIDTH = 342
+# Sized to the widest fixed-width content inside ~17px of window chrome
+# (2x8 padding + 1): the 310px effect preview image (indent 0) and the
+# 308px fx button rows.  The old 314px bar silently clipped both against
+# its border; over the camera render the clipping shows, so the bar has
+# to genuinely fit its contents.
+_SIDEBAR_WIDTH = 330
 
 
 def toggle_sidebar():
@@ -1690,6 +1690,16 @@ _CHK_LABEL_ON  = (240, 175, 60)    # active-orange — same family as fx_active_
 _CHK_LABEL_OFF = (210, 210, 210)
 
 
+def _heading(label: str, indent: int = None):
+    """Sidebar section heading: bold when Verdana Bold is available, and
+    no separator line underneath."""
+    t = dpg.add_text(label, color=(160, 160, 160),
+                     indent=_PAD if indent is None else indent)
+    if dpg.does_item_exist("heading_font"):
+        dpg.bind_item_font(t, "heading_font")
+    return t
+
+
 def _chk(label: str, tag: str, callback, enabled: bool = True):
     """Checkbox row: label left, hotkey right-aligned before checkbox.
     The label gets a tag (lbl_{tag}) so update_ui_from_state can switch
@@ -1728,9 +1738,13 @@ def setup_ui(holder: dict):
     _FONT_PATH = "/System/Library/Fonts/Supplemental/Verdana.ttf"
     _ui_font = _tab_font = None
     if _os.path.exists(_FONT_PATH):
+        _BOLD_PATH = "/System/Library/Fonts/Supplemental/Verdana Bold.ttf"
         with dpg.font_registry():
             _ui_font  = dpg.add_font(_FONT_PATH, 32)
             _tab_font = dpg.add_font(_FONT_PATH, 52)   # tab labels: effective 26px
+            if _os.path.exists(_BOLD_PATH):
+                # Sidebar section headings: same family and size, bold face
+                dpg.add_font(_BOLD_PATH, 32, tag="heading_font")
         dpg.bind_font(_ui_font)
         dpg.set_global_font_scale(0.5)
 
@@ -1862,8 +1876,7 @@ def setup_ui(holder: dict):
                 with dpg.tab(label="SCENE"):
                     with dpg.group(tag="scene_body"):
                         dpg.add_spacer(height=4)
-                        dpg.add_text("CAMERA HUB", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
+                        _heading("CAMERA HUB")
                         _chk("Auto Exposure", "chk_ae", _toggle_ae, enabled=False)
                         _chk("Flip Projection  [F]", "chk_flip_projection",
                              toggle_flip_projection)
@@ -1879,8 +1892,7 @@ def setup_ui(holder: dict):
                                      wrap=300, show=False)
 
                         dpg.add_spacer(height=8)
-                        dpg.add_text("FRAME ROI", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
+                        _heading("FRAME ROI")
                         with dpg.table(header_row=False, indent=_PAD,
                                        width=-(_PAD + 1), pad_outerX=True):
                             dpg.add_table_column()
@@ -1907,8 +1919,7 @@ def setup_ui(holder: dict):
                                                    callback=_set_roi, width=-1)
 
                         dpg.add_spacer(height=8)
-                        dpg.add_text("CAPTURE", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
+                        _heading("CAPTURE")
                         _chk("Record Video  [V]", "chk_recording", lambda: toggle_recording())
                         dpg.add_text("[REC]", tag="rec_status_text",
                                      color=(220, 60, 60), indent=_PAD, show=False)
@@ -1919,7 +1930,7 @@ def setup_ui(holder: dict):
                         # ---- MIDI panel ----
                         dpg.add_spacer(height=8)
                         with dpg.group(horizontal=True):
-                            dpg.add_text("MIDI", color=(160, 160, 160), indent=_PAD)
+                            _heading("MIDI")
                             dpg.add_text("waiting for pedal", tag="midi_conn_text",
                                          color=(120, 120, 120))
                         dpg.add_spacer(height=2)
@@ -1936,8 +1947,7 @@ def setup_ui(holder: dict):
                 with dpg.tab(label="RUN"):
                     with dpg.group(tag="run_body"):
                         dpg.add_spacer(height=4)
-                        dpg.add_text("DETECTION", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
+                        _heading("DETECTION")
                         _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
                         _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
                         _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
@@ -1981,8 +1991,7 @@ def setup_ui(holder: dict):
                         game.build_sidebar_buttons(indent=_PAD, pad=_PAD)
 
                         dpg.add_spacer(height=8)
-                        dpg.add_text("HEARTS", color=(160, 160, 160), indent=_PAD)
-                        dpg.add_separator()
+                        _heading("HEARTS")
                         dpg.add_button(label="Reset Like Counter",
                                        callback=heart_reset,
                                        indent=_PAD, width=-(_PAD + 1))
