@@ -779,11 +779,71 @@ def draw_detect_border(canvas: np.ndarray, flipped: bool = False):
                   color, thickness, cv2.LINE_AA)
 
 
-# The HUD is cv2-drawn onto the canvas, bottom right.  Crisp-text
-# reworks (front viewport drawlist, then autosized DPG windows) failed
-# to display reliably on the macOS Metal backend - the canvas pill is
-# fuzzy when upscaled but it has never once not been there, and for
-# show ops present beats pretty.
+# The HUD is cv2-drawn onto the canvas, bottom right.  DPG overlay
+# reworks (front viewport drawlist, then autosized windows) failed to
+# display reliably on the macOS Metal backend, so the pills stay on the
+# canvas - but their TEXT is rasterised with the real UI font (Verdana,
+# via PIL, 2x supersampled) and alpha-blended in, instead of cv2's
+# stroke-based Hershey glyphs.  If PIL or the font is ever unavailable
+# the pills silently fall back to Hershey: display never breaks.
+try:
+    from PIL import Image as _PILImage
+    from PIL import ImageDraw as _PILDraw
+    from PIL import ImageFont as _PILFont
+    _HUD_TTF = "/System/Library/Fonts/Supplemental/Verdana.ttf"
+    _hud_ttf_ok = _os.path.exists(_HUD_TTF)
+except ImportError:
+    _hud_ttf_ok = False
+_HUD_TTF_PX     = 15    # canvas-space text height, ~matches Hershey 0.5
+_hud_ttf_fonts  = {}
+_hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
+
+
+def _ttf_text(text: str, px: int, color: tuple):
+    """Rasterise `text` in Verdana at 2x and downsample, returning
+    (premultiplied colour term, inverse alpha, w, h) ready to blend onto
+    the canvas.  Cached per string - the fps label cycles through a small
+    set, so steady state renders nothing."""
+    global _hud_ttf_ok
+    if not _hud_ttf_ok:
+        return None
+    key = (text, px, color)
+    hit = _hud_text_cache.get(key)
+    if hit is not None:
+        return hit
+    try:
+        if len(_hud_text_cache) > 256:
+            _hud_text_cache.clear()
+        font = _hud_ttf_fonts.get(px)
+        if font is None:
+            font = _hud_ttf_fonts[px] = _PILFont.truetype(_HUD_TTF, px * 2)
+        x0, y0, x1, y1 = _PILDraw.Draw(
+            _PILImage.new("L", (1, 1))).textbbox((0, 0), text, font=font)
+        img = _PILImage.new("L", (x1 - x0 + 4, y1 - y0 + 4), 0)
+        _PILDraw.Draw(img).text((2 - x0, 2 - y0), text, fill=255, font=font)
+        a = np.asarray(img, dtype=np.float32) / 255.0
+        a = cv2.resize(a, (img.width // 2, img.height // 2),
+                       interpolation=cv2.INTER_AREA)[:, :, None]
+        entry = (a * np.array(color, dtype=np.float32), 1.0 - a,
+                 a.shape[1], a.shape[0])
+        _hud_text_cache[key] = entry
+        return entry
+    except Exception as e:
+        log.info(f"[hud] TTF text failed, falling back to Hershey: {e}")
+        _hud_ttf_ok = False
+        return None
+
+
+def _blit_ttf(canvas: np.ndarray, entry, x: int, y: int):
+    fg, inv_a, w, h = entry
+    H, W = canvas.shape[:2]
+    x = max(0, min(W - w, x))
+    y = max(0, min(H - h, y))
+    roi = canvas[y:y + h, x:x + w]
+    canvas[y:y + h, x:x + w] = \
+        (fg + roi.astype(np.float32) * inv_a).astype(np.uint8)
+
+
 def draw_hud(canvas: np.ndarray, fps: float):
     with state.lock:
         detecting = state.detecting
@@ -794,8 +854,13 @@ def draw_hud(canvas: np.ndarray, fps: float):
 
     PAD = 6
     M   = 8      # margin from the canvas's bottom-right corner
+    TXT = (210, 210, 210)
     font_scale, thickness = 0.5, 1
-    (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
+    e1 = _ttf_text(label, _HUD_TTF_PX, TXT)
+    if e1 is not None:
+        tw, th = e1[2], e1[3]
+    else:
+        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, thickness)
     h, w = canvas.shape[:2]
 
     bx1   = w - M
@@ -807,8 +872,11 @@ def draw_hud(canvas: np.ndarray, fps: float):
     cv2.rectangle(canvas, (x, y), (bx1, by1), (18, 18, 18), -1)
     cv2.rectangle(canvas, (x, y), (bx1, by1), (55, 55, 55), 1)
     cv2.circle(canvas, (x + PAD + 5, mid_y), 4, dot_color, -1)
-    cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
-                FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
+    if e1 is not None:
+        _blit_ttf(canvas, e1, x + PAD + 14, y + PAD)
+    else:
+        cv2.putText(canvas, label, (x + PAD + 14, y + PAD + th),
+                    FONT, font_scale, TXT, thickness, cv2.LINE_AA)
 
     # detected / connected counter — pill to the left of the fps pill
     # while detecting, so the operator can see how many phones are
@@ -817,15 +885,23 @@ def draw_hud(canvas: np.ndarray, fps: float):
         n_det  = len(_detected_ids)
         n_conn = len(_valid_blink_ids)
         count_label = f"{n_det} / {n_conn} found"
-        (cw, _), _ = cv2.getTextSize(count_label, FONT, font_scale, thickness)
+        e2 = _ttf_text(count_label, _HUD_TTF_PX, TXT)
+        if e2 is not None:
+            cw = e2[2]
+        else:
+            (cw, _), _ = cv2.getTextSize(count_label, FONT,
+                                         font_scale, thickness)
         cx2 = x - 16
         cx  = cx2 - (PAD * 2 + cw)
         # Colour the box edge green when caught up, amber while still chasing.
         edge = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
         cv2.rectangle(canvas, (cx, y), (cx2, by1), (18, 18, 18), -1)
         cv2.rectangle(canvas, (cx, y), (cx2, by1), edge, 1)
-        cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
-                    FONT, font_scale, (210, 210, 210), thickness, cv2.LINE_AA)
+        if e2 is not None:
+            _blit_ttf(canvas, e2, cx + PAD, y + PAD)
+        else:
+            cv2.putText(canvas, count_label, (cx + PAD, y + PAD + th),
+                        FONT, font_scale, TXT, thickness, cv2.LINE_AA)
 
 
 # ------------------------------------------------------------------ #
