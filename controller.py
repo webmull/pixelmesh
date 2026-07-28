@@ -623,15 +623,10 @@ def _overlays_on() -> bool:
         return state.show_overlays
 
 
-def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
-    """Dim the excluded ROI regions and draw boundary lines.  When
-    `flipped`, swap left↔right inputs so the dimmed band reflects the
-    real-world ROI on the mirrored canvas, and the corner label lands
-    inside the displayed inner ROI rather than off-screen."""
-    global _roi_label_info
-    _roi_label_info = None
-    if not _overlays_on():
-        return
+def _roi_display_rect(canvas: np.ndarray, flipped: bool = False):
+    """Inner-ROI rectangle in display-canvas pixels as (x1, y1, x2, y2),
+    or None when no ROI is configured.  Handles the left/right swap for
+    the mirrored display."""
     roi_top    = detector.cfg.get("roi_top_frac",    0.0)
     roi_bottom = detector.cfg.get("roi_bottom_frac", 0.0)
     roi_left   = detector.cfg.get("roi_left_frac",   0.0)
@@ -639,7 +634,7 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     if flipped:
         roi_left, roi_right = roi_right, roi_left
     if roi_top == 0.0 and roi_bottom == 0.0 and roi_left == 0.0 and roi_right == 0.0:
-        return
+        return None
     with state.lock:
         scale  = state.last_render_scale
         crop_x = state.last_crop_x
@@ -649,6 +644,23 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     y2 = max(0, min(h - 1, h - int(roi_bottom * CAM_HEIGHT * scale) + crop_y))
     x1 = max(0, min(w - 1, int(roi_left   * CAM_WIDTH  * scale) - crop_x))
     x2 = max(0, min(w - 1, w - int(roi_right  * CAM_WIDTH  * scale) + crop_x))
+    return x1, y1, x2, y2
+
+
+def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
+    """Dim the excluded ROI regions and draw boundary lines.  When
+    `flipped`, swap left↔right inputs so the dimmed band reflects the
+    real-world ROI on the mirrored canvas, and the corner label lands
+    inside the displayed inner ROI rather than off-screen."""
+    global _roi_label_info
+    _roi_label_info = None
+    if not _overlays_on():
+        return
+    rect = _roi_display_rect(canvas, flipped)
+    if rect is None:
+        return
+    x1, y1, x2, y2 = rect
+    h, w = canvas.shape[:2]
     color = (80, 160, 255)
     if y1 > 0:
         canvas[:y1, :] //= 3
@@ -662,6 +674,12 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     if x2 < w - 1:
         canvas[:, x2:] //= 3
         cv2.line(canvas, (x2, 0), (x2, h - 1), color, 1)
+    roi_top    = detector.cfg.get("roi_top_frac",    0.0)
+    roi_bottom = detector.cfg.get("roi_bottom_frac", 0.0)
+    roi_left   = detector.cfg.get("roi_left_frac",   0.0)
+    roi_right  = detector.cfg.get("roi_right_frac",  0.0)
+    if flipped:
+        roi_left, roi_right = roi_right, roi_left
     parts = []
     if roi_top    > 0: parts.append(f"top {int(roi_top * 100)}%")
     if roi_bottom > 0: parts.append(f"bot {int(roi_bottom * 100)}%")
@@ -732,34 +750,42 @@ def draw_winner_highlight(canvas: np.ndarray, flipped: bool = False):
                 FONT, font_scale, gold, thickness, cv2.LINE_AA)
 
 
-def draw_detect_border(canvas: np.ndarray):
-    """Thick green inset border drawn on the canvas while detecting."""
+def draw_detect_border(canvas: np.ndarray, flipped: bool = False):
+    """Thick green border drawn while detecting.  Hugs the inner ROI when
+    one is configured - that is where detection actually looks - and
+    frames the whole canvas otherwise."""
     h, w = canvas.shape[:2]
     thickness = 8
     color = (40, 220, 90)
     half = thickness // 2
-    cv2.rectangle(canvas, (half, half), (w - 1 - half, h - 1 - half),
+    rect = _roi_display_rect(canvas, flipped)
+    if rect is None:
+        x1, y1, x2, y2 = 0, 0, w - 1, h - 1
+    else:
+        x1, y1, x2, y2 = rect
+    cv2.rectangle(canvas, (x1 + half, y1 + half), (x2 - half, y2 - half),
                   color, thickness, cv2.LINE_AA)
 
 
-# HUD pills (fps + detected/connected counter) and the ROI label render
-# on a front viewport drawlist instead of the 720p cv2 canvas: canvas text
-# upscales fuzzy, drawlist text rasterises from the 32px Verdana atlas at
-# half size (retina-crisp, same trick as the widget font).  A drawlist
-# also captures no mouse input, so ripple clicks pass straight through.
-_HUD_M    = 12     # margin from the viewport's bottom-right corner
-_HUD_PAD  = 8      # pill inner padding
-_HUD_TXT  = 16     # drawn text size (half the 32px atlas)
-_hud_font = None   # set by setup_ui; get_text_size needs the font handle
+# The HUD (fps pill + detected/connected counter, bottom right) and the
+# ROI label are small DPG windows, not cv2 text on the canvas: canvas text
+# upscales fuzzy from 720p, windows render crisp in the widget font.  (A
+# front viewport drawlist was tried first; the macOS Metal backend never
+# rendered it.)  The windows do capture the mouse over their rects, but
+# the pill lives in the corner and the ROI label only shows while tuning,
+# so the dead zones don't matter in practice.
+_HUD_M = 12              # margin from the viewport's bottom-right corner
 _roi_label_info = None   # (canvas_x, canvas_y, line1, line2) or None
 _hud_last = None
 
 
 def _update_hud(fps: float):
-    """Reposition/retext the crisp HUD, bottom-right of the viewport.
-    Called every frame from the render loop; no-ops until values move."""
+    """Retext/recolour/reposition the HUD windows.  Called every frame
+    from the render loop; no-ops until something changes.  Window rects
+    read back one frame stale after a resize, so the measured size is
+    part of the dedup key - the frame after a text change re-anchors."""
     global _hud_last
-    if _hud_font is None or not dpg.does_item_exist("hud_fps_text"):
+    if not dpg.does_item_exist("hud_panel"):
         return
     with state.lock:
         detecting  = state.detecting
@@ -771,42 +797,27 @@ def _update_hud(fps: float):
     vw = dpg.get_viewport_client_width()
     vh = dpg.get_viewport_client_height()
     roi_info = _roi_label_info
-    key = (fps_label, detecting, found_label, vw, vh, roi_info, sidebar_on)
+    pw, ph = dpg.get_item_rect_size("hud_panel")
+    key = (fps_label, detecting, found_label, vw, vh, roi_info,
+           sidebar_on, pw, ph)
     if key == _hud_last:
         return
-    sz = dpg.get_text_size(fps_label, font=_hud_font)
-    if sz is None:
-        return   # font atlas not built until the first rendered frame
     _hud_last = key
 
-    ph = _HUD_TXT + 2 * _HUD_PAD           # pill height
-    y1, y2 = vh - _HUD_M - ph, vh - _HUD_M
-    ty     = y1 + _HUD_PAD - 1
-    dot_w  = 16                            # dot diameter + gap before text
-
-    fw  = sz[0] * 0.5
-    fx2 = vw - _HUD_M
-    fx1 = fx2 - (fw + 2 * _HUD_PAD + dot_w)
-    dpg.configure_item("hud_pill_bg", pmin=(fx1, y1), pmax=(fx2, y2))
-    dpg.configure_item("hud_dot", center=(fx1 + _HUD_PAD + 4, (y1 + y2) // 2),
-                       fill=(60, 210, 90, 255) if detecting else (95, 95, 95, 255))
-    dpg.configure_item("hud_fps_text", pos=(fx1 + _HUD_PAD + dot_w, ty),
-                       text=fps_label)
-
-    # detected / connected counter — pill to the left of the fps pill
-    # while detecting.  Green when caught up, amber while still chasing.
-    dpg.configure_item("hud_found_bg",   show=detecting)
+    dpg.set_value("hud_fps_text", fps_label)
+    dpg.configure_item("hud_fps_text",
+                       color=(110, 220, 130, 255) if detecting
+                       else (200, 200, 200, 255))
+    # Counter sits beside the fps text while detecting: green when caught
+    # up, amber while still chasing.
     dpg.configure_item("hud_found_text", show=detecting)
     if detecting:
-        cw  = dpg.get_text_size(found_label, font=_hud_font)[0] * 0.5
-        cx2 = fx1 - 10
-        cx1 = cx2 - (cw + 2 * _HUD_PAD)
-        col = (60, 210, 90, 255) if n_conn and n_det >= n_conn \
-              else (255, 170, 40, 255)
-        dpg.configure_item("hud_found_bg", pmin=(cx1, y1), pmax=(cx2, y2),
-                           color=col)
-        dpg.configure_item("hud_found_text", pos=(cx1 + _HUD_PAD, ty),
-                           text=found_label)
+        dpg.set_value("hud_found_text", found_label)
+        dpg.configure_item("hud_found_text",
+                           color=(90, 220, 110, 255)
+                           if n_conn and n_det >= n_conn
+                           else (255, 170, 40, 255))
+    dpg.set_item_pos("hud_panel", [vw - pw - _HUD_M, vh - ph - _HUD_M])
 
     # ROI label: canvas-space anchor from draw_roi_overlay mapped into the
     # preview image's on-screen rect.
@@ -822,17 +833,10 @@ def _update_hud(fps: float):
             sy = iy + cy * ih / PREVIEW_HEIGHT + 14
             if sidebar_on:               # keep it out from under the sidebar
                 sx = max(sx, _SIDEBAR_WIDTH + 12)
-            w1 = dpg.get_text_size(l1, font=_hud_font)[0] * 0.5
-            w2 = dpg.get_text_size(l2, font=_hud_font)[0] * 0.5
-            bw = max(w1, w2) + 2 * _HUD_PAD
-            bh = 2 * _HUD_TXT + 4 + 2 * _HUD_PAD
-            dpg.configure_item("roi_bg", pmin=(sx, sy), pmax=(sx + bw, sy + bh))
-            dpg.configure_item("roi_line1", text=l1,
-                               pos=(sx + _HUD_PAD, sy + _HUD_PAD - 1))
-            dpg.configure_item("roi_line2", text=l2,
-                               pos=(sx + _HUD_PAD, sy + _HUD_PAD + _HUD_TXT + 3))
-    for _t in ("roi_bg", "roi_line1", "roi_line2"):
-        dpg.configure_item(_t, show=show_roi)
+            dpg.set_value("roi_line1", l1)
+            dpg.set_value("roi_line2", l2)
+            dpg.set_item_pos("roi_panel", [sx, sy])
+    dpg.configure_item("roi_panel", show=show_roi)
 
 
 # ------------------------------------------------------------------ #
@@ -1800,8 +1804,6 @@ def setup_ui(holder: dict):
                 dpg.add_font(_BOLD_PATH, 32, tag="heading_font")
         dpg.bind_font(_ui_font)
         dpg.set_global_font_scale(0.5)
-    global _hud_font
-    _hud_font = _ui_font
 
     # Global dark theme: pure-black chrome matching the brand (#020204).
     # Interactive fills stay a step lighter so controls keep affordance.
@@ -2061,31 +2063,26 @@ def setup_ui(holder: dict):
     # ---- Bug game leaderboard window ----
     game.build_window()
 
-    # ---- Crisp HUD layer (fps/found pills bottom-right + ROI label) ----
-    # Front viewport drawlist: renders above every window, captures no
-    # mouse input.  _update_hud positions everything each frame.
-    with dpg.viewport_drawlist(front=True, tag="hud_draw"):
-        dpg.draw_rectangle((0, 0), (1, 1), tag="hud_pill_bg",
-                           fill=(16, 16, 18, 235), color=(70, 70, 70, 255),
-                           rounding=6)
-        dpg.draw_circle((0, 0), 5, tag="hud_dot", fill=(95, 95, 95, 255),
-                        color=(0, 0, 0, 0))
-        dpg.draw_text((0, 0), "", tag="hud_fps_text", size=_HUD_TXT,
-                      color=(215, 215, 215, 255))
-        dpg.draw_rectangle((0, 0), (1, 1), tag="hud_found_bg",
-                           fill=(16, 16, 18, 235), color=(255, 170, 40, 255),
-                           rounding=6, show=False)
-        dpg.draw_text((0, 0), "", tag="hud_found_text", size=_HUD_TXT,
-                      color=(215, 215, 215, 255), show=False)
-        dpg.draw_rectangle((0, 0), (1, 1), tag="roi_bg",
-                           fill=(10, 10, 12, 235), color=(255, 160, 80, 255),
-                           rounding=4, show=False)
-        dpg.draw_text((0, 0), "", tag="roi_line1", size=_HUD_TXT,
-                      color=(255, 160, 80, 255), show=False)
-        dpg.draw_text((0, 0), "", tag="roi_line2", size=_HUD_TXT,
-                      color=(230, 200, 180, 255), show=False)
-    if _ui_font:
-        dpg.bind_item_font("hud_draw", _ui_font)
+    # ---- Crisp HUD windows (fps/found pill bottom right + ROI label) ----
+    # _update_hud retexts and repositions these every frame.
+    with dpg.theme(tag="hud_theme"):
+        with dpg.theme_component(dpg.mvWindowAppItem):
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 10, 6)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 8)
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (16, 16, 18, 235))
+    _hud_flags = dict(no_title_bar=True, no_resize=True, no_move=True,
+                      no_collapse=True, no_scrollbar=True,
+                      no_focus_on_appearing=True,
+                      no_bring_to_front_on_focus=True, autosize=True)
+    with dpg.window(tag="hud_panel", pos=(0, 0), **_hud_flags):
+        with dpg.group(horizontal=True):
+            dpg.add_text("", tag="hud_fps_text", color=(200, 200, 200))
+            dpg.add_text("", tag="hud_found_text", show=False)
+    with dpg.window(tag="roi_panel", pos=(0, 0), show=False, **_hud_flags):
+        dpg.add_text("", tag="roi_line1", color=(255, 160, 80))
+        dpg.add_text("", tag="roi_line2", color=(230, 200, 180))
+    dpg.bind_item_theme("hud_panel", "hud_theme")
+    dpg.bind_item_theme("roi_panel", "hud_theme")
 
     # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
     try:
@@ -2249,9 +2246,8 @@ def main():
             if cap is None:
                 canvas = no_camera_canvas()
                 texture_data = frame_to_texture(canvas)
-                # HUD lives on the drawlist, not the canvas: without this
-                # its items stay degenerate until a camera frame arrives
-                # and the fps pill simply never appears.
+                # The HUD windows update here too - without this the fps
+                # pill never appears until a camera frame arrives.
                 _update_hud(0.0)
 
             else:
@@ -2355,7 +2351,7 @@ def main():
                     draw_click_ripples(display_canvas, flipped=flipped)
 
                     if detecting:
-                        draw_detect_border(display_canvas)
+                        draw_detect_border(display_canvas, flipped=flipped)
 
                     fps = 1.0 / max(time.time() - frame_start, 1e-4)
                     _camera_fps = 0.9 * _camera_fps + 0.1 * fps
