@@ -601,37 +601,68 @@
       margin: 2rem 0 0.25rem 0;
     }
 
-    .past-shows summary.events-group-heading {
-      cursor: pointer;
-      list-style: none;
-      display: inline-block;
-      user-select: none;
-    }
-
-    .past-shows summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .past-shows summary::after {
-      content: "\00a0\00a0+";
-    }
-
-    .past-shows[open] summary::after {
-      content: "\00a0\00a0\2212";
-    }
-
-    .past-shows summary:hover {
-      color: var(--text);
-    }
-
     .events-group-heading:first-of-type {
       margin-top: 1.5rem;
     }
 
+    /* timeline rail: a faint vertical line with one glowing pixel-square
+       node per event - lit for upcoming, dimmed for past */
     .events-list {
       list-style: none;
-      padding: 0;
+      padding: 0 0 0 1.2rem;
       margin: 0;
+      position: relative;
+    }
+
+    .events-list::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 0.6rem;
+      bottom: 0.6rem;
+      width: 1px;
+      background: linear-gradient(to bottom,
+          transparent,
+          rgba(255, 255, 255, 0.16) 12%,
+          rgba(255, 255, 255, 0.16) 88%,
+          transparent);
+    }
+
+    .event::before {
+      content: "";
+      position: absolute;
+      left: -1.2rem;
+      top: 50%;
+      width: 7px;
+      height: 7px;
+      transform: translate(-45%, -50%);
+      background: var(--text);
+      opacity: 0.9;
+      box-shadow: 0 0 10px rgba(255, 255, 255, 0.55);
+    }
+
+    .events-list.past .event::before {
+      opacity: 0.22;
+      box-shadow: none;
+    }
+
+    .event-next-badge {
+      display: inline-block;
+      font-size: 0.55rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: var(--bg);
+      background: var(--text);
+      padding: 0.16rem 0.5rem 0.12rem 0.6rem;
+      margin-left: 0.55rem;
+      vertical-align: 0.16em;
+      animation: next-wink 2.8s steps(1) infinite;
+    }
+
+    @keyframes next-wink {
+      0%, 90% { opacity: 1; }
+      91%, 94% { opacity: 0.35; }
+      95%, 100% { opacity: 1; }
     }
 
     .events-list.past .event-when b,
@@ -653,8 +684,19 @@
       grid-template-columns: auto 1fr;
       gap: 1.4rem;
       align-items: center;
-      padding: 0.85rem 0;
+      padding: 0.85rem 0.6rem;
       border-top: 1px solid rgba(255, 255, 255, 0.06);
+      position: relative;
+      transition: background 0.15s ease;
+    }
+
+    .event:hover {
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    .event:hover .event-when {
+      border-color: rgba(255, 255, 255, 0.35);
+      background: rgba(255, 255, 255, 0.05);
     }
 
     .event:last-child {
@@ -668,6 +710,7 @@
       border: 1px solid rgba(255, 255, 255, 0.14);
       border-radius: 8px;
       background: rgba(255, 255, 255, 0.02);
+      transition: border-color 0.15s ease, background 0.15s ease;
     }
 
     .event-when b {
@@ -1083,7 +1126,7 @@
         <li class="event">
           <div class="event-when"><b>8</b><span>Sep</span></div>
           <div class="event-info">
-            <span class="event-group">Test Up North</span>
+            <span class="event-group">Test Up North<span class="event-next-badge">next</span></span>
             <span class="event-place">Leeds Building Society Head Office &middot; Leeds, UK</span>
           </div>
         </li>
@@ -1102,6 +1145,13 @@
           </div>
         </li>
         <li class="event">
+          <div class="event-when"><b>22</b><span>Oct</span></div>
+          <div class="event-info">
+            <span class="event-group">AZoNetwork, Practically AI</span>
+            <span class="event-place">Manchester, UK</span>
+          </div>
+        </li>
+        <li class="event">
           <div class="event-when"><b>19</b><span>Nov</span></div>
           <div class="event-info">
             <span class="event-group">Stoke on Tech</span>
@@ -1110,9 +1160,8 @@
         </li>
       </ul>
 
-      <details class="past-shows">
-        <summary class="events-group-heading">Past shows (5)</summary>
-        <ul class="events-list past">
+      <h4 class="events-group-heading">Past shows</h4>
+      <ul class="events-list past">
         <li class="event">
           <div class="event-when"><b>22</b><span>Jul</span></div>
           <div class="event-info">
@@ -1148,8 +1197,7 @@
             <span class="event-place">Smithfield Works &middot; Stoke-on-Trent, UK</span>
           </div>
         </li>
-        </ul>
-      </details>
+      </ul>
 
       <div class="events-cta">
         <p>
