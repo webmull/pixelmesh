@@ -1231,34 +1231,39 @@ _SIDEBAR_WIDTH = 330
 # (the window scrim, the text, the buttons, the preview image) by that value,
 # so one number fades the lot.  The panel is still hidden outright at alpha 0
 # so it stops swallowing clicks meant for the camera render underneath.
-_SIDEBAR_FADE_IN_SECS = 0.45    # first appearance on app load - slower, softer
-_SIDEBAR_TOGGLE_SECS  = 0.18    # Tab press - quick enough to feel instant
+_SIDEBAR_FADE_IN_SECS  = 1.2    # first appearance on app load - slow and soft
+_SIDEBAR_FADE_IN_DELAY = 3.0    # camera + preview settle first, then it drifts in
+_SIDEBAR_TOGGLE_SECS   = 0.18   # Tab press - quick enough to feel instant
 
 _sidebar_alpha        = 0.0
 _sidebar_alpha_from   = 0.0
 _sidebar_alpha_target = 1.0
 _sidebar_fade_start   = 0.0
 _sidebar_fade_secs    = _SIDEBAR_FADE_IN_SECS
+_sidebar_shown        = True
 
 
 def _apply_sidebar_alpha(alpha: float):
-    global _sidebar_alpha
+    global _sidebar_alpha, _sidebar_shown
     _sidebar_alpha = alpha
     if dpg.does_item_exist("sidebar_alpha_style"):
         # Theme styles take a [x, y] pair; y is unused for 1-component vars.
         dpg.set_value("sidebar_alpha_style", [alpha, -1.0])
+    # Fully transparent means hidden outright, so it stops swallowing clicks
+    # meant for the camera render underneath.
+    want = alpha > 0.0
+    if want != _sidebar_shown and dpg.does_item_exist("sidebar_panel"):
+        _sidebar_shown = want
+        dpg.configure_item("sidebar_panel", show=want)
 
 
-def _start_sidebar_fade(target: float, secs: float):
+def _start_sidebar_fade(target: float, secs: float, delay: float = 0.0):
     global _sidebar_alpha_from, _sidebar_alpha_target
     global _sidebar_fade_start, _sidebar_fade_secs
     _sidebar_alpha_from   = _sidebar_alpha
     _sidebar_alpha_target = target
-    _sidebar_fade_start   = time.time()
+    _sidebar_fade_start   = time.time() + delay
     _sidebar_fade_secs    = max(secs, 1e-3)
-    if target > 0.0 and dpg.does_item_exist("sidebar_panel"):
-        # Show immediately so the fade-in has something to paint.
-        dpg.configure_item("sidebar_panel", show=True)
 
 
 def _tick_sidebar_fade():
@@ -1267,14 +1272,14 @@ def _tick_sidebar_fade():
     if _sidebar_alpha == _sidebar_alpha_target:
         return
     t = (time.time() - _sidebar_fade_start) / _sidebar_fade_secs
-    if t >= 1.0:
+    if t <= 0.0:
+        alpha = _sidebar_alpha_from       # still inside the start delay
+    elif t >= 1.0:
         alpha = _sidebar_alpha_target
     else:
         t = t * t * (3.0 - 2.0 * t)     # smoothstep: no hard start/stop
         alpha = _sidebar_alpha_from + (_sidebar_alpha_target - _sidebar_alpha_from) * t
     _apply_sidebar_alpha(alpha)
-    if alpha <= 0.0 and dpg.does_item_exist("sidebar_panel"):
-        dpg.configure_item("sidebar_panel", show=False)
 
 
 def toggle_sidebar():
@@ -2227,8 +2232,8 @@ def setup_ui(holder: dict):
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
     _fit_sidebar_height()   # first guess now; the render loop keeps it true
-    # Sidebar starts fully transparent and fades up over the first frames.
-    _start_sidebar_fade(1.0, _SIDEBAR_FADE_IN_SECS)
+    # Sidebar starts fully transparent, holds for a beat, then drifts in.
+    _start_sidebar_fade(1.0, _SIDEBAR_FADE_IN_SECS, _SIDEBAR_FADE_IN_DELAY)
     # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
     # attempts never showed) - set it through AppKit instead.
     try:
