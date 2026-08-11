@@ -1231,8 +1231,8 @@ _SIDEBAR_WIDTH = 330
 # (the window scrim, the text, the buttons, the preview image) by that value,
 # so one number fades the lot.  The panel is still hidden outright at alpha 0
 # so it stops swallowing clicks meant for the camera render underneath.
-_SIDEBAR_FADE_IN_SECS  = 1.2    # first appearance on app load - slow and soft
-_SIDEBAR_FADE_IN_DELAY = 3.0    # camera + preview settle first, then it drifts in
+_SIDEBAR_FADE_IN_SECS  = 0.8    # first appearance on app load - soft, not sluggish
+_SIDEBAR_FADE_IN_DELAY = 1.0    # camera + preview settle first, then it drifts in
 _SIDEBAR_TOGGLE_SECS   = 0.18   # Tab press - quick enough to feel instant
 
 _sidebar_alpha        = 0.0
