@@ -2232,6 +2232,8 @@ def setup_ui(holder: dict):
         if _info is not None:
             _info["CFBundleName"] = "pixelmesh"
             _info["CFBundleDisplayName"] = "pixelmesh"
+            # The standard About panel reads its byline straight off this key.
+            _info["NSHumanReadableCopyright"] = "Developed by Adam Davis"
         NSProcessInfo.processInfo().setProcessName_("pixelmesh")
     except Exception as e:
         log.info(f"[gui] menu bar name not set: {e}")
