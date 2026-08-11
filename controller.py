@@ -1226,13 +1226,64 @@ def toggle_recording():
 _SIDEBAR_WIDTH = 330
 
 
+# Sidebar fade.  DPG has no per-window opacity, so the whole panel rides on
+# mvStyleVar_Alpha in its bound theme: ImGui multiplies every colour it draws
+# (the window scrim, the text, the buttons, the preview image) by that value,
+# so one number fades the lot.  The panel is still hidden outright at alpha 0
+# so it stops swallowing clicks meant for the camera render underneath.
+_SIDEBAR_FADE_IN_SECS = 0.45    # first appearance on app load - slower, softer
+_SIDEBAR_TOGGLE_SECS  = 0.18    # Tab press - quick enough to feel instant
+
+_sidebar_alpha        = 0.0
+_sidebar_alpha_from   = 0.0
+_sidebar_alpha_target = 1.0
+_sidebar_fade_start   = 0.0
+_sidebar_fade_secs    = _SIDEBAR_FADE_IN_SECS
+
+
+def _apply_sidebar_alpha(alpha: float):
+    global _sidebar_alpha
+    _sidebar_alpha = alpha
+    if dpg.does_item_exist("sidebar_alpha_style"):
+        # Theme styles take a [x, y] pair; y is unused for 1-component vars.
+        dpg.set_value("sidebar_alpha_style", [alpha, -1.0])
+
+
+def _start_sidebar_fade(target: float, secs: float):
+    global _sidebar_alpha_from, _sidebar_alpha_target
+    global _sidebar_fade_start, _sidebar_fade_secs
+    _sidebar_alpha_from   = _sidebar_alpha
+    _sidebar_alpha_target = target
+    _sidebar_fade_start   = time.time()
+    _sidebar_fade_secs    = max(secs, 1e-3)
+    if target > 0.0 and dpg.does_item_exist("sidebar_panel"):
+        # Show immediately so the fade-in has something to paint.
+        dpg.configure_item("sidebar_panel", show=True)
+
+
+def _tick_sidebar_fade():
+    """Advance the sidebar fade.  Called every frame from the render loop;
+    a no-op once the target alpha is reached."""
+    if _sidebar_alpha == _sidebar_alpha_target:
+        return
+    t = (time.time() - _sidebar_fade_start) / _sidebar_fade_secs
+    if t >= 1.0:
+        alpha = _sidebar_alpha_target
+    else:
+        t = t * t * (3.0 - 2.0 * t)     # smoothstep: no hard start/stop
+        alpha = _sidebar_alpha_from + (_sidebar_alpha_target - _sidebar_alpha_from) * t
+    _apply_sidebar_alpha(alpha)
+    if alpha <= 0.0 and dpg.does_item_exist("sidebar_panel"):
+        dpg.configure_item("sidebar_panel", show=False)
+
+
 def toggle_sidebar():
-    # The sidebar is a floating overlay window, so hide/show is outright:
-    # the preview underneath never moves or reflows.
+    # The sidebar is a floating overlay window, so it fades in place: the
+    # preview underneath never moves or reflows.
     with state.lock:
         state.sidebar_visible = not state.sidebar_visible
         vis = state.sidebar_visible
-    dpg.configure_item("sidebar_panel", show=vis)
+    _start_sidebar_fade(1.0 if vis else 0.0, _SIDEBAR_TOGGLE_SECS)
 
 
 _sidebar_fit_h = 0
@@ -1955,6 +2006,9 @@ def setup_ui(holder: dict):
     with dpg.theme(tag="sidebar_theme"):
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (0, 0, 0, 0))
+            # Fade handle for the whole panel - driven by _tick_sidebar_fade.
+            dpg.add_theme_style(dpg.mvStyleVar_Alpha, 0.0,
+                                tag="sidebar_alpha_style")
         # Semi-transparent scrim: controls stay readable over bright
         # video but the camera still shows through.
         with dpg.theme_component(dpg.mvWindowAppItem):
@@ -2173,6 +2227,8 @@ def setup_ui(holder: dict):
     dpg.show_viewport()
     dpg.set_primary_window("main_window", True)
     _fit_sidebar_height()   # first guess now; the render loop keeps it true
+    # Sidebar starts fully transparent and fades up over the first frames.
+    _start_sidebar_fade(1.0, _SIDEBAR_FADE_IN_SECS)
     # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
     # attempts never showed) - set it through AppKit instead.
     try:
@@ -2457,6 +2513,7 @@ def main():
             dpg.set_value("camera_texture", texture_data)
 
             _fit_sidebar_height()
+            _tick_sidebar_fade()
 
             # Fit preview image to available space.  preview_panel spans the
             # whole main_window (the sidebar floats above it), so its rect is
