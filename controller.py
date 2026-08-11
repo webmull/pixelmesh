@@ -2220,6 +2220,22 @@ def setup_ui(holder: dict):
     # ---- Bug game leaderboard window ----
     game.build_window()
 
+    # macOS menu bar name.  Running unbundled, the app menu takes its name from
+    # the process — so the bar read "Python", along with "About Python" and
+    # "Quit Python".  GLFW builds that menu when it initialises (inside
+    # create_viewport below), and it reads the bundle's CFBundleName first, so
+    # both the info dict and the process name have to be renamed before then.
+    try:
+        from Foundation import NSBundle, NSProcessInfo
+        _info = (NSBundle.mainBundle().localizedInfoDictionary()
+                 or NSBundle.mainBundle().infoDictionary())
+        if _info is not None:
+            _info["CFBundleName"] = "pixelmesh"
+            _info["CFBundleDisplayName"] = "pixelmesh"
+        NSProcessInfo.processInfo().setProcessName_("pixelmesh")
+    except Exception as e:
+        log.info(f"[gui] menu bar name not set: {e}")
+
     # Open maximised — read screen size via AppKit (macOS), fall back to 1660×780.
     try:
         from AppKit import NSScreen
