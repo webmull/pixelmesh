@@ -564,10 +564,13 @@ def build_canvas(frame: np.ndarray) -> np.ndarray:
 
 
 def no_camera_canvas() -> np.ndarray:
+    # The closing lines matter: 1280x720 divides by 80 exactly, so a plain
+    # range() stops at 1200/640 and leaves the bottom and right bands open
+    # against the canvas edge - the grid looked like it ran out early.
     canvas = np.zeros((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), dtype=np.uint8)
-    for x in range(0, PREVIEW_WIDTH, 80):
+    for x in sorted({*range(0, PREVIEW_WIDTH, 80), PREVIEW_WIDTH - 1}):
         cv2.line(canvas, (x, 0), (x, PREVIEW_HEIGHT), (30, 30, 30), 1)
-    for y in range(0, PREVIEW_HEIGHT, 80):
+    for y in sorted({*range(0, PREVIEW_HEIGHT, 80), PREVIEW_HEIGHT - 1}):
         cv2.line(canvas, (0, y), (PREVIEW_WIDTH, y), (30, 30, 30), 1)
     return canvas
 
@@ -2629,7 +2632,13 @@ def main():
                 ph_img = max(1, ph)
                 if pw > 1 and ph_img > 1:
                     aspect = PREVIEW_WIDTH / PREVIEW_HEIGHT
-                    if pw / ph_img > aspect:
+                    if _no_camera():
+                        # Placeholder grid: fill the window rather than sit
+                        # letterboxed, so the lines run to every edge.  No
+                        # aspect to protect - and on a 3:2 screen the stretch
+                        # is under 2%, so the cells still read as square.
+                        iw, ih = pw, ph_img
+                    elif pw / ph_img > aspect:
                         iw, ih = int(ph_img * aspect), ph_img
                     else:
                         iw, ih = pw, int(pw / aspect)
