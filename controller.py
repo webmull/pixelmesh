@@ -1933,6 +1933,43 @@ def _safe_set_chk(tag: str, value: bool):
     ui_queue.put((f"_lbl_color_{tag}", bool(value)))
 
 
+_about_target = None    # keeps the About menu item's Obj-C target alive
+
+
+def _install_about_panel(icon_path: str):
+    """Point 'About pixelmesh' at our own panel.  The standard one reads the
+    borrowed Python bundle, so it showed the interpreter's icon - and nothing
+    at all once CFBundleIconFile was dropped.  Passing the icon, name and
+    byline as explicit options sidesteps the bundle entirely."""
+    global _about_target
+    from AppKit import NSApp, NSImage
+    from Foundation import NSObject, NSAttributedString
+
+    icon = NSImage.alloc().initWithContentsOfFile_(icon_path)
+
+    if _about_target is None:
+        class _PixelmeshAbout(NSObject):
+            def showAbout_(self, sender):
+                opts = {
+                    "ApplicationName": "pixelmesh",
+                    # Blank, or the panel falls back to the bundle's version.
+                    "Version": "",
+                    "ApplicationVersion": "",
+                    "Credits": NSAttributedString.alloc().initWithString_(
+                        "Developed by Adam Davis"),
+                }
+                if icon is not None:
+                    opts["ApplicationIcon"] = icon
+                NSApp.orderFrontStandardAboutPanelWithOptions_(opts)
+
+        _about_target = _PixelmeshAbout.alloc().init()
+
+    app_menu = NSApp.mainMenu().itemAtIndex_(0).submenu()
+    item = app_menu.itemAtIndex_(0)     # GLFW builds About as the first item
+    item.setTarget_(_about_target)
+    item.setAction_(b"showAbout:")
+
+
 def setup_ui(holder: dict):
     effects.init(state, set_status, ui_queue=ui_queue)
     game.init(state, set_status, post_json, fetch_json, _render_order, ui_queue=ui_queue)
@@ -2265,15 +2302,20 @@ def setup_ui(holder: dict):
     _start_sidebar_fade(1.0, _SIDEBAR_FADE_IN_SECS, _SIDEBAR_FADE_IN_DELAY)
     # macOS Dock icon: GLFW ignores viewport icons on Cocoa (why earlier
     # attempts never showed) - set it through AppKit instead.
+    _icon_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                               "public", "app_icon.png")
     try:
         from AppKit import NSApplication, NSImage
-        _icon_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                                   "public", "app_icon.png")
         _icon = NSImage.alloc().initWithContentsOfFile_(_icon_path)
         if _icon:
             NSApplication.sharedApplication().setApplicationIconImage_(_icon)
     except Exception as e:
         log.info(f"[gui] dock icon not set: {e}")
+
+    try:
+        _install_about_panel(_icon_path)
+    except Exception as e:
+        log.info(f"[gui] about panel not customised: {e}")
 
     # The "Window" menu is GLFW's, not a macOS requirement - the show only
     # ever runs one full-screen window, so Minimise/Zoom/Arrange are dead
