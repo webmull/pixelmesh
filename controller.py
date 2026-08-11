@@ -2234,6 +2234,12 @@ def setup_ui(holder: dict):
             _info["CFBundleDisplayName"] = "pixelmesh"
             # The standard About panel reads its byline straight off this key.
             _info["NSHumanReadableCopyright"] = "Developed by Adam Davis"
+            # Drop the version line: unbundled, it was reporting the Python
+            # interpreter's version (3.14.x), which means nothing here.
+            for _k in ("CFBundleShortVersionString", "CFBundleVersion",
+                       "CFBundleNumericVersion"):
+                if _k in _info:
+                    del _info[_k]
         NSProcessInfo.processInfo().setProcessName_("pixelmesh")
     except Exception as e:
         log.info(f"[gui] menu bar name not set: {e}")
