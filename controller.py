@@ -2240,6 +2240,11 @@ def setup_ui(holder: dict):
                        "CFBundleNumericVersion"):
                 if _k in _info:
                     del _info[_k]
+            # Same borrowed bundle also aims the About panel at the Python
+            # rocket (PythonInterpreter.icns).  Drop it so the panel falls
+            # back to NSApplicationIcon - the app_icon.png set below.
+            if "CFBundleIconFile" in _info:
+                del _info["CFBundleIconFile"]
         NSProcessInfo.processInfo().setProcessName_("pixelmesh")
     except Exception as e:
         log.info(f"[gui] menu bar name not set: {e}")
@@ -2269,6 +2274,22 @@ def setup_ui(holder: dict):
             NSApplication.sharedApplication().setApplicationIconImage_(_icon)
     except Exception as e:
         log.info(f"[gui] dock icon not set: {e}")
+
+    # The "Window" menu is GLFW's, not a macOS requirement - the show only
+    # ever runs one full-screen window, so Minimise/Zoom/Arrange are dead
+    # weight (and a stray Minimise mid-show would be worse than dead).
+    # Unregister it as the windows menu first, or AppKit keeps re-populating.
+    try:
+        from AppKit import NSApp
+        _mm = NSApp.mainMenu()
+        if _mm is not None:
+            NSApp.setWindowsMenu_(None)
+            for _i in range(_mm.numberOfItems() - 1, 0, -1):
+                _sub = _mm.itemAtIndex_(_i).submenu()
+                if _sub is not None and str(_sub.title()) == "Window":
+                    _mm.removeItemAtIndex_(_i)
+    except Exception as e:
+        log.info(f"[gui] window menu not removed: {e}")
     # Tab labels get the larger face; each tab's body group rebinds the
     # normal font so content is unaffected (item fonts cascade in DPG).
     if _tab_font is not None:
