@@ -12,7 +12,8 @@ becomes the show.
 
 Built for live events and proven at them — 50+ phones located by one camera in real venues.
 Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
-[pixelmesh.live](https://pixelmesh.live) and deploys from this repo.
+[pixelmesh.live](https://pixelmesh.live), in its own
+[pixelmesh.website](https://github.com/webmull/pixelmesh.website) repo.
 
 **How a show runs, in four beats:**
 
@@ -76,7 +77,7 @@ endpoint before launching.
 | URL | Description |
 |-----|-------------|
 | `https://pixelmesh.show` | Audience URL — share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
-| `https://pixelmesh.live` | Public site — deployed by DigitalOcean from `site/` on every push to `main` |
+| `https://pixelmesh.live` | Public site — its own repo, [pixelmesh.website](https://github.com/webmull/pixelmesh.website), deployed by DigitalOcean on every push to its `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/feed/v1` | Live camera feed at up to 60 fps. Browsers get a canvas viewer fed binary JPEG frames over WebSocket (newest frame only, cannot lag); the same URL serves raw MJPEG to `<img>` embeds and curl |
@@ -451,7 +452,6 @@ controls), and **GAME** (avatar race, likes).
 | `public/app.js` | Client-side blink renderer, effect engine, waiting/located/game UI |
 | `ngrok.pixelmesh.yml` | Show tunnel — binds the internal endpoint behind the cloud endpoint |
 | `ngrok.cloud-policy.yml` | Traffic policy for `pixelmesh.show`, incl. the offline holding page |
-| `site/` | The public website — see [The website](#the-website) |
 | `content/` | Posts, talk slides, and other written material |
 | `tools/` | Offline analysis: detector replay, signal heatmaps, GIF/still generators |
 | `testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
@@ -603,16 +603,15 @@ fresh page always matches and connects once, while a stale parked page reloads e
 
 ## The website
 
-[pixelmesh.live](https://pixelmesh.live) is a static site served by DigitalOcean App Platform
-from the `site/` directory — **every push to `main` deploys it**. `main` is the release branch;
-day-to-day work should land there deliberately.
+[pixelmesh.live](https://pixelmesh.live) lives in its own repo,
+**[pixelmesh.website](https://github.com/webmull/pixelmesh.website)** (checked out alongside
+this one at `~/Desktop/projects/pixelmesh.website`). It used to sit in `site/` here; the split
+happened on 11 Aug 2026 and the site's history came across with it.
 
-- `site/index.html` is the whole page (styles and scripts inline); assets live in
-  `site/public/` so the served URL structure matches the old FastAPI hosting — existing shared
-  links (including `/telemetry/london-2026-06`) still resolve.
-- Fonts are self-hosted in `site/public/fonts/`; there are no third-party requests.
+- Static site on DigitalOcean App Platform, served from that repo's root — **every push to its
+  `main` deploys it**.
 - The hero loop, detection clip, poster, and `og-image.jpg` are cut from real show footage with
-  ffmpeg — sources are the debug captures under `debug/` and the London opener edit.
+  ffmpeg — sources are the debug captures under `debug/` here and the London opener edit.
 - Brand rule: **pixelmesh is always lowercase**, and no em dashes in site copy.
 
 ---

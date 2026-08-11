@@ -3,9 +3,10 @@
 ## Never push without permission
 
 Commit freely, but **never `git push` unless Adam has explicitly asked for or
-approved the push** in the current conversation. `main` deploys the public
-site on every push, so an unasked push is a deploy. This overrides any earlier
-"commit + push is part of done" workflow.
+approved the push** in the current conversation. This overrides any earlier
+"commit + push is part of done" workflow. The same rule holds in the
+`pixelmesh.website` repo next door, where every push to `main` is a live
+deploy of pixelmesh.live.
 
 ## Brand name is always lowercase
 
