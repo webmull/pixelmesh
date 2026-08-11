@@ -2332,6 +2332,20 @@ def setup_ui(holder: dict):
                     _mm.removeItemAtIndex_(_i)
     except Exception as e:
         log.info(f"[gui] window menu not removed: {e}")
+
+    # Clean screen for the show: macOS always names the frontmost app in the
+    # bar, so the only way to show nothing is to hide the bar itself.  It
+    # auto-hides (and the Dock with it - AutoHideMenuBar is rejected on its
+    # own) whenever pixelmesh is frontmost, and slides back on a shove into
+    # the top edge.  cmd-Q still works; the menu is hidden, not gone.
+    try:
+        from AppKit import (NSApp,
+                            NSApplicationPresentationAutoHideMenuBar,
+                            NSApplicationPresentationAutoHideDock)
+        NSApp.setPresentationOptions_(NSApplicationPresentationAutoHideMenuBar
+                                      | NSApplicationPresentationAutoHideDock)
+    except Exception as e:
+        log.info(f"[gui] menu bar not auto-hidden: {e}")
     # Tab labels get the larger face; each tab's body group rebinds the
     # normal font so content is unaffected (item fonts cascade in DPG).
     if _tab_font is not None:
