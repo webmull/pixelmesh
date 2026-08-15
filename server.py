@@ -695,9 +695,12 @@ async def show_stats():
         "connected_now":    len(connections),
         "spectators":       len(spectators),
 
-        # What the show is doing.
+        # What the show is doing. effect_started is the ms timestamp
+        # start_effect stamped, so a consumer can tell "wave fired again"
+        # from "wave is still playing" - the name alone cannot.
         "detecting":        detection_active,
         "effect":           (current_effect_state or {}).get("effect"),
+        "effect_started":   (current_effect_state or {}).get("start_time"),
     }
 
 

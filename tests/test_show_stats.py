@@ -41,7 +41,7 @@ class TestShape:
         assert set(s) == {
             "like_count", "total_connected", "detected",
             "connected_now", "spectators",
-            "detecting", "effect",
+            "detecting", "effect", "effect_started",
         }
 
     def test_counts_are_ints_and_flags_are_typed(self):
@@ -61,6 +61,7 @@ class TestShape:
         assert s["spectators"] == 0
         assert s["detecting"] is False
         assert s["effect"] is None
+        assert s["effect_started"] is None
 
     def test_exposes_no_device_identifiers(self):
         """Public route: counts and effect names only, never a device_uuid."""
@@ -160,6 +161,18 @@ class TestShowState:
         srv = fresh_server()
         srv.current_effect_state = {"type": "effect", "start_time": 1}
         assert stats(srv)["effect"] is None
+
+    def test_effect_started_distinguishes_a_refire(self):
+        """The name alone cannot: firing wave twice looks identical without
+        a timestamp, and the deck needs to re-flash on the second one."""
+        srv = fresh_server()
+        asyncio.run(srv.start_effect("wave", {}))
+        first = stats(srv)["effect_started"]
+        assert isinstance(first, int)
+        asyncio.run(srv.start_effect("wave", {}))
+        second = stats(srv)["effect_started"]
+        assert second >= first
+        assert stats(srv)["effect"] == "wave"
 
     def test_reflects_a_real_fired_effect(self):
         """Goes through start_effect rather than setting the global, so the

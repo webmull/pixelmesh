@@ -97,12 +97,15 @@ which the talk deck's join slide does every three seconds.
   "connected_now":   48,       // phones holding a live socket right now
   "spectators":      1,        // stage page and other non-phone viewers
   "detecting":       false,    // is a detection run in progress
-  "effect":          "pulse"   // effect currently playing, or null
+  "effect":          "pulse",  // effect currently playing, or null
+  "effect_started":  1786819751289   // ms timestamp of the last fire, or null
 }
 ```
 
 `total_connected` only ever rises; `connected_now` falls when someone locks their screen
-or leaves, which is why both exist. Keys are additive — the first three predate the rest
+or leaves, which is why both exist. `effect_started` exists because the name alone cannot
+distinguish "wave fired again" from "wave is still playing" — the talk deck uses it to
+re-announce a re-fired effect. Keys are additive — the first three predate the rest
 and are consumed elsewhere, so nothing is renamed or removed.
 
 ---
