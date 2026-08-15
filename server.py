@@ -672,11 +672,32 @@ async def sync(payload: dict):
 
 @app.get("/admin/show_stats")
 async def show_stats():
-    """Snapshot of session-level counters for the post-show report."""
+    """Snapshot of what the show is doing, for the post-show report and for
+    anything that wants to display live state without holding a WebSocket
+    (the talk deck's join slide reads this every few seconds).
+
+    Public by design - the one entry in _ADMIN_PUBLIC - so it is deliberately
+    read-only, cheap (four len() calls and two globals, no locks, no
+    iteration) and free of anything identifying: counts and names only, never
+    a device_uuid.
+
+    Keys are additive. total_connected/detected/like_count predate the rest
+    and are consumed elsewhere, so nothing here is renamed or removed.
+    """
     return {
+        # Session totals. Cumulative - these only ever go up within a run.
         "like_count":       like_count,
-        "total_connected":  len(blink_assignments),
-        "detected":         len(positions),
+        "total_connected":  len(blink_assignments),   # phones that ever joined
+        "detected":         len(positions),           # phones the camera placed
+
+        # Live right now. connected_now falls when a phone locks its screen
+        # or walks out, which is why it is separate from total_connected.
+        "connected_now":    len(connections),
+        "spectators":       len(spectators),
+
+        # What the show is doing.
+        "detecting":        detection_active,
+        "effect":           (current_effect_state or {}).get("effect"),
     }
 
 

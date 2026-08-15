@@ -37,6 +37,7 @@ Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
 - [Architecture](#architecture)
 - [Tuning & performance](#tuning--performance)
 - [Operations](#operations)
+- [Tests](#tests)
 - [The website](#the-website)
 - [Origins](#origins)
 - [Roadmap](#roadmap)
@@ -78,10 +79,31 @@ endpoint before launching.
 |-----|-------------|
 | `https://pixelmesh.show` | Audience URL — share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
 | `https://pixelmesh.live` | Public site — its own repo, [pixelmesh.website](https://github.com/webmull/pixelmesh.website), deployed by DigitalOcean on every push to its `main` |
-| `https://pixelmesh.show/admin/show_stats` | Live show stats JSON — `like_count`, `total_connected`, `detected`. Public, no auth |
+| `https://pixelmesh.show/admin/show_stats` | Live show state as JSON. Public, no auth — see below |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/feed/v1` | Live camera feed at up to 60 fps. Browsers get a canvas viewer fed binary JPEG frames over WebSocket (newest frame only, cannot lag); the same URL serves raw MJPEG to `<img>` embeds and curl |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
+
+**`/admin/show_stats`** is the only public admin route: read-only, unauthenticated,
+CORS-open, and free of anything identifying — counts and effect names, never a
+`device_uuid`. It is cheap enough to poll (four `len()` calls and two globals, no locks),
+which the talk deck's join slide does every three seconds.
+
+```json
+{
+  "like_count":      160,      // taps on the like button, cumulative
+  "total_connected": 52,       // phones that have ever joined this run
+  "detected":        47,       // phones the camera has placed
+  "connected_now":   48,       // phones holding a live socket right now
+  "spectators":      1,        // stage page and other non-phone viewers
+  "detecting":       false,    // is a detection run in progress
+  "effect":          "pulse"   // effect currently playing, or null
+}
+```
+
+`total_connected` only ever rises; `connected_now` falls when someone locks their screen
+or leaves, which is why both exist. Keys are additive — the first three predate the rest
+and are consumed elsewhere, so nothing is renamed or removed.
 
 ---
 
@@ -598,6 +620,30 @@ fresh page always matches and connects once, while a stale parked page reloads e
 
 - Same code + server restart → same hash, no reload
 - New `app.js` + server restart → new hash, parked clients reload within seconds
+
+---
+
+## Tests
+
+```
+python3 -m pytest tests/ -q
+```
+
+Three files, no network and no fixtures beyond a `conftest.py`:
+
+| file | covers |
+|------|--------|
+| `test_blink_encoder.py` | encode/decode round-trips and structural invariants, with a simulated camera |
+| `test_server_pool.py` | blink ID pool management and the `blink_assignments` / `blink_reverse` pair |
+| `test_show_stats.py` | the `/admin/show_stats` payload — shape, counts, show state, and that the keys the talk deck reads still exist |
+
+`conftest.py` sets `PIXELMESH_ADMIN_TOKEN` for the session. Without it every test that
+imports `server` dies with `SystemExit`, because the module refuses to load unauthenticated —
+which is correct in production and fatal in a test runner.
+
+`/admin/show_stats` is tested by calling the handler directly rather than over HTTP. It takes
+no request argument, so an HTTP client would exercise nothing extra, and it keeps `httpx` out
+of the dependency list.
 
 ---
 

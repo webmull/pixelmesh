@@ -52,6 +52,18 @@ class TestBlinkPool:
         assert bid in srv.available_blinks
 
 
+def _assign(srv, device: str, blink_id: int):
+    """Assign a blink_id the way the socket handler does.
+
+    blink_to_device used to scan blink_assignments; it now reads the
+    blink_reverse index that is written alongside it (server.py:417). Tests
+    that only wrote the forward dict were asserting against an index nothing
+    had populated, which is why they failed rather than the code being wrong.
+    """
+    srv.blink_assignments[device] = blink_id
+    srv.blink_reverse[blink_id] = device
+
+
 class TestBlinkToDevice:
     def test_returns_none_for_unknown_id(self):
         srv = fresh_server()
@@ -59,18 +71,25 @@ class TestBlinkToDevice:
 
     def test_reverse_lookup(self):
         srv = fresh_server()
-        srv.blink_assignments["device-abc"] = 7
+        _assign(srv, "device-abc", 7)
         assert srv.blink_to_device(7) == "device-abc"
 
     def test_reverse_lookup_multiple_devices(self):
         srv = fresh_server()
-        srv.blink_assignments["dev-1"] = 1
-        srv.blink_assignments["dev-2"] = 2
-        srv.blink_assignments["dev-3"] = 3
+        for i in (1, 2, 3):
+            _assign(srv, f"dev-{i}", i)
         assert srv.blink_to_device(1) == "dev-1"
         assert srv.blink_to_device(2) == "dev-2"
         assert srv.blink_to_device(3) == "dev-3"
         assert srv.blink_to_device(99) is None
+
+    def test_forward_and_reverse_stay_consistent(self):
+        """The two dicts are maintained by hand, so they can drift."""
+        srv = fresh_server()
+        for i in (1, 2, 3):
+            _assign(srv, f"dev-{i}", i)
+        for device, bid in srv.blink_assignments.items():
+            assert srv.blink_reverse[bid] == device
 
     def test_pool_and_assignments_are_disjoint(self):
         """IDs in use should not also be in the available pool."""
