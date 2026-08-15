@@ -3,8 +3,23 @@ from dataclasses import dataclass
 import threading
 import numpy as np
 
-PREVIEW_WIDTH  = 1280
-PREVIEW_HEIGHT = 720
+# The canvas every overlay is drawn onto, what the GUI shows, and what the
+# MJPEG feed carries. Native camera resolution: the feed used to be built at
+# 1280x720 and then upscaled 1.5x by whatever displayed it, which was a
+# visible softening for no benefit the audience could see.
+#
+# Measured cost of 720 -> 1080 on the capture thread (real crowd frame):
+#     build_canvas   1.52 -> 0.37 ms   (cheaper: the resize becomes a no-op)
+#     gamma          0.91 -> 1.29 ms
+#     contrast       0.51 -> 1.35 ms
+#     frame_to_texture 3.08 -> 6.96 ms
+#     total          6.02 -> 9.97 ms of a 16.7 ms budget at 60 fps
+# JPEG encode, on its own thread, 2.92 -> 5.67 ms and 125 -> 221 KB a frame.
+#
+# If the display loop ever starts dropping frames, this pair is the first
+# thing to put back to 1280x720 — everything else derives from it.
+PREVIEW_WIDTH  = 1920
+PREVIEW_HEIGHT = 1080
 
 
 class AppState:
