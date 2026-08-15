@@ -486,6 +486,34 @@ controls), and **GAME** (avatar race, likes).
 
 ## Tuning & performance
 
+**Two resolutions, on purpose.** The canvas every overlay is drawn onto - and therefore
+what the MJPEG feed carries - is native `1920x1080` (`PREVIEW_WIDTH/HEIGHT` in `state.py`).
+The operator's preview texture inside the controller window is `1280x720`
+(`TEXTURE_WIDTH/HEIGHT` in `controller.py`). The audience sees native; the panel one person
+is looking at does not need to be.
+
+That split exists because DearPyGui uploads the preview as float32 RGBA on every render
+frame: 33 MB at native against 15 MB at 720p, or 2.0 GB/s versus 0.9 at 60 render fps. The
+symptom was counter-intuitive - **fps fell when the window was made smaller** - because a
+smaller window rasterises faster, so the render loop spins faster, so it pushes more of
+those textures per second and starves the capture thread. Maximising slowed the render loop
+down and handed the bandwidth back.
+
+Capture-thread budget per frame at native, measured on a real crowd frame:
+
+| stage | ms |
+|-------|-----|
+| `build_canvas` | 0.37 |
+| gamma + contrast | 2.64 |
+| spotlight glow | 0.05 |
+| `frame_to_texture` (incl. downscale) | 3.26 |
+| **total** | **6.32** of 16.7 available at 60 fps |
+
+Before the spotlight and texture fixes that total was 10.24 ms. If it ever needs to come
+down further, `PREVIEW_WIDTH/HEIGHT` back to `1280, 720` gives up native feed quality and
+is the one-line revert.
+
+
 Key parameters in `blink_detector.py`:
 
 | Parameter | Default | Notes |

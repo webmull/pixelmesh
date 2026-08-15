@@ -528,8 +528,36 @@ def open_camera(idx: int) -> cv2.VideoCapture | None:
 _tex_u8:  np.ndarray | None = None   # uint8 RGBA staging buffer
 _tex_f32: np.ndarray | None = None   # float32 RGBA output buffer
 
+# The operator's preview texture, deliberately smaller than the canvas.
+#
+# The canvas is native 1920x1080 because that is what the audience-facing MJPEG
+# feed carries. The preview inside the controller window does not need to be:
+# it is one person looking at a panel, and DearPyGui uploads this as float32
+# RGBA every render frame - 33 MB at native against 15 MB here. At 60 render
+# fps that is 2.0 GB/s of texture traffic versus 0.9.
+#
+# That traffic is why fps sagged with a smaller window: a smaller window
+# rasterises faster, so the render loop spins faster, so it uploads more of
+# those 33 MB textures per second and starves the capture thread. Maximising
+# slowed the render loop down and handed the bandwidth back, which is the
+# opposite of what you would expect and the tell that upload was the cost.
+#
+# Downscaling costs 0.70ms (INTER_LINEAR; INTER_AREA is prettier and 6x
+# dearer, which a preview does not justify) and saves 2.47ms, so the capture
+# thread is ~2.5ms/frame better off and the GPU carries half the traffic.
+TEXTURE_WIDTH, TEXTURE_HEIGHT = 1280, 720
+
+_tex_small = None
+
+
 def frame_to_texture(bgr: np.ndarray) -> np.ndarray:
-    global _tex_u8, _tex_f32
+    global _tex_u8, _tex_f32, _tex_small
+    if bgr.shape[1] != TEXTURE_WIDTH or bgr.shape[0] != TEXTURE_HEIGHT:
+        if _tex_small is None or _tex_small.shape[:2] != (TEXTURE_HEIGHT, TEXTURE_WIDTH):
+            _tex_small = np.empty((TEXTURE_HEIGHT, TEXTURE_WIDTH, 3), dtype=np.uint8)
+        cv2.resize(bgr, (TEXTURE_WIDTH, TEXTURE_HEIGHT), dst=_tex_small,
+                   interpolation=cv2.INTER_LINEAR)
+        bgr = _tex_small
     h, w = bgr.shape[:2]
     if _tex_f32 is None or _tex_f32.shape != (h, w, 4):
         _tex_u8  = np.zeros((h, w, 4), dtype=np.uint8)
@@ -2080,7 +2108,7 @@ def setup_ui(holder: dict):
             dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
 
     with dpg.texture_registry(show=False):
-        blank = np.zeros(PREVIEW_HEIGHT * PREVIEW_WIDTH * 4, dtype=np.float32)
+        blank = np.zeros(TEXTURE_HEIGHT * TEXTURE_WIDTH * 4, dtype=np.float32)
         # Wordmark for the sidebar header (white-on-transparent raster of
         # the site's pixelmesh_text.svg; DPG cannot render SVG directly)
         _wm = cv2.imread(_os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
@@ -2091,7 +2119,7 @@ def setup_ui(holder: dict):
             dpg.add_static_texture(_wm.shape[1], _wm.shape[0],
                                    _wm.flatten().tolist(), tag="wordmark_texture")
 
-        dpg.add_dynamic_texture(PREVIEW_WIDTH, PREVIEW_HEIGHT, blank,
+        dpg.add_dynamic_texture(TEXTURE_WIDTH, TEXTURE_HEIGHT, blank,
                                 tag="camera_texture")
         effects.register_preview_texture()
 
