@@ -67,7 +67,7 @@ def _groups_color_params():
 # (param, label, widget, kwargs)
 EFFECT_PARAMS = {
     "wave": [
-        ("color",        "Colour",    "color",        {"default_value": (255, 255, 255, 255)}),
+        ("color",        "Colour",    "color",        {"default_value": (53,  224, 255, 255)}),
         ("speed",        "Speed",     "slider_float", {"default_value": 0.4,  "min_value": 0.05, "max_value": 4.0}),
         ("angle",        "Direction", "slider_float", {"default_value": 0.0,  "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
         ("spatial_freq", "Frequency", "slider_float", {"default_value": 2.0,  "min_value": 0.5,  "max_value": 10.0}),
@@ -78,7 +78,7 @@ EFFECT_PARAMS = {
         ("angle",  "Direction", "slider_float", {"default_value": 0.0, "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
     ],
     "pulse": [
-        ("color", "Colour", "color",        {"default_value": (255, 255, 255, 255)}),
+        ("color", "Colour", "color",        {"default_value": (48,  255, 96,  255)}),
         ("bpm",   "BPM",    "slider_float", {"default_value": 100.0, "min_value": 20.0, "max_value": 300.0, "format": "%.0f"}),
     ],
     "rainbow": [
