@@ -144,6 +144,19 @@ class MidiInput:
         self._thread = threading.Thread(target=self._loop, daemon=True, name="midi")
         self._thread.start()
 
+    def reset_effect_cycle(self):
+        """Send the effect switch back to the top of EFFECT_CYCLE.
+
+        Called when a detection run starts. Detection begins a new act, and
+        the next stomp should be the first effect rather than wherever the
+        previous act happened to stop - otherwise the sequence you rehearsed
+        depends on how many times you pressed the pedal an hour ago.
+
+        Safe from any thread and whether or not a pedal is connected: it
+        assigns one int and touches no MIDI state.
+        """
+        self._fx_idx = -1
+
     def stop(self):
         self.connected = False
         self._running = False

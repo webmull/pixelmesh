@@ -1118,6 +1118,10 @@ def toggle_detection():
         # accumulated points from previous runs don't slow process_frame.
         # Already-found positions are preserved in state.calibrated_positions and
         # on the server — the detector state does not need to carry over.
+        # A detection run starts a new act, so the pedal's effect cycle starts
+        # from the top too. Covers every entry point, since the keyboard, the
+        # sidebar and switch 1 all arrive here.
+        midi.midi.reset_effect_cycle()
         ever_active_before = len(detector._ever_active)
         detector.reset()
         log.info(f"[detect] detector reset on run start (cleared {ever_active_before} _ever_active points)")
