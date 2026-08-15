@@ -43,6 +43,17 @@ def init(state, set_status, ui_queue=None):
 
 GROUPS_MAX_COLS = 16
 
+# Ring geometry.  These must stay in step with RING_MAX_R / RING_ASPECT in
+# public/app.js - the audience shader and the sidebar preview draw the same
+# annulus, so a change here without the matching change there makes the
+# preview lie about what the crowd is doing.
+# 0.78 puts the widest point just past the room corner (0.707), so the ring
+# starts off the crowd and sweeps in.  Aspect 1.0 keeps it a circle in u/v
+# space: an oval from above, but it reaches the side walls and the back row
+# at the same moment, which is what reads from the stage.
+RING_MAX_R  = 0.78
+RING_ASPECT = 1.0
+
 # Default palette for the Groups effect — sixteen evenly-spaced hues so
 # the operator can pick "Columns" up to 16 and still get a distinct,
 # audience-readable colour per column out of the box.  Each entry is
@@ -121,6 +132,14 @@ EFFECT_PARAMS = {
         ("spatial_freq", "Columns",  "slider_float", {"default_value": 2.0,  "min_value": 1.0,  "max_value": 8.0,  "format": "%.0f"}),
         ("bpm",          "Rows",     "slider_float", {"default_value": 2.0,  "min_value": 1.0,  "max_value": 8.0,  "format": "%.0f"}),
     ],
+    "ring": [
+        # Breath is deliberately slow: 0.12 is one full in-and-out every
+        # 8.3s.  Thickness is the Gaussian half-width of the band, reusing
+        # the spatial_freq slot so the payload needs no new field.
+        ("color",        "Colour",    "color",        {"default_value": (160, 80,  255, 255)}),
+        ("speed",        "Breath",    "slider_float", {"default_value": 0.12, "min_value": 0.03, "max_value": 0.6}),
+        ("spatial_freq", "Thickness", "slider_float", {"default_value": 0.12, "min_value": 0.02, "max_value": 0.4}),
+    ],
 }
 
 # Order = sidebar grid order. Mouse-driven effects (ripple's click-arm,
@@ -133,6 +152,7 @@ EFFECT_LABELS = {
     "rainbow":      "Rainbow",
     "sparkle":      "Sparkle",
     "sections":     "Sections",
+    "ring":         "Ring",
     "ripple":       "Ripple",
     "spotlight":    "Spotlight",
     "groups":       "Groups",
@@ -635,6 +655,20 @@ def _shade_preview(effect, u, v, idx, t, params):
             return (iv * r,  iv * g,  iv * b)
         else:
             return (iv * r2, iv * g2, iv * b2)
+
+    if effect == "ring":
+        # Breathing ring: a soft annulus whose radius eases in from the
+        # crowd edge to the centre and back out, one breath per 1/speed
+        # seconds.  cos() eases at both ends and loops with no seam.
+        du = u - 0.5
+        dv = (v - 0.5) / RING_ASPECT
+        dist = math.sqrt(du * du + dv * dv)
+        phase = (t * sp) % 1.0
+        radius = RING_MAX_R * (0.5 + 0.5 * math.cos(2 * math.pi * phase))
+        w = max(0.02, sf)
+        d = dist - radius
+        iv = math.exp(-(d * d) / (2 * w * w))
+        return (iv * r, iv * g, iv * b)
 
     return (0, 0, 0)
 

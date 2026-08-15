@@ -53,7 +53,7 @@ ACTIONS = ["detection", "effects", "recording"]
 
 # Parameter-free effects the pedal steps through, in show order.
 # (ripple needs a click point and groups needs column config - excluded.)
-EFFECT_CYCLE = ["wave", "gradient", "pulse", "rainbow", "sparkle", "sections"]
+EFFECT_CYCLE = ["wave", "gradient", "pulse", "rainbow", "sparkle", "sections", "ring"]
 
 # Port-name fragments that identify the pedal (BLE MIDI names vary a
 # little between macOS versions; all contain "FS-1").

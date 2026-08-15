@@ -985,6 +985,15 @@ function directedCoord(u, v) {
   return (raw + 1) / 2;
 }
 
+// Ring geometry. Must stay in step with RING_MAX_R / RING_ASPECT in
+// effects.py, which draws the same annulus in the sidebar preview.
+// 0.78 puts the widest point just past the room corner (0.707) so the ring
+// starts off the crowd and sweeps in. Aspect 1.0 keeps it a circle in u/v
+// space: an oval from above, but it reaches the side walls and the back row
+// at the same moment, which is what reads from the stage.
+const RING_MAX_R  = 0.78;
+const RING_ASPECT = 1.0;
+
 function shade(u, v, t) {
   // When clock sync is off, scramble each phone's effective position AND
   // time so effects look chaotic — and stay chaotic.  The 8s time offset
@@ -1158,6 +1167,21 @@ function shade(u, v, t) {
       r *= focus; g *= focus; b *= focus;
     }
     return [r, g, b];
+  }
+
+  if (currentEffect === "ring") {
+    // Breathing ring: a soft annulus whose radius eases in from the crowd
+    // edge to the centre and back out, one breath per 1/speed seconds.
+    // cos() eases at both ends and loops with no seam at the wrap point.
+    const du = u - 0.5;
+    const dv = (v - 0.5) / RING_ASPECT;
+    const dist = Math.sqrt(du * du + dv * dv);
+    const p = ((t * effectSpeed) % 1 + 1) % 1;
+    const radius = RING_MAX_R * (0.5 + 0.5 * Math.cos(2 * Math.PI * p));
+    const w = Math.max(0.02, effectSpatialFreq);
+    const d = dist - radius;
+    const i = Math.exp(-(d * d) / (2 * w * w));
+    return [i * effectR, i * effectG, i * effectB];
   }
 
   return [0, 0, 0];
