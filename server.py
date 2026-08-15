@@ -78,11 +78,20 @@ _ADMIN_PUBLIC = {"/admin/show_stats"}
 
 class AdminTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if (request.url.path.startswith("/admin/")
-                and request.url.path not in _ADMIN_PUBLIC):
+        is_public = request.url.path in _ADMIN_PUBLIC
+        if request.url.path.startswith("/admin/") and not is_public:
             if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
                 return Response(status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        # The talk deck polls /admin/show_stats from a different origin (it is
+        # opened as a file:// or localhost page), so the browser needs this
+        # header before it will let that page read the response.  Scoped to
+        # _ADMIN_PUBLIC only — that route is already unauthenticated and
+        # read-only, and returns three integers.  Nothing else under /admin/
+        # becomes cross-origin readable.
+        if is_public:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
 
 
 @asynccontextmanager
