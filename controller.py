@@ -1464,7 +1464,10 @@ def _draw_spotlight_cursor(display_canvas):
     global _last_spotlight_canvas_px, _last_spotlight_canvas_r
     if not _spotlight_armed:
         return
-    cursor = _spotlight_cursor_canvas_xy()
+    # Snapshotted by the render loop.  _spotlight_cursor_canvas_xy() reads the
+    # mouse position and item geometry from DearPyGui, which this thread must
+    # not touch.
+    cursor = _spotlight_cursor_xy
     if cursor is None:
         return
     px, py = cursor
@@ -2402,8 +2405,15 @@ def on_camera_selected(label: str, holder: dict):
 # threads would be strictly worse than leaving them where they were.
 _latest_texture = None          # published here, uploaded by the GUI thread
 _capture_stop = threading.Event()
-_spotlight_radius_u = 0.09      # cached by the GUI thread; read while drawing
 _dbg_counter = 0                # throttles debug save_frame calls
+
+# GUI values the capture thread needs while drawing.  Both are snapshotted by
+# the render loop each frame: DearPyGui's registry, the mouse position and
+# item geometry are only safe to read from the GUI thread.  Both go stale
+# while the window is minimised, which is exactly right — there is no cursor
+# over a preview you cannot see, and sliders cannot be dragged either.
+_spotlight_radius_u = 0.09
+_spotlight_cursor_xy: tuple[int, int] | None = None
 
 
 def _capture_worker(holder):
@@ -2597,6 +2607,11 @@ def main():
 
     setup_ui(holder)
 
+    # Prime the effect-parameter mirror before any worker thread exists, so
+    # nothing can ever reach effects._get() while it would still fall back to
+    # reading the DearPyGui registry.
+    effects.refresh_param_cache()
+
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
@@ -2642,7 +2657,16 @@ def main():
         with state.lock:
             if state.show_overlays:
                 state.show_overlays = False
-        ui_queue.put(("_midi_effect", name))
+        # Fire straight from the MIDI thread, exactly as detection does.
+        # This used to go through ui_queue because trigger_effect read slider
+        # values via dpg.get_value; it reads effects' parameter mirror now, so
+        # the pedal no longer waits on the render loop — which stalls whenever
+        # the window is minimised, stacking up stomps that then flushed at
+        # once with only the last one visible.
+        try:
+            effects.trigger_effect(name)
+        except Exception as e:
+            log.warning(f"[effect] pedal fire failed: {e}")
 
     midi.midi.start(
         trigger_effect = _midi_fire_effect,
@@ -2657,7 +2681,7 @@ def main():
     threading.Thread(target=_stream_worker, daemon=True,
                      name="stream").start()
 
-    global _latest_texture, _spotlight_radius_u
+    global _latest_texture, _spotlight_radius_u, _spotlight_cursor_xy
     _latest_texture = frame_to_texture(no_camera_canvas())
 
     _capture_stop.clear()
@@ -2672,13 +2696,19 @@ def main():
                 if not state.running:
                     break
 
-            # Cache the one GUI value the capture thread needs.  DearPyGui's
-            # registry is only safe to read from this thread.
+            # Mirror the GUI values other threads need.  DearPyGui's registry
+            # is only safe to read from this thread, so everything off it
+            # reads these snapshots instead.
             try:
                 _spotlight_radius_u = float(
                     dpg.get_value("fx_spotlight_spatial_freq") or 0.09)
             except Exception:
                 _spotlight_radius_u = 0.09
+            try:
+                _spotlight_cursor_xy = _spotlight_cursor_canvas_xy()
+            except Exception:
+                _spotlight_cursor_xy = None
+            effects.refresh_param_cache()
 
             texture_data = _latest_texture
 
@@ -2732,14 +2762,6 @@ def main():
                                     dpg.bind_item_theme(btn, "fx_active_theme")
                                 else:
                                     dpg.bind_item_theme(btn, None)
-                        continue
-                    if tag == "_midi_effect":
-                        # Pedal-fired effect: same UI-thread constraint as
-                        # _refire_effect (trigger_effect reads dpg values).
-                        try:
-                            effects.trigger_effect(value)
-                        except Exception as e:
-                            log.warning(f"[effect] pedal fire failed: {e}")
                         continue
                     if tag == "_refire_effect":
                         # Debounced re-fire from effects._on_settings_changed

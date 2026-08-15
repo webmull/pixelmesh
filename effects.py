@@ -147,9 +147,75 @@ def _tag(effect: str, param: str) -> str:
     return f"fx_{effect}_{param}"
 
 
-def _get(effect: str, param: str, default):
+# ------------------------------------------------------------------ #
+# Parameter mirror                                                     #
+# ------------------------------------------------------------------ #
+# trigger_effect used to read every control through dpg.get_value, which
+# pinned it to the GUI thread.  The foot pedal therefore had to hop through
+# ui_queue and only fired when the render loop next ran — and that loop
+# stalls whenever the window is minimised, because macOS stops driving it.
+# Stomps queued up and flushed all at once, each effect overwriting the last,
+# which from the floor looked exactly like "the pedal doesn't cycle".
+#
+# The GUI thread now snapshots every fx_* control once per frame and _get
+# reads the snapshot, so trigger_effect is safe to call from any thread and
+# the pedal can invoke it directly, the way detection always has.
+#
+# A stale snapshot is harmless by construction: the only thing that changes
+# these values is dragging a control, which requires the window to be visible.
+_MISSING = object()
+_param_cache: dict | None = None
+_gui_ident: int | None = None       # thread that owns the DPG registry
+
+
+def refresh_param_cache():
+    """Snapshot every fx_* control value.  GUI THREAD ONLY.
+
+    Called once during setup and then once per render frame.  On failure the
+    previous snapshot is kept rather than blanked — a stale value beats an
+    effect firing on defaults.
+    """
+    global _param_cache, _gui_ident
+    _gui_ident = threading.get_ident()
     try:
-        v = dpg.get_value(_tag(effect, param))
+        snap = {}
+        for item in dpg.get_all_items():
+            try:
+                alias = dpg.get_item_alias(item)
+            except Exception:
+                continue
+            if alias and alias.startswith("fx_"):
+                try:
+                    snap[alias] = dpg.get_value(item)
+                except Exception:
+                    pass
+        if snap:
+            _param_cache = snap
+    except Exception:
+        pass
+
+
+def _get(effect: str, param: str, default):
+    tag = _tag(effect, param)
+
+    cache = _param_cache            # local ref; the GUI thread swaps it wholesale
+    if cache is not None:
+        v = cache.get(tag, _MISSING)
+        # Once the mirror is live it is authoritative.  Deliberately NOT
+        # falling back to dpg.get_value on a miss: this can now run on the
+        # MIDI thread, and reading the DPG registry off the GUI thread is
+        # what deadlocked it under rapid colour-picker drags.
+        return default if v is _MISSING or v is None else v
+
+    # Before the first snapshot, read live — but only ever from the thread
+    # that owns the registry.  This makes an off-thread dpg read structurally
+    # impossible rather than merely unlikely: main() primes the cache during
+    # setup, so no worker should reach here at all, and if one somehow does it
+    # gets the default instead of risking the deadlock.
+    if _gui_ident is not None and threading.get_ident() != _gui_ident:
+        return default
+    try:
+        v = dpg.get_value(tag)
         return v if v is not None else default
     except Exception:
         return default
