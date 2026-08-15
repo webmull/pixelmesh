@@ -7,7 +7,7 @@ show-useful hands-free actions:
 
     switch 1  →  fresh detection run (reset, then start; stomp again stops)
     switch 2  →  cycle through effects (wave, gradient, pulse, ...)
-    switch 3  →  toggle video recording
+    switch 3  ->  hide / show all camera overlays
 
 The FS-1-WL sends different messages depending on its power-on mode
 (CC / note / HID), so mappings are LEARNED, not hardcoded:
@@ -20,9 +20,16 @@ The FS-1-WL sends different messages depending on its power-on mode
 At show time the controller listens with the learned map. The pedal is
 wireless and may wake after the app starts, so the port scanner retries
 every 5s in the background instead of giving up at boot (the old LPD8
-behaviour). Switch presses toggle internal state for sync/recording;
-if you also flip those from the sidebar, the pedal's notion of on/off
-can invert - stomp twice to resync, same caveat the LPD8 knobs had.
+behaviour).
+
+Switch 3 was video recording until Aug 2026. It calls toggle_all_overlays()
+directly rather than tracking its own on/off flag, so unlike the old
+recording switch it cannot invert when you also flip overlays from the
+sidebar or with H - there is only ever one copy of that state.
+
+Maps learned before the change still work: a midi_map.json carrying the old
+"recording" key is renamed to "overlays" on load, so there is no need to
+re-learn the pedal.
 """
 
 import json
@@ -49,7 +56,7 @@ _mlog.addHandler(_midi_handler)
 _mlog.propagate = False
 
 # Actions in learn order. Names double as midi_map.json keys.
-ACTIONS = ["detection", "effects", "recording"]
+ACTIONS = ["detection", "effects", "overlays"]
 
 # Parameter-free effects the pedal steps through, in show order.
 # (ripple needs a click point and groups needs column config - excluded.)
@@ -85,6 +92,11 @@ def load_map() -> dict | None:
     try:
         with open(MAP_PATH) as f:
             m = json.load(f)
+        # Switch 3 was "recording" before Aug 2026. Accept those maps rather
+        # than making anyone re-learn a pedal that is already correct.
+        if "overlays" not in m and "recording" in m:
+            m["overlays"] = m.pop("recording")
+            log.info('[midi] migrated map: switch 3 "recording" -> "overlays"')
         if all(a in m for a in ACTIONS):
             return m
     except (OSError, ValueError):
@@ -117,10 +129,12 @@ class MidiInput:
     # needs no changes; trigger_effect/set_iso/set_overlays/reset are
     # accepted but unused (three switches, three actions).
     def start(self, trigger_effect, toggle_detect, set_iso, set_recording=None,
-              set_overlays=None, set_sync=None, reset=None):
-        self._toggle_detect  = toggle_detect
-        self._set_recording  = set_recording
-        self._trigger_effect = trigger_effect
+              set_overlays=None, set_sync=None, reset=None,
+              toggle_overlays=None):
+        self._toggle_detect   = toggle_detect
+        self._set_recording   = set_recording
+        self._trigger_effect  = trigger_effect
+        self._toggle_overlays = toggle_overlays
 
         self._map = load_map()
         if self._map is None:
@@ -233,14 +247,14 @@ class MidiInput:
             self._note(f"effect: {name}")
             if self._trigger_effect:
                 self._trigger_effect(name)
-        elif action == "recording":
-            self._state["recording"] = not self._state["recording"]
-            on = self._state["recording"]
-            _mlog.info(f"[midi] switch -> recording {'ON' if on else 'OFF'}")
-            log.info(f"[midi] FS-1-WL -> recording {'ON' if on else 'OFF'}")
-            self._note(f"recording {'ON' if on else 'OFF'}")
-            if self._set_recording:
-                self._set_recording(on)
+        elif action == "overlays":
+            # No local flag: toggle_all_overlays() flips the one real copy of
+            # this state, so the pedal can never disagree with the sidebar.
+            _mlog.info("[midi] switch -> toggle overlays")
+            log.info("[midi] FS-1-WL -> toggle overlays")
+            self._note("toggle overlays")
+            if self._toggle_overlays:
+                self._toggle_overlays()
 
 
 midi = MidiInput()
@@ -269,7 +283,7 @@ def _learn():
     labels = {
         "detection": "TOGGLE DETECTION",
         "effects":   "CYCLE EFFECTS",
-        "recording": "TOGGLE VIDEO RECORDING",
+        "overlays":  "HIDE / SHOW OVERLAYS",
     }
     mapping = {}
     for action in ACTIONS:
