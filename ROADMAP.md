@@ -133,3 +133,44 @@ Open questions: retention window (24 h? until next show?), whether to include a 
 crowd-cam frame for "where you were sitting" context, GDPR position on storing per-device
 timelines (likely fine — no PII, just anonymous colour traces). Doesn't touch the frozen
 detection files; lives entirely in `server.py` + a new `souvenir.py` module + a new template.
+
+## Effects editor in the browser — deferred, too risky for now
+
+A visual editor for effect parameters, served by pixelmesh and opened in a browser, with a
+live canvas preview and changes written straight back into the running show. Prototyped as a
+standalone artifact (`pixelmesh effect editor`, Aug 2026): 926 lines of self-contained JS, one
+canvas, no libraries, and it already speaks this project's vocabulary — the same nine effect
+keys (`wave, gradient, pulse, rainbow, sparkle, sections, ripple, spotlight, groups`) and the
+same seven parameters (`speed, spatial_freq, bpm, angle, split, color, color2`). Persistence in
+the prototype is clipboard-copy only; it is not wired to anything.
+
+Most of the integration already exists:
+
+- `_render_html()` reads a file from `public/` and stamps a token into it, which is exactly the
+  pattern needed to serve the page with credentials (`server.py:916`).
+- `POST /admin/effect/fire` already accepts precisely this payload (`server.py:723`).
+- `effects._param_cache` is a dict of `fx_{effect}_{param}` -> value, so reading current state
+  is a one-line endpoint. It exists because `trigger_effect` had to stop touching DearPyGui.
+- `safe_set(tag, value)` -> `ui_queue` -> render loop is the thread-safe path for writing values
+  back onto the widgets (`controller.py`).
+
+Sketch: drop the HTML in `public/`, add a route (~10 lines), `GET /admin/fx_params` returning the
+mirror (~8), `POST /admin/fx_params` calling `safe_set` per key (~15), editor-side fetch-on-load
+and post-on-change (~40 lines JS), `webbrowser.open()` from a sidebar button (~5). Call it a
+focused half-day, most of it in the artifact rather than here.
+
+**Why it is deferred.** Three unresolved risks, none of them the plumbing:
+
+1. **"Save" has no destination.** Nothing persists effect parameters today — they live in
+   DearPyGui widget state and die with the process. `midi_map.json` is the only settings file in
+   the repo. Presets/persistence is a new feature, not a wiring job, and it is the piece that
+   decides the shape of everything else.
+2. **Two implementations of the same maths will drift.** The prototype reimplements the effects
+   in JS; the phones render from `effects.py` plus the client. The moment they disagree the
+   editor lies, and it will lie most convincingly at the moment it is being trusted.
+3. **These are write endpoints**, so they cannot join `_ADMIN_PUBLIC` the way `show_stats` did.
+   Token has to be stamped into the page.
+
+Sequencing: not before Brighton. It touches the live parameter path during a period with talks
+on 8 Sep and MotoCon in October, and the payoff is operator convenience rather than anything the
+audience sees. Revisit once the show calendar is clear, starting with the persistence question.
