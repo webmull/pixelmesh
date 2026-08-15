@@ -1472,10 +1472,11 @@ def _draw_spotlight_cursor(display_canvas):
 
     # Radius shown on canvas matches the audience effect's actual reach so
     # the operator's circle previews what the phones will light.
-    try:
-        radius_u = float(dpg.get_value("fx_spotlight_spatial_freq") or 0.09)
-    except Exception:
-        radius_u = 0.09
+    # Read from the value the GUI thread caches each frame rather than calling
+    # dpg.get_value here: this runs on the capture thread now, and DearPyGui's
+    # registry is not safe to read off the GUI thread. At worst the radius is
+    # one frame stale, which is imperceptible on a dragged slider.
+    radius_u = _spotlight_radius_u
     circle_r = max(20, int(radius_u * PREVIEW_WIDTH * 0.5))
     _last_spotlight_canvas_r = circle_r
 
@@ -2384,8 +2385,214 @@ def on_camera_selected(label: str, holder: dict):
 # Main loop
 # ------------------------------------------------------------------ #
 
+# ---------------------------------------------------------------------- #
+# Capture thread                                                          #
+# ---------------------------------------------------------------------- #
+# Camera capture used to live inside the DearPyGui render loop.  macOS stops
+# driving that loop when the window is minimised, so frames stopped,
+# _stream_latest stopped changing, and the MJPEG feed froze until the window
+# was reopened — with the deck on a projector that is exactly when you cannot
+# afford it.  Capture now runs here, on its own thread, and the render loop
+# only uploads whatever texture is latest.
+#
+# Everything the detector touches (draw_overlay / get_blobs / the in-loop
+# reset) moved together, deliberately: blink_detector has no internal locking,
+# so the number of threads reaching into it must stay at two — the detection
+# worker writing and this one reading.  Splitting those calls across two
+# threads would be strictly worse than leaving them where they were.
+_latest_texture = None          # published here, uploaded by the GUI thread
+_capture_stop = threading.Event()
+_spotlight_radius_u = 0.09      # cached by the GUI thread; read while drawing
+_dbg_counter = 0                # throttles debug save_frame calls
+
+
+def _capture_worker(holder):
+    """Read the camera, build the display canvas, publish it.
+
+    Runs until _capture_stop is set.  Must be joined before the camera is
+    released, or it will read from a freed VideoCapture on the way out.
+    """
+    global _camera_fps, _stream_latest, _latest_texture, _dbg_counter
+    global _detected_ids, _detection_start_time
+
+    while not _capture_stop.is_set():
+        with state.lock:
+            if not state.running:
+                break
+
+        frame_start = time.time()
+        texture_data = None
+
+        cap = holder.get("cap")
+        with state.lock:
+            was_active      = state.camera_active
+            state.camera_active = cap is not None
+            was_detecting   = state.detecting
+
+        # Camera just disappeared — stop detection cleanly
+        if was_active and cap is None and was_detecting:
+            _log_detection_summary()
+            _save_report()
+            _detected_ids = set()
+            _detection_start_time = 0.0
+            detector.reset()
+            with state.lock:
+                state.detecting = False
+                state.calibrated_positions.clear()
+                state.last_detections = []
+                state.last_detection_count = 0
+            post_json_async("/admin/detect", {"detecting": False})
+            _apply_audience_iso()
+            set_status("Camera lost - detection stopped")
+
+        if cap is None:
+            canvas = no_camera_canvas()
+            draw_hud(canvas, 0.0)
+            texture_data = frame_to_texture(canvas)
+            # Nothing is pacing us without a camera to block on.
+            _capture_stop.wait(1.0 / 30.0)
+
+        else:
+            ok, raw = cap.read()
+            if not ok:
+                # A failing read returns immediately.  Without this the thread
+                # would spin hot on a sick camera — the old code was held back
+                # by vsync and no longer is.
+                _capture_stop.wait(0.01)
+            else:
+                with state.lock:
+                    detecting = state.detecting
+                    show_ov   = state.show_device_overlay
+
+                # Hand frame to detection thread (non-blocking).
+                # If it's busy the frame is dropped — display continues unblocked.
+                # Only the detector needs a stable copy (cap reuses its buffer
+                # on the next read); when not detecting we skip the ~6 MB/frame
+                # copy entirely.  (state.latest_frame was write-only dead state.)
+                if detecting:
+                    raw_copy = raw.copy()
+                    try:
+                        _detect_queue.put_nowait((raw_copy, time.time()))
+                    except Full:
+                        pass
+
+                # Downscale first, then apply gamma/contrast on the 720p canvas
+                # in-place — 6.7× less pixel work and no ~6 MB/frame allocation
+                # churn vs. correcting the full-res frame and immediately
+                # discarding it.  Detection is fed the untouched `raw`, so this
+                # reordering is display-only and does not affect the decoder.
+                canvas = build_canvas(raw)
+                apply_gamma(canvas, dst=canvas)
+                apply_contrast(canvas, dst=canvas)
+
+                with state.lock:
+                    _scale  = state.last_render_scale
+                    _crop_x = state.last_crop_x
+                    _crop_y = getattr(state, "last_crop_y", 0)
+
+                if detecting and _overlays_on():
+                    # draw_overlay reads detector's cached state (_last_stds,
+                    # _decoded_pts) written by the detection thread.  NumPy
+                    # reference swaps are atomic under CPython's GIL so no
+                    # explicit lock is needed — at worst we see one frame stale.
+                    # Race after detector.reset() (e.g. ROI change + detect-on)
+                    # can leave stale integer indices pointing past the rebuilt
+                    # _points array; swallow that one-frame IndexError instead
+                    # of crashing the controller. Recovers on the next frame.
+                    try:
+                        detector.draw_overlay(canvas, scale=_scale,
+                                              crop_x=_crop_x, crop_y=_crop_y,
+                                              show_ids=not show_ov,
+                                              valid_ids=_valid_blink_ids or None)
+                    except IndexError as e:
+                        log.info(f"[overlay] skipped one frame after detector reset: {e}")
+
+                    if dbg_cap.active:
+                        _dbg_counter += 1
+                        if _dbg_counter % DEBUG_SAVE_EVERY == 0:
+                            di = _last_dbg_imgs
+                            if di is not None and di.gray is not None:
+                                with state.lock:
+                                    results_snap = list(state.last_detections)
+                                # Only pass active/decoded points — passing all 25,920
+                                # causes save_frame to iterate 600K+ Python objects
+                                # per call, stalling the capture thread for 50-100ms.
+                                gate = detector.cfg["min_recent_std"]
+                                active_blobs = [
+                                    pt for pt in detector.get_blobs()
+                                    if pt.decoded_id is not None
+                                    or pt.recent_std >= gate * 0.5
+                                ]
+                                dbg_cap.save_frame(
+                                    raw=raw,
+                                    gray=di.gray,
+                                    thresh=di.contrast if di.contrast is not None
+                                           else np.zeros_like(di.gray),
+                                    overlay=canvas.copy(),
+                                    blobs=active_blobs,
+                                    detections=results_snap,
+                                )
+
+                # Scene → Flip Projection: mirror the canvas BEFORE
+                # the user-facing overlays so ROI/device/winner/HUD
+                # text and click ripples all render upright on the
+                # display.  Detector debug overlays drawn earlier
+                # (frozen code) end up mirrored, which is fine —
+                # they're for offline debugging, not show-time.  The
+                # raw camera frame queued for detection is untouched,
+                # and _on_preview_click inverts x so the click → u
+                # conversion still maps to the real room position.
+                flipped = state.flip_projection
+                display_canvas = cv2.flip(canvas, 1) if flipped else canvas
+
+                draw_roi_overlay(display_canvas, flipped=flipped)
+
+                if show_ov:
+                    draw_device_overlay(display_canvas, flipped=flipped)
+
+                try:
+                    draw_winner_highlight(display_canvas, flipped=flipped)
+                except Exception as e:
+                    log.info(f"[winner] draw skipped: {e}")
+
+                draw_click_ripples(display_canvas, flipped=flipped)
+
+                if detecting:
+                    draw_detect_border(display_canvas, flipped=flipped)
+
+                fps = 1.0 / max(time.time() - frame_start, 1e-4)
+                _camera_fps = 0.9 * _camera_fps + 0.1 * fps
+                draw_hud(display_canvas, fps)
+                _draw_spotlight_cursor(display_canvas)
+
+                # Record AFTER the HUD + spotlight cursor so the
+                # post-show video matches what was actually on the
+                # projector — same frame the MJPEG write below sees.
+                if vid_rec.active:
+                    vid_rec.record(display_canvas)
+
+                # Debug run.mp4 must also record after the spotlight
+                # draw: it queues the frame to a writer thread, and an
+                # earlier call site let in-place draws race the writer —
+                # overlays flashed on/off frame to frame.
+                if dbg_cap.active:
+                    dbg_cap.record_frame(display_canvas)
+
+                # MJPEG stream — hand the finished frame to the
+                # encode/POST worker (reference swap, GIL-atomic).
+                _stream_latest = display_canvas
+
+                texture_data = frame_to_texture(display_canvas)
+
+        # build_canvas ends in .copy(), so this is a fresh array every frame
+        # and the handoff is a single reference assignment — atomic under the
+        # GIL, no lock and no double buffering needed.
+        if texture_data is not None:
+            _latest_texture = texture_data
+
+
 def main():
-    global _camera_fps
+    # _camera_fps is now written by the capture thread, not here.
     holder = {"cap": None}
 
     setup_ui(holder)
@@ -2450,8 +2657,13 @@ def main():
     threading.Thread(target=_stream_worker, daemon=True,
                      name="stream").start()
 
-    texture_data = frame_to_texture(no_camera_canvas())
-    _dbg_counter = 0   # local to main — throttles debug save_frame calls
+    global _latest_texture, _spotlight_radius_u
+    _latest_texture = frame_to_texture(no_camera_canvas())
+
+    _capture_stop.clear()
+    capture_thread = threading.Thread(target=_capture_worker, args=(holder,),
+                                      daemon=True, name="capture")
+    capture_thread.start()
 
     try:
         while dpg.is_dearpygui_running():
@@ -2460,163 +2672,15 @@ def main():
                 if not state.running:
                     break
 
-            frame_start = time.time()
+            # Cache the one GUI value the capture thread needs.  DearPyGui's
+            # registry is only safe to read from this thread.
+            try:
+                _spotlight_radius_u = float(
+                    dpg.get_value("fx_spotlight_spatial_freq") or 0.09)
+            except Exception:
+                _spotlight_radius_u = 0.09
 
-            cap = holder.get("cap")
-            with state.lock:
-                was_active      = state.camera_active
-                state.camera_active = cap is not None
-                was_detecting   = state.detecting
-
-            # Camera just disappeared — stop detection cleanly
-            if was_active and cap is None and was_detecting:
-                global _detected_ids, _detection_start_time
-                _log_detection_summary()
-                _save_report()
-                _detected_ids = set()
-                _detection_start_time = 0.0
-                detector.reset()
-                with state.lock:
-                    state.detecting = False
-                    state.calibrated_positions.clear()
-                    state.last_detections = []
-                    state.last_detection_count = 0
-                post_json_async("/admin/detect", {"detecting": False})
-                _apply_audience_iso()
-                set_status("Camera lost - detection stopped")
-
-            if cap is None:
-                canvas = no_camera_canvas()
-                draw_hud(canvas, 0.0)
-                texture_data = frame_to_texture(canvas)
-
-            else:
-                ok, raw = cap.read()
-                if ok:
-                    with state.lock:
-                        detecting = state.detecting
-                        show_ov   = state.show_device_overlay
-
-                    # Hand frame to detection thread (non-blocking).
-                    # If it's busy the frame is dropped — display continues unblocked.
-                    # Only the detector needs a stable copy (cap reuses its buffer
-                    # on the next read); when not detecting we skip the ~6 MB/frame
-                    # copy entirely.  (state.latest_frame was write-only dead state.)
-                    if detecting:
-                        raw_copy = raw.copy()
-                        try:
-                            _detect_queue.put_nowait((raw_copy, time.time()))
-                        except Full:
-                            pass
-
-                    # Downscale first, then apply gamma/contrast on the 720p canvas
-                    # in-place — 6.7× less pixel work and no ~6 MB/frame allocation
-                    # churn vs. correcting the full-res frame and immediately
-                    # discarding it.  Detection is fed the untouched `raw`, so this
-                    # reordering is display-only and does not affect the decoder.
-                    canvas = build_canvas(raw)
-                    apply_gamma(canvas, dst=canvas)
-                    apply_contrast(canvas, dst=canvas)
-
-                    with state.lock:
-                        _scale  = state.last_render_scale
-                        _crop_x = state.last_crop_x
-                        _crop_y = getattr(state, "last_crop_y", 0)
-
-                    if detecting and _overlays_on():
-                        # draw_overlay reads detector's cached state (_last_stds,
-                        # _decoded_pts) written by the detection thread.  NumPy
-                        # reference swaps are atomic under CPython's GIL so no
-                        # explicit lock is needed — at worst we see one frame stale.
-                        # Race after detector.reset() (e.g. ROI change + detect-on)
-                        # can leave stale integer indices pointing past the rebuilt
-                        # _points array; swallow that one-frame IndexError instead
-                        # of crashing the controller. Recovers on the next frame.
-                        try:
-                            detector.draw_overlay(canvas, scale=_scale,
-                                                  crop_x=_crop_x, crop_y=_crop_y,
-                                                  show_ids=not show_ov,
-                                                  valid_ids=_valid_blink_ids or None)
-                        except IndexError as e:
-                            log.info(f"[overlay] skipped one frame after detector reset: {e}")
-
-                        if dbg_cap.active:
-                            _dbg_counter += 1
-                            if _dbg_counter % DEBUG_SAVE_EVERY == 0:
-                                di = _last_dbg_imgs
-                                if di is not None and di.gray is not None:
-                                    with state.lock:
-                                        results_snap = list(state.last_detections)
-                                    # Only pass active/decoded points — passing all 25,920
-                                    # causes save_frame to iterate 600K+ Python objects
-                                    # per call, stalling the main thread for 50-100ms.
-                                    gate = detector.cfg["min_recent_std"]
-                                    active_blobs = [
-                                        pt for pt in detector.get_blobs()
-                                        if pt.decoded_id is not None
-                                        or pt.recent_std >= gate * 0.5
-                                    ]
-                                    dbg_cap.save_frame(
-                                        raw=raw,
-                                        gray=di.gray,
-                                        thresh=di.contrast if di.contrast is not None
-                                               else np.zeros_like(di.gray),
-                                        overlay=canvas.copy(),
-                                        blobs=active_blobs,
-                                        detections=results_snap,
-                                    )
-
-                    # Scene → Flip Projection: mirror the canvas BEFORE
-                    # the user-facing overlays so ROI/device/winner/HUD
-                    # text and click ripples all render upright on the
-                    # display.  Detector debug overlays drawn earlier
-                    # (frozen code) end up mirrored, which is fine —
-                    # they're for offline debugging, not show-time.  The
-                    # raw camera frame queued for detection is untouched,
-                    # and _on_preview_click inverts x so the click → u
-                    # conversion still maps to the real room position.
-                    flipped = state.flip_projection
-                    display_canvas = cv2.flip(canvas, 1) if flipped else canvas
-
-                    draw_roi_overlay(display_canvas, flipped=flipped)
-
-                    if show_ov:
-                        draw_device_overlay(display_canvas, flipped=flipped)
-
-                    try:
-                        draw_winner_highlight(display_canvas, flipped=flipped)
-                    except Exception as e:
-                        log.info(f"[winner] draw skipped: {e}")
-
-                    draw_click_ripples(display_canvas, flipped=flipped)
-
-                    if detecting:
-                        draw_detect_border(display_canvas, flipped=flipped)
-
-                    fps = 1.0 / max(time.time() - frame_start, 1e-4)
-                    _camera_fps = 0.9 * _camera_fps + 0.1 * fps
-                    draw_hud(display_canvas, fps)
-                    _draw_spotlight_cursor(display_canvas)
-
-                    # Record AFTER the HUD + spotlight cursor so the
-                    # post-show video matches what was actually on the
-                    # projector — same frame the MJPEG write below sees.
-                    if vid_rec.active:
-                        vid_rec.record(display_canvas)
-
-                    # Debug run.mp4 must also record after the spotlight
-                    # draw: it queues the frame to a writer thread, and an
-                    # earlier call site let in-place draws race the writer —
-                    # overlays flashed on/off frame to frame.
-                    if dbg_cap.active:
-                        dbg_cap.record_frame(display_canvas)
-
-                    # MJPEG stream — hand the finished frame to the
-                    # encode/POST worker (reference swap, GIL-atomic).
-                    global _stream_latest
-                    _stream_latest = display_canvas
-
-                    texture_data = frame_to_texture(display_canvas)
+            texture_data = _latest_texture
 
             # Update texture
             dpg.set_value("camera_texture", texture_data)
@@ -2736,6 +2800,20 @@ def main():
             _perf_tick(_frame_t0)
 
     finally:
+        # Stop capture and WAIT for it before anything below releases the
+        # camera.  A thread still inside cap.read() when the VideoCapture is
+        # freed is the one failure that would not surface now but at the NEXT
+        # launch, as a camera that refuses to open.
+        _capture_stop.set()
+        capture_thread.join(timeout=2.0)
+        if capture_thread.is_alive():
+            # Still blocked in cap.read().  Leaking the handle for the few
+            # seconds until the process exits is strictly safer than freeing
+            # it underneath a live reader.
+            log.info("[shutdown] capture thread still running after 2s — "
+                     "leaving the camera open rather than freeing it underneath")
+            holder["cap"] = None
+
         # Session-long debug captures are only stopped here or by the user —
         # finalise run.mp4 + summary.json before anything else can throw.
         if dbg_cap.active:
