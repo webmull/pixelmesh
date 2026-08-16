@@ -80,6 +80,7 @@ endpoint before launching.
 | `https://pixelmesh.show` | Audience URL — share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
 | `https://pixelmesh.live` | Public site — its own repo, [pixelmesh.website](https://github.com/webmull/pixelmesh.website), deployed by DigitalOcean on every push to its `main` |
 | `https://pixelmesh.show/admin/show_stats` | Live show state as JSON. Public, no auth — see below |
+| `http://localhost:8000/admin/mode` | Turn detection and recording on and off remotely. Token required, CORS-enabled — see below |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/feed/v1` | Live camera feed at up to 60 fps. Browsers get a canvas viewer fed binary JPEG frames over WebSocket (newest frame only, cannot lag); the same URL serves raw MJPEG to `<img>` embeds and curl |
 | `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
@@ -107,6 +108,72 @@ or leaves, which is why both exist. `effect_started` exists because the name alo
 distinguish "wave fired again" from "wave is still playing" — the talk deck uses it to
 re-announce a re-fired effect. Keys are additive — the first three predate the rest
 and are consumed elsewhere, so nothing is renamed or removed.
+
+### Remote mode control — `/admin/mode`
+
+Turns controller-owned things on and off over HTTP, so the show can be driven from
+something other than the keyboard or the pedal — a phone on a lectern, a browser tab,
+a script.
+
+Ships with two modes:
+
+| Mode | Effect |
+|------|--------|
+| `detection` | Starts or stops a detection run — the same path as hotkey `D` and pedal switch 1 |
+| `recording` | Starts or stops a plain video recording — the same path as hotkey `V` |
+
+```bash
+curl -X POST http://localhost:8000/admin/mode \
+     -H "X-Admin-Token: $PIXELMESH_ADMIN_TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"detection": true}'
+
+# several at once
+-d '{"detection": true, "recording": true}'
+```
+
+`GET /admin/mode` returns the same shape:
+
+```json
+{
+  "modes": {
+    "detection": {"enabled": true,  "seq": 2, "actual": true},
+    "recording": {"enabled": true,  "seq": 1, "actual": false}
+  },
+  "supported": ["detection", "recording"]
+}
+```
+
+**`enabled` is what was asked for; `actual` is what the controller reports is really
+true.** They legitimately disagree: a recording requested with no camera attached never
+starts, and the operator can flip a mode locally with the pedal without any request. Poll
+`GET` to confirm a change landed rather than trusting the `POST` response — the reply to a
+`POST` still carries the *old* `actual`, because the controller has not polled yet.
+
+**Requests, not desired state.** Each mode carries a `seq` that only increments, and the
+controller applies a mode only when it sees a `seq` it has not applied. A plain
+desired-state flag would fight the operator: stop detection with the pedal, and a second
+later the controller would read `"detection": true` still sitting there and switch it
+straight back on. For the same reason `seq` bumps even when the value is unchanged —
+asking for a mode you already requested is a real instruction, not a no-op.
+
+The controller adopts the current `seq` values on its first poll **without applying
+them**, so a request made while it was closed does not fire at launch.
+
+**Auth and CORS.** Unlike `show_stats` this route is *not* public — it can stop detection
+mid-show, so it requires `X-Admin-Token`. It *is* CORS-enabled, including a proper
+`OPTIONS` preflight, so a browser on another origin can call it. Those are separate
+things: CORS makes the browser willing to send the request, the token decides whether it
+is honoured. The preflight is answered before the token check because browsers strip
+credentials from the `OPTIONS` probe by specification; it reaches no handler and returns
+no data. A 403 carries the CORS headers too, so a caller with a bad token sees `403`
+rather than an opaque browser CORS error.
+
+Unknown mode names and non-boolean values are rejected with `400`, and an unknown name
+rejects the whole request rather than partially applying it, so a typo fails loudly.
+
+To add a mode: add a name to `MODES` in `server.py` and a branch to `_apply_mode` in
+`controller.py`.
 
 ---
 
@@ -479,8 +546,12 @@ controls), and **GAME** (avatar race, likes).
 | `ngrok.cloud-policy.yml` | Traffic policy for `pixelmesh.show`, incl. the offline holding page |
 | `content/` | Posts, talk slides, and other written material |
 | `tools/` | Offline analysis: detector replay, signal heatmaps, GIF/still generators |
-| `testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
-| `ROADMAP.md` | Design notes for planned work |
+| `docs/` | Notes kept alongside the code — see below |
+| `artifacts/` | Local working files: sample clips and screenshots. Untracked |
+| `docs/testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
+| `docs/ROADMAP.md` | Design notes for planned work |
+| `docs/TODO.md` | Running task list |
+| `docs/post_show_notes.md` | What happened at each show and what to change next time |
 
 ---
 
@@ -552,9 +623,17 @@ complete before its first decode attempt.
 
 ### Debug capture
 
-Press **G** to start/stop a debug run (auto-starts with detection). Each run is saved to a
-friendly-named folder under `debug/` (e.g. `autumn-fox-42`). Runs are kept indefinitely — prune
-manually if disk space matters.
+Press **G** to start/stop a debug run. Each run is saved to a friendly-named folder under
+`debug/` (e.g. `autumn-fox-42`). Runs are kept indefinitely — prune manually if disk space
+matters.
+
+**A debug run does not stop when detection stops.** It stays up until you press `G` again or
+quit the app, and `run.mp4` takes every frame regardless of whether detection is running —
+only the per-frame JPEGs under `frames/` are gated on it. At 1920×1080 that is roughly
+**1.1 GB/hour**, plus a continuous 1080p ffmpeg encode competing with the show on the same
+machine. It used to auto-start with detection (`_DEBUG_AUTO_ON_DETECT`), which meant one
+overnight session quietly wrote 2.6 GB across 7 hours with detection off the whole time; it is
+off by default now, so start a run deliberately when it is worth capturing.
 
 ```
 debug/autumn-fox-42/
@@ -660,21 +739,31 @@ fresh page always matches and connects once, while a stale parked page reloads e
 python3 -m pytest tests/ -q
 ```
 
-Three files, no network and no fixtures beyond a `conftest.py`:
+Five files, no network and no fixtures beyond a `conftest.py`:
 
 | file | covers |
 |------|--------|
 | `test_blink_encoder.py` | encode/decode round-trips and structural invariants, with a simulated camera |
 | `test_server_pool.py` | blink ID pool management and the `blink_assignments` / `blink_reverse` pair |
 | `test_show_stats.py` | the `/admin/show_stats` payload — shape, counts, show state, and that the keys the talk deck reads still exist |
+| `test_mode_api.py` | `/admin/mode` — sequence semantics, rejection of bad input, request vs actual, and the token/CORS/preflight behaviour |
+| `test_shutdown.py` | recordings survive a quit — real ffmpeg round-trips verified with `ffprobe`, `stop()` under a live capture thread, the SIGTERM handler in a real subprocess, and unique filenames |
+
+`test_shutdown.py` needs `ffmpeg`/`ffprobe`; those tests skip without them. It also asserts two
+invariants against the *source* rather than by running it, because `controller.py` cannot be
+imported in a test (it needs DearPyGui, a display and `PIXELMESH_LAUNCHED`) and both failures
+are silent: a signal handler that takes `state.lock` deadlocks instead of erroring, and a
+`kill -9` in `run.sh` truncates a recording without any sign until you try to play it.
 
 `conftest.py` sets `PIXELMESH_ADMIN_TOKEN` for the session. Without it every test that
 imports `server` dies with `SystemExit`, because the module refuses to load unauthenticated —
 which is correct in production and fatal in a test runner.
 
-`/admin/show_stats` is tested by calling the handler directly rather than over HTTP. It takes
-no request argument, so an HTTP client would exercise nothing extra, and it keeps `httpx` out
-of the dependency list.
+Handlers are tested by calling them directly rather than over HTTP: they take plain dicts
+and return plain dicts, so an HTTP client would exercise nothing extra, and it keeps `httpx`
+out of the dependency list. The exception is the admin middleware, which is driven through
+the real ASGI stack in `test_mode_api.py` — the token check, the preflight and the CORS
+headers only exist at that layer, so there is nowhere else to test them.
 
 ---
 
@@ -716,7 +805,7 @@ Three generations of one idea — a crowd's phones as pixels:
 
 ## Roadmap
 
-Full design notes in [ROADMAP.md](ROADMAP.md). Headlines:
+Full design notes in [docs/ROADMAP.md](docs/ROADMAP.md). Headlines:
 
 - **Faster decode** — PHASE_MS 300→250ms cuts every timeline 17% with the ID space intact
 - **Found-state visibility** — steady green on found, so raised phones show their status from behind
