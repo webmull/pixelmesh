@@ -72,8 +72,19 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Public read-only admin routes - exempt from token check.
-_ADMIN_PUBLIC = {"/admin/show_stats"}
+# Admin routes exempt from the token check.
+#
+# /admin/show_stats is read-only and safe to serve to anyone.
+#
+# /admin/overlays is a WRITE and is therefore a deliberate, temporary
+# compromise (see docs/TODO.md - "secure /admin/overlays"). The talk deck has
+# to turn overlays on when it reaches the camera slide, and a static HTML file
+# cannot hold a token that run.sh regenerates every launch. It carries its own
+# restriction instead: the handler serves only requests that originated on
+# this machine. Overlays are cosmetic - the worst this allows is markers
+# flickering on the feed. Detection and recording stay behind the token,
+# because those can stop a show.
+_ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays"}
 
 # Admin routes a browser on another origin may call.  Being in here only makes
 # the browser willing to send the request and read the reply; it does NOT
@@ -82,11 +93,33 @@ _ADMIN_PUBLIC = {"/admin/show_stats"}
 # authenticated.  A caller must send X-Admin-Token.
 _ADMIN_CORS = _ADMIN_PUBLIC | {"/admin/mode"}
 
+
+def _is_local_request(request: Request) -> bool:
+    """True only for a request that originated on this machine.
+
+    Loopback alone does not prove it. ngrok forwards the public
+    pixelmesh.show to 127.0.0.1:8000, so tunnelled traffic also arrives from
+    a loopback address - and the traffic policy forwards every path, so
+    /admin/* is reachable from the internet. The forwarding headers are what
+    separate the two, and ngrok always sets them.
+    """
+    client = request.client.host if request.client else ""
+    if client not in ("127.0.0.1", "::1", "localhost"):
+        return False
+    forwarded = ("x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+                 "ngrok-skip-browser-warning")
+    return not any(h in request.headers for h in forwarded)
+
 _CORS_HEADERS = {
     "Access-Control-Allow-Origin":  "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, X-Admin-Token",
     "Access-Control-Max-Age":       "600",
+    # Chrome's Private Network Access: a page on a public or opaque origin
+    # (the deck runs from file://) preflighting a request to a local address
+    # is refused unless the response opts in. Harmless everywhere else -
+    # browsers that do not implement PNA ignore it.
+    "Access-Control-Allow-Private-Network": "true",
 }
 
 
@@ -201,7 +234,7 @@ sync_active = False
 # "detection: true" still sitting here and switch it straight back on.
 #
 # To add a mode: add a name here and a branch in controller._apply_mode.
-MODES = ("detection", "recording")
+MODES = ("detection", "recording", "overlays")
 
 # name -> {"enabled": bool, "seq": int}.  seq 0 means "never requested", which
 # is what lets the controller adopt the current values on connect without
@@ -834,6 +867,51 @@ async def set_mode_request(payload: dict):
         entry["seq"] += 1
         print(f"[mode] request {name}={want} (seq {entry['seq']})", flush=True)
 
+    return _mode_snapshot()
+
+
+@app.post("/admin/overlays")
+async def set_overlays(request: Request):
+    """Turn the device overlay on or off. Token-free, but local only.
+
+        curl -X POST http://localhost:8000/admin/overlays \\
+             -H 'Content-Type: application/json' -d '{"enabled": true}'
+
+    Exists for the talk deck, which turns overlays on when it reaches the
+    camera slide and cannot hold a token that changes every launch. It goes
+    through the same seq machinery as /admin/mode, so the controller picks it
+    up on its next poll and the two cannot disagree about the ordering.
+
+    Anything arriving through the ngrok tunnel is refused - see
+    _is_local_request. This is a stopgap; docs/TODO.md tracks doing it
+    properly.
+
+    The body is read raw and parsed here rather than declared as `payload:
+    dict`, which would make FastAPI demand Content-Type: application/json.
+    That matters: a JSON content type is not CORS-"simple", so the browser
+    sends a preflight first, and a preflight from a file:// page to localhost
+    is what Chrome's Private Network Access rules block. The deck therefore
+    posts as text/plain, which needs no preflight at all - the same reason its
+    existing show_stats GET has always worked. Accepting any content type is
+    what makes that possible.
+    """
+    if not _is_local_request(request):
+        raise HTTPException(403, "this route is only served to local clients")
+
+    try:
+        payload = json.loads(await request.body() or b"")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, 'body must be JSON: {"enabled": true}')
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        raise HTTPException(400, 'body must be {"enabled": true} or {"enabled": false}')
+
+    want = payload["enabled"]
+    entry = mode_requests["overlays"]
+    entry["enabled"] = want
+    entry["seq"] += 1
+    print(f"[mode] request overlays={want} (seq {entry['seq']}) via /admin/overlays",
+          flush=True)
     return _mode_snapshot()
 
 

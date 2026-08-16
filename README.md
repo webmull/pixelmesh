@@ -121,6 +121,14 @@ Ships with two modes:
 |------|--------|
 | `detection` | Starts or stops a detection run — the same path as hotkey `D` and pedal switch 1 |
 | `recording` | Starts or stops a plain video recording — the same path as hotkey `V` |
+| `overlays` | Shows or hides the device markers on the feed — sets **both** `show_overlays` (the `H` master switch) and `show_device_overlay` (`O`) |
+
+`overlays` sets both flags on purpose. `show_overlays` gates every canvas annotation, so
+either flag alone can silently veto the other — and firing an effect from the pedal forces
+the master off (the "showtime stomp" that cleans the feed). Setting only the device flag
+after an effect changes the state and nothing on screen, which is exactly how it first
+shipped. `actual` reports `show_overlays and show_device_overlay` for the same reason: it
+has to mean what the room can actually see.
 
 ```bash
 curl -X POST http://localhost:8000/admin/mode \
@@ -174,6 +182,34 @@ rejects the whole request rather than partially applying it, so a typo fails lou
 
 To add a mode: add a name to `MODES` in `server.py` and a branch to `_apply_mode` in
 `controller.py`.
+
+### `POST /admin/overlays` — token-free, local only
+
+One narrow exception to all of the above, for the talk deck, which turns overlays on when it
+reaches the camera slide and cannot hold a token that `run.sh` regenerates every launch.
+
+```bash
+curl -X POST http://localhost:8000/admin/overlays \
+     -H 'Content-Type: application/json' -d '{"enabled": true}'
+```
+
+It drives the same `seq` counter as `/admin/mode`, so the two cannot disagree about ordering.
+It is **not** open to the world: `_is_local_request()` serves only loopback clients carrying
+no ngrok forwarding headers, and returns `403` otherwise. Loopback alone would prove nothing —
+ngrok forwards `pixelmesh.show` to `127.0.0.1`, so tunnelled traffic also arrives from a local
+address; the forwarding headers are what separate them.
+
+The handler reads and parses the body itself rather than declaring `payload: dict`, which
+would make FastAPI insist on `Content-Type: application/json`. That matters more than it
+looks: a JSON content type is not CORS-"simple", so the browser sends a preflight first, and
+a preflight from a `file://` page to a local address is what Chrome's Private Network Access
+rules refuse. The deck therefore posts as `text/plain` and no preflight happens at all — the
+same reason its `show_stats` GET has always worked. Responses also carry
+`Access-Control-Allow-Private-Network: true` for any caller that does preflight.
+
+This is a deliberate stopgap and `docs/TODO.md` tracks replacing it: any page open in a
+browser on the show laptop can still poke it, since CORS is `*`. The blast radius is cosmetic —
+markers flicker on the feed; it cannot stop detection or recording.
 
 ---
 

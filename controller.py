@@ -3253,6 +3253,13 @@ def _mode_actual(name: str) -> bool:
             return state.detecting
     if name == "recording":
         return vid_rec.active
+    if name == "overlays":
+        # Effective visibility, not one flag. show_overlays is a master switch
+        # that hides every canvas annotation, so device markers are only
+        # really on screen when both are set - and "actual" has to mean what
+        # the room can see.
+        with state.lock:
+            return state.show_overlays and state.show_device_overlay
     return False
 
 
@@ -3270,6 +3277,18 @@ def _apply_mode(name: str, want: bool):
             toggle_detection()   # guards inside may still refuse; the ack tells the truth
     elif name == "recording":
         set_recording(want)
+    elif name == "overlays":
+        # Both flags, both directions. show_overlays is a master switch over
+        # every canvas annotation and show_device_overlay is the markers
+        # themselves, so either one alone can silently veto the other. Firing
+        # an effect from the pedal forces the master off ("showtime stomp"),
+        # which is why setting only the device flag appeared to do nothing:
+        # the request landed, the state changed, and the screen did not.
+        with state.lock:
+            state.show_overlays = want
+            state.show_device_overlay = want
+        # The sidebar checkboxes follow on their own - the UI sync loop reads
+        # both flags every frame.
 
 
 def _mode_worker():

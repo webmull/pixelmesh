@@ -48,8 +48,22 @@ def ack(srv, payload):
 
 class TestShape:
     def test_supported_modes_out_of_the_box(self):
-        """detection and recording are the two the API ships with."""
-        assert set(fresh_server().MODES) == {"detection", "recording"}
+        assert set(fresh_server().MODES) == {"detection", "recording", "overlays"}
+
+    def test_overlays_is_toggleable(self):
+        srv = fresh_server()
+        snap = post(srv, {"overlays": True})
+        assert snap["modes"]["overlays"]["enabled"] is True
+        assert snap["modes"]["overlays"]["seq"] == 1
+        snap = post(srv, {"overlays": False})
+        assert snap["modes"]["overlays"]["enabled"] is False
+
+    def test_overlays_alongside_the_others(self):
+        srv = fresh_server()
+        snap = post(srv, {"detection": True, "overlays": True})
+        assert snap["modes"]["detection"]["enabled"] is True
+        assert snap["modes"]["overlays"]["enabled"] is True
+        assert snap["modes"]["recording"]["seq"] == 0   # untouched
 
     def test_get_reports_every_supported_mode(self):
         srv = fresh_server()
@@ -216,8 +230,12 @@ class TestReset:
         srv = fresh_server()
         post(srv, {"detection": True, "recording": True})
         asyncio.run(srv.reset())
-        for entry in get(srv)["modes"].values():
-            assert entry["seq"] == 1
+        modes = get(srv)["modes"]
+        assert modes["detection"]["seq"] == 1
+        assert modes["recording"]["seq"] == 1
+        # Never requested, so it should still be 0 - reset does not touch it
+        # in either direction.
+        assert modes["overlays"]["seq"] == 0
 
 
 # ------------------------------------------------------------------ #
@@ -226,23 +244,24 @@ class TestReset:
 # Over ASGI, because the middleware is the thing under test.
 # ------------------------------------------------------------------ #
 
-def call(srv, method, path, headers=None):
+def call(srv, method, path, headers=None, body=b"{}", client=("127.0.0.1", 12345)):
     """Drive one request through the full middleware stack."""
     received = []
 
     async def receive():
-        return {"type": "http.request", "body": b"{}", "more_body": False}
+        return {"type": "http.request", "body": body, "more_body": False}
 
     async def send(msg):
         received.append(msg)
 
+    hdrs = dict(headers or {})
+    hdrs.setdefault("content-type", "application/json")
     scope = {
         "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
         "method": method, "path": path, "raw_path": path.encode(),
         "query_string": b"", "root_path": "", "scheme": "http",
-        "client": ("127.0.0.1", 12345), "server": ("127.0.0.1", 8000),
-        "headers": [(k.lower().encode(), v.encode())
-                    for k, v in (headers or {}).items()],
+        "client": client, "server": ("127.0.0.1", 8000),
+        "headers": [(k.lower().encode(), v.encode()) for k, v in hdrs.items()],
     }
     asyncio.run(srv.app(scope, receive, send))
     start = next(m for m in received if m["type"] == "http.response.start")
@@ -289,6 +308,86 @@ class TestAccessControl:
         """Nothing in a browser should be able to claim to be the controller."""
         srv = fresh_server()
         assert "/admin/mode/ack" not in srv._ADMIN_CORS
+
+
+class TestOverlaysRoute:
+    """/admin/overlays is token-free so the deck can reach it, and restricted
+    to local clients instead. Both halves matter: without the exemption the
+    deck cannot call it, and without the locality check anyone on the internet
+    can, because the ngrok policy forwards every path to the app."""
+
+    def test_it_is_token_exempt(self):
+        assert "/admin/overlays" in fresh_server()._ADMIN_PUBLIC
+
+    def test_a_local_request_is_accepted(self):
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays", body=b'{"enabled": true}')
+        assert status == 200
+
+    def test_it_bumps_the_same_seq_as_the_mode_api(self):
+        """Both routes drive one cursor, so ordering cannot get confused."""
+        srv = fresh_server()
+        call(srv, "POST", "/admin/overlays", body=b'{"enabled": true}')
+        entry = get(srv)["modes"]["overlays"]
+        assert entry["enabled"] is True and entry["seq"] == 1
+
+    def test_a_tunnelled_request_is_refused(self):
+        """ngrok forwards to 127.0.0.1, so loopback alone proves nothing -
+        the forwarding header is what gives a public request away."""
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays",
+                         {"X-Forwarded-For": "203.0.113.9"})
+        assert status == 403
+
+    @pytest.mark.parametrize("header", [
+        "X-Forwarded-Host", "X-Forwarded-Proto", "ngrok-skip-browser-warning",
+    ])
+    def test_every_forwarding_marker_is_refused(self, header):
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays", {header: "x"})
+        assert status == 403
+
+    def test_a_bad_body_is_rejected(self):
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays", body=b'{"enabled": "yes"}')
+        assert status == 400
+
+    def test_unparseable_body_is_rejected(self):
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays", body=b'not json')
+        assert status == 400
+
+    def test_it_accepts_a_text_plain_body(self):
+        """The deck must be able to post WITHOUT triggering a preflight.
+        application/json is not a CORS-simple content type, so it forces one,
+        and a preflight from a file:// page to localhost is refused by
+        Chrome's Private Network Access rules. Declaring the handler as
+        `payload: dict` would make FastAPI insist on application/json and
+        reintroduce the preflight, so this pins the looser parsing."""
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays",
+                         {"Content-Type": "text/plain"},
+                         body=b'{"enabled": true}')
+        assert status == 200
+        assert get(srv)["modes"]["overlays"]["enabled"] is True
+
+    def test_preflight_opts_in_to_private_network_access(self):
+        """Belt and braces for any caller that does preflight."""
+        _, headers = call(fresh_server(), "OPTIONS", "/admin/overlays")
+        assert headers.get("access-control-allow-private-network") == "true"
+
+    def test_a_remote_client_address_is_refused(self):
+        """Someone else on the LAN hitting the laptop directly."""
+        srv = fresh_server()
+        status, _ = call(srv, "POST", "/admin/overlays", client=("192.168.1.50", 5555))
+        assert status == 403
+
+    def test_detection_is_not_reachable_this_way(self):
+        """The exemption must stay scoped to the cosmetic toggle."""
+        srv = fresh_server()
+        assert "/admin/mode" not in srv._ADMIN_PUBLIC
+        status, _ = call(srv, "POST", "/admin/mode")
+        assert status == 403
 
 
 class TestPreflight:

@@ -14,6 +14,17 @@ sign-off. `file:line` are from the review; re-check before editing.
   unlimited MJPEG streams (also a cheap DoS). Fix: gate `/internal/*` + `/debug-files` behind
   the admin token, or path-allowlist the cloud policy to `/`, `/app`, `/ws`, `/admin/show_stats`.
   (`server.py:105,812,890,936,978`)
+- [ ] **Secure `/admin/overlays`.** Added 16 Aug 2026 as a deliberate stopgap so the talk deck
+  can turn overlays on when it reaches the camera slide. It is a WRITE route exempt from the
+  admin token (`_ADMIN_PUBLIC`), because a static HTML file cannot hold a token that `run.sh`
+  regenerates every launch. Not wide open: `_is_local_request()` serves only loopback clients
+  with no ngrok forwarding headers, so tunnelled traffic gets a 403. But any page open in a
+  browser on the show laptop can still poke it, since CORS is `*` and a preflight succeeds for
+  any origin. Blast radius is cosmetic — device markers flicker on the feed; it cannot stop
+  detection or recording. Fix properly by either serving the deck from the pixelmesh server so
+  it is same-origin and can be handed a token, or having `run.sh` write a per-session token
+  where the deck can read it. The path-allowlist in the item above would also block it at the
+  ngrok edge, which is worth doing regardless. (`server.py` `_ADMIN_PUBLIC`, `set_overlays`)
 - [ ] **Video recording freezes the app on a slow/full disk.** `video_recorder.record()` writes
   full raw frames to ffmpeg stdin synchronously on the render thread, no writer thread; a wedged
   (not dead) ffmpeg blocks the pipe forever, freezing camera + projection + detection. Only

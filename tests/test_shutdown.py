@@ -489,6 +489,24 @@ class TestControllerShutdown:
         assert src.count("_finalise_recordings()") >= 2, \
             "the finally block should call it as well as the signal handler"
 
+    def test_overlays_on_sets_the_master_switch_too(self):
+        """show_overlays is a master switch over every canvas annotation, and
+        the pedal's effect stomp forces it off. Setting show_device_overlay
+        alone is then silently vetoed - the markers never appear and the
+        sidebar checkbox never moves, which is exactly how this first shipped.
+        """
+        fn = func("_apply_mode")
+        branch = ast.dump(fn)
+        assert "show_overlays" in branch, \
+            "_apply_mode must set the master switch, not just the device flag"
+        assert "show_device_overlay" in branch
+
+    def test_overlays_actual_reports_effective_visibility(self):
+        """actual has to mean what the room can see, so it must consider both
+        flags - otherwise it reports True while the master hides everything."""
+        body = ast.dump(func("_mode_actual"))
+        assert "show_overlays" in body and "show_device_overlay" in body
+
     def test_debug_capture_does_not_auto_start(self):
         """It never stops when detection stops, so auto-starting it left it
         recording for the whole session."""
