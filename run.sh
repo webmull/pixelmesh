@@ -106,45 +106,73 @@ status_line() {
 # ─────────────────────────────────────────────
 #  Actions
 # ─────────────────────────────────────────────
+# Seconds to allow for a graceful exit before escalating to SIGKILL.
+# Generous on purpose: the controller catches SIGTERM and closes any open
+# recording, and ffmpeg only writes an mp4's moov atom when its stdin closes.
+# With +faststart it then rewrites the index, which on a multi-GB file is not
+# instant.  A -9 here is what used to leave unplayable recordings behind.
+# The ceiling comes from the controller's own bounds: debug capture joins its
+# writer for 5s, then waits up to 30s on ffmpeg.
+_TERM_GRACE_SECS=40
+
 kill_all() {
   echo "${Y}→ Stopping all processes...${RESET}"
   # Disarm the watchdog first so an intentional stop is not resurrected.
   rm -f "$WATCHDOG_FLAG"
-  # Fire all kill signals in parallel — pixelmesh's own ngrok is scoped
-  # by its config file so other projects' tunnels are left alone.
-  lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
-  pkill -9 -f "uvicorn server:app"  2>/dev/null || true
-  pkill -9 -f "controller.py"       2>/dev/null || true
-  pkill -9 -f "ngrok.pixelmesh.yml" 2>/dev/null || true
 
-  # Verify each one is actually gone before start_all runs.  An async
-  # kill can lag by hundreds of ms; without this wait the next start
-  # races against the corpse and produces "address already in use" or a
-  # silent second controller running with stale state.
-  local i=0
-  while (( i < 20 )); do
+  # SIGTERM, not SIGKILL.  The controller has a handler that finalises any
+  # open recording; uvicorn uses it to tell connected phones the show is over
+  # rather than dropping their sockets.  pixelmesh's own ngrok is scoped by
+  # its config file so other projects' tunnels are left alone.
+  pkill -f "uvicorn server:app"  2>/dev/null || true
+  pkill -f "controller.py"       2>/dev/null || true
+  pkill -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+
+  # Wait for a clean exit.  This also guards the next start_all: an async
+  # kill can lag, and without the wait the next start races against the
+  # corpse and produces "address already in use" or a silent second
+  # controller running with stale state.
+  local waited=0 announced=0
+  local max=$(( _TERM_GRACE_SECS * 4 ))   # 0.25s ticks
+  while (( waited < max )); do
     local stuck=0
-    lsof -ti tcp:8000                   &>/dev/null && stuck=1
     pgrep -f "uvicorn server:app"       &>/dev/null && stuck=1
     pgrep -f "controller.py"            &>/dev/null && stuck=1
     pgrep -f "ngrok.pixelmesh.yml"      &>/dev/null && stuck=1
     (( stuck == 0 )) && break
-    # Re-send the kill in case the first signal lost the race with a
-    # forking child (preview thread, uvicorn worker, etc.).
-    if (( i == 5 )); then
-      pkill -9 -f "uvicorn server:app"  2>/dev/null || true
-      pkill -9 -f "controller.py"       2>/dev/null || true
-      pkill -9 -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+    # Anything past a second means real work is happening — an mp4 being
+    # closed — so say so rather than looking hung.  Then count down: a silent
+    # 40s wait is indistinguishable from a lock-up, and the whole point of
+    # this loop is that it is sometimes meant to take a while.
+    if (( waited == 4 && announced == 0 )); then
+      announced=1
+      echo "${DIM}  waiting for a clean exit (finalising any recording)${RESET}"
+      echo "${DIM}  ctrl-c to stop waiting and force the kill${RESET}"
     fi
-    sleep 0.25; (( i++ ))
+    if (( announced == 1 && waited % 4 == 0 )); then
+      printf "\r${DIM}  %2ds left...${RESET}" $(( (max - waited) / 4 ))
+    fi
+    sleep 0.25; (( waited++ ))
   done
+  (( announced == 1 )) && printf "\r\033[K"
 
-  if (( i >= 20 )); then
-    echo "${R}  warning: some processes refused to die after 5s${RESET}"
+  # Escalate only for whatever refused to go.  Anything still alive here has
+  # had the full grace period, so its files are either written or already
+  # lost — SIGKILL costs nothing further.
+  if (( waited >= max )); then
+    echo "${R}  warning: forcing kill after ${_TERM_GRACE_SECS}s${RESET}"
     pgrep -af "uvicorn server:app|controller.py|ngrok.pixelmesh.yml" || true
+    pkill -9 -f "uvicorn server:app"  2>/dev/null || true
+    pkill -9 -f "controller.py"       2>/dev/null || true
+    pkill -9 -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+    sleep 0.5
   else
     echo "${G}  done.${RESET}"
   fi
+
+  # Last resort for the port itself: a stray listener that is none of the
+  # above still blocks the next start.
+  lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
   sleep 0.3
 }
 

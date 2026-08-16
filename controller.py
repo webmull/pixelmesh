@@ -1330,6 +1330,98 @@ def _on_terminate(signum, _frame):
     threading.Thread(target=_backstop, daemon=True, name="shutdown-backstop").start()
 
 
+# Read end of the signal wakeup pipe - see install_signal_handling().
+_sig_pipe_r = None
+
+# How long the watcher gives the main thread to unwind on its own before it
+# stops waiting and exits the process itself.
+_SHUTDOWN_UNWIND_SECS = 6.0
+
+
+def _signal_watcher():
+    """Do the shutdown work on a thread that is always able to run.
+
+    This exists because the obvious approach does not work here.  Python runs
+    signal handlers on the MAIN thread, and only between bytecodes - so a
+    handler is deferred for as long as the main thread is inside a C call.
+    Our main thread lives in dpg.render_dearpygui_frame(), and macOS stops
+    driving that loop when the window is minimised or occluded.  The handler
+    then never runs at all, run.sh waits out its grace period, and the SIGKILL
+    that follows is exactly the truncated-recording case this was written to
+    prevent.  Measured: SIGTERM to a live controller produced no [shutdown]
+    log line and no exit.
+
+    signal.set_wakeup_fd sidesteps it.  CPython's C-level handler writes the
+    signal number to a pipe the moment the signal lands, with no dependency on
+    the interpreter reaching a bytecode boundary.  This thread is parked in a
+    blocking read on the other end, so it wakes immediately however wedged the
+    main thread is.
+    """
+    while True:
+        try:
+            data = _os.read(_sig_pipe_r, 1)
+        except (OSError, ValueError):
+            return
+        if not data:
+            return
+
+        signum = data[0]
+        try:
+            name = signal.Signals(signum).name
+        except ValueError:
+            name = str(signum)
+        log.info(f"[shutdown] signal {name} received - finalising on watcher thread")
+
+        # The part that must not be skipped.
+        _finalise_recordings()
+
+        # Best effort: let the render loop unwind so the camera is released
+        # properly.  Harmless if it is wedged - that is what the wait below is
+        # bounded for.
+        try:
+            dpg.stop_dearpygui()
+        except Exception as e:
+            log.info(f"[shutdown] stop_dearpygui failed: {e}")
+
+        deadline = time.time() + _SHUTDOWN_UNWIND_SECS
+        while time.time() < deadline:
+            time.sleep(0.1)
+
+        log.info("[shutdown] exiting")
+        _os._exit(0)
+
+
+def install_signal_handling():
+    """Wire up SIGTERM/SIGINT. Must be called from the main thread.
+
+    Two paths on purpose, because they fail in different conditions:
+
+      * the normal Python handler (_on_terminate), which runs when the main
+        thread is healthy and can unwind DearPyGui cleanly;
+      * the wakeup pipe, which works when it is not.
+
+    Both funnel into _finalise_recordings(), which is guarded by
+    _shutdown_once, so whichever gets there first wins and the other is a
+    no-op.
+    """
+    global _sig_pipe_r
+    try:
+        _sig_pipe_r, sig_pipe_w = _os.pipe()
+        _os.set_blocking(sig_pipe_w, False)   # required by set_wakeup_fd
+        _os.set_blocking(_sig_pipe_r, True)   # watcher parks here
+        signal.set_wakeup_fd(sig_pipe_w)
+        threading.Thread(target=_signal_watcher, daemon=True,
+                         name="signal-watch").start()
+    except Exception as e:
+        log.warning(f"[shutdown] wakeup pipe unavailable: {e}")
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(sig, _on_terminate)
+        except (ValueError, OSError) as e:
+            log.warning(f"[shutdown] could not install {sig!r} handler: {e}")
+
+
 def set_recording(on: bool) -> bool:
     """Start or stop a plain video recording. Independent of debug capture.
 
@@ -2761,14 +2853,10 @@ def main():
     # reading the DearPyGui registry.
     effects.refresh_param_cache()
 
-    # Must be registered from the main thread. SIGTERM is what run.sh sends
-    # on [d]/[q]/[r]; SIGINT covers a Ctrl-C if the controller is ever run in
-    # the foreground.
-    for _sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            signal.signal(_sig, _on_terminate)
-        except (ValueError, OSError) as e:
-            log.warning(f"[shutdown] could not install {_sig!r} handler: {e}")
+    # Must be called from the main thread. SIGTERM is what run.sh sends on
+    # [d]/[q]/[r]; SIGINT covers a Ctrl-C if the controller is ever run in the
+    # foreground.
+    install_signal_handling()
 
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
     threading.Thread(target=_mode_worker, daemon=True, name="mode-poll").start()
