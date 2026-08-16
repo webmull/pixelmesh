@@ -8,8 +8,8 @@ landed close enough to it. We can then sweep patch size and grid alignment
 on that same blob to answer the "would finer grid have caught it" question.
 
 Usage:
-    python3 tools/signal_heatmap.py debug.mp4
-    python3 tools/signal_heatmap.py debug.mp4 --roi 100,80,500,260
+    python3 tools/signal_heatmap.py artifacts/debug.mp4
+    python3 tools/signal_heatmap.py artifacts/debug.mp4 --roi 100,80,500,260
 """
 
 import argparse

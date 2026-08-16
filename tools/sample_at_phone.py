@@ -4,7 +4,7 @@ detector's percentile sampling so the numbers compare directly with what
 the detector would have seen.
 
 Usage:
-    python3 tools/sample_at_phone.py debug.mp4 305 156
+    python3 tools/sample_at_phone.py artifacts/debug.mp4 305 156
 """
 
 import argparse

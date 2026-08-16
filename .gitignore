@@ -1,6 +1,7 @@
 debug/
 calibration_logs/
 recordings/
+artifacts/
 *.log
 *.mp4
 Screenshot *.png

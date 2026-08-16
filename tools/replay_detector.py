@@ -5,8 +5,8 @@ every decoded ID is reported, regardless of whether a real phone owned it
 during the original session.
 
 Usage:
-    python3 tools/replay_detector.py debug.mp4
-    python3 tools/replay_detector.py debug.mp4 --grid 4 --radius 3
+    python3 tools/replay_detector.py artifacts/debug.mp4
+    python3 tools/replay_detector.py artifacts/debug.mp4 --grid 4 --radius 3
 """
 
 from __future__ import annotations
