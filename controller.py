@@ -1274,6 +1274,40 @@ _shutdown_once = threading.Event()
 # be running.  Files are already safe by then - this only bounds the wait.
 _SHUTDOWN_HARD_EXIT_SECS = 40.0
 
+# ---------------------------------------------------------------- #
+# Stale-process warning                                              #
+# ---------------------------------------------------------------- #
+# server.py and controller.py are frozen at import: routes, permissions and
+# payload shapes do not reload. Editing either while the show is up leaves a
+# process that no longer matches the files, with nothing on screen to say so.
+# That cost three separate debugging rounds in one afternoon - a route refused
+# because it was only public on disk, markup served from before a card
+# existed, a field missing from a payload - each one looking like a bug in
+# code that was already correct.
+_CTRL_MTIME_AT_IMPORT = _os.path.getmtime(__file__) if _os.path.exists(__file__) else 0.0
+_stale_warned = False
+
+
+def _check_stale():
+    """Warn once if either process is behind its source. Two stat()s a second."""
+    global _stale_warned
+    if _stale_warned:
+        return
+    behind = []
+    try:
+        if _os.path.getmtime(__file__) > _CTRL_MTIME_AT_IMPORT + 0.5:
+            behind.append("controller.py")
+    except OSError:
+        pass
+    stats = fetch_json("/admin/show_stats") or {}
+    if stats.get("server_stale"):
+        behind.append("server.py")
+    if behind:
+        _stale_warned = True
+        msg = f"RESTART NEEDED: {' and '.join(behind)} changed since launch"
+        log.warning(f"[stale] {msg}")
+        set_status(msg)
+
 
 def _finalise_recordings():
     """Close any open video files. Idempotent.
@@ -3386,6 +3420,7 @@ def _mode_worker():
                     if post_json("/admin/mode/ack", actual, timeout=0.5):
                         _mode_last_ack.clear()
                         _mode_last_ack.update(actual)
+            _check_stale()
         except Exception as e:
             log.warning(f"[mode] poll failed: {e}")
         time.sleep(_MODE_POLL_SECS)

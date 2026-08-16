@@ -715,15 +715,23 @@ function handleMessage(msg) {
     calibrated    = msg.calibrated === true;
     myBlinkPhases = encodeId(myBlinkId);
     blinkStartMs  = Date.now();
+
+    // Both branches, not just the uncalibrated one. The status pill is shown
+    // on the located card too, and only the else-branch below used to clear
+    // it - so a phone that was ALREADY calibrated (any refresh after being
+    // found) landed on its position card with the pill still reading
+    // "Connecting..." in its warning colour, for the rest of the show. It was
+    // connected the whole time; only the label was wrong.
+    waitingId.textContent = `Connected · Phone ID ${myBlinkId + 1}`;
+    _statusBarOk(true);
+    requestWakeLock();
+
     if (calibrated) {
       knownPositions[myBlinkId] = {u: myU, v: myV};
       locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
       _startPositionMapAnim();
       setView("located");
     } else {
-      waitingId.textContent = `Connected · Phone ID ${myBlinkId + 1}`;
-      _statusBarOk(true);
-      requestWakeLock();
       setView("waiting");
     }
     return;

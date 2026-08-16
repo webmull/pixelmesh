@@ -42,6 +42,7 @@ class TestShape:
             "like_count", "total_connected", "detected",
             "connected_now", "spectators",
             "detecting", "effect", "effect_started",
+            "server_stale",
         }
 
     def test_counts_are_ints_and_flags_are_typed(self):
@@ -192,6 +193,37 @@ class TestShowState:
         assert s["effect"] is None
         assert s["detecting"] is False
         assert s["detected"] == 0
+
+
+# ------------------------------------------------------------------ #
+# Stale process
+# ------------------------------------------------------------------ #
+
+class TestStaleFlag:
+    def test_a_fresh_process_is_not_stale(self):
+        assert stats(fresh_server())["server_stale"] is False
+
+    def test_goes_true_when_the_source_changes(self):
+        """server.py is frozen at import - routes, permissions and payload
+        shapes do not reload. Editing it mid-show leaves a process that no
+        longer matches the files, which has repeatedly looked like a bug in
+        code that was already correct. This is the only signal that says so."""
+        import os
+        srv = fresh_server()
+        assert stats(srv)["server_stale"] is False
+        srv._SERVER_MTIME_AT_IMPORT = os.path.getmtime(srv.__file__) - 60
+        assert stats(srv)["server_stale"] is True
+
+    def test_it_is_a_bool_not_a_timestamp(self):
+        """The controller renders this straight into the status bar."""
+        assert isinstance(stats(fresh_server())["server_stale"], bool)
+
+    def test_survives_a_missing_file(self):
+        """Never let a stat() failure take down the one route the deck polls
+        several times a second."""
+        srv = fresh_server()
+        srv.__file__ = "/nonexistent/server.py"
+        assert stats(srv)["server_stale"] is False
 
 
 # ------------------------------------------------------------------ #

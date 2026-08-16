@@ -635,6 +635,31 @@ html, body {
 #card-end .end-url { color: #35e0ff; font-weight: 600; flex: none;
   margin-top: 1.2svh; font-size: clamp(16px,5vw,19px); }
 
+
+/* --- Desktop and tablet -----------------------------------------------------
+   Above phone width the content cards hold a phone-shaped column in the middle
+   of the window instead of spreading a layout designed for a 390px screen
+   across 1440px, which left the steps panel stranded at the top and the like
+   button floating in a void.
+
+   card-blink and card-effects are deliberately NOT here. One emits this
+   phone's blink pattern for the camera to read and the other is the effect
+   surface: both have to fill the whole screen, and constraining either would
+   quietly break the show rather than just look wrong.
+
+   Centred with auto margins rather than a transform - these are fixed elements
+   with both left and right set, so auto margins centre them, and nothing here
+   has to fight an existing transform. Below 620px the query never fires and
+   phones render exactly as before. */
+@media (min-width: 620px) {
+  #card-waiting,
+  #card-located,
+  #card-game,
+  #card-end {
+    max-width: 460px;
+    margin-inline: auto;
+  }
+}
 </style>
 </head>
 <body>

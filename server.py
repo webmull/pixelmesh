@@ -205,6 +205,24 @@ def _build_id() -> str:
 
 BUILD_ID = _build_id()
 
+# Source mtime at import, so the process can tell you it is behind the files.
+# app.js and app.html re-render on change (see _app_bundle), but server.py does
+# not - routes, permissions and payload shapes are frozen at import. That gap
+# cost three separate debugging rounds in one afternoon: the deck was refused
+# by a route that was public on disk, phones were served markup from before a
+# card existed, and a found time was missing because the field had not been
+# added yet. In every case the code was right and the process was old, with
+# nothing on screen to say so.
+_SERVER_MTIME_AT_IMPORT = os.path.getmtime(__file__) if os.path.exists(__file__) else 0.0
+
+
+def server_is_stale() -> bool:
+    """True when server.py has changed on disk since this process started."""
+    try:
+        return os.path.getmtime(__file__) > _SERVER_MTIME_AT_IMPORT + 0.5
+    except OSError:
+        return False
+
 
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
@@ -826,6 +844,10 @@ async def show_stats():
         "detecting":        detection_active,
         "effect":           (current_effect_state or {}).get("effect"),
         "effect_started":   (current_effect_state or {}).get("start_time"),
+
+        # True when server.py has been edited since this process started, so
+        # whatever is running is not what is on disk. Cheap: one stat().
+        "server_stale":     server_is_stale(),
     }
 
 
