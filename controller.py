@@ -27,6 +27,7 @@ Dependencies:
 """
 
 import math
+import signal
 import sys
 import os as _os
 import threading
@@ -296,11 +297,18 @@ def _log_detection_summary():
 
 vid_rec = VideoRecorder()
 
-# Auto-start debug capture whenever detection runs, so we always have the
-# heatmap available when investigating "why didn't this phone get detected".
-# Auto-start debug capture with detection; it then runs for the whole
-# session until toggled off manually (G / checkbox) or the app exits.
-_DEBUG_AUTO_ON_DETECT = True
+# Whether a detection run also starts a debug capture.
+#
+# Off. It used to be on, so the heatmap was always there when investigating
+# "why didn't this phone get detected" - but a debug run does NOT stop when
+# detection stops. It stays up for the whole session, and run.mp4 takes every
+# frame whether detecting or not (only the per-frame JPEGs are gated on
+# detection). One overnight session wrote 2.6 GB over 7 hours with detection
+# off the entire time, at 1.1 GB/hour, and that ffmpeg encodes 1920x1080
+# continuously on the same machine the show runs on.
+#
+# Start it deliberately instead: G, or the sidebar checkbox.
+_DEBUG_AUTO_ON_DETECT = False
 
 
 # ------------------------------------------------------------------ #
@@ -1153,10 +1161,9 @@ def toggle_detection():
         ever_active_before = len(detector._ever_active)
         detector.reset()
         log.info(f"[detect] detector reset on run start (cleared {ever_active_before} _ever_active points)")
-        # Auto-start debug capture so the heatmap + frames are always there
-        # for post-show diagnostics. Once started it stays on for the whole
-        # session (per-frame JPEGs only accumulate while detecting) until
-        # toggled off manually or the app exits.
+        # Off by default - see _DEBUG_AUTO_ON_DETECT. A debug run does not end
+        # when detection ends, so starting one here left it recording for the
+        # rest of the session. Press G when a run is worth capturing.
         if _DEBUG_AUTO_ON_DETECT and not dbg_cap.active:
             try:
                 dbg_cap.start_run()
@@ -1241,16 +1248,115 @@ def toggle_debug():
         set_status(f"Debug: {run_dir}")
 
 
-def toggle_recording():
-    """Start or stop a plain video recording (hotkey V). Independent of debug capture."""
-    if vid_rec.active:
-        path = vid_rec.stop()
-        set_status(f"Recording saved: {_os.path.basename(path)}")
-    else:
+# ---------------------------------------------------------------- #
+# Graceful shutdown                                                  #
+# ---------------------------------------------------------------- #
+# An mp4 is only playable once ffmpeg has written its moov atom, and ffmpeg
+# only does that when its stdin closes.  SIGKILL gives the controller no
+# chance to close it, so the file is left unplayable - which is how a
+# recording could run all evening and produce nothing.  run.sh therefore
+# sends SIGTERM and waits; this is the other half of that bargain.
+_shutdown_once = threading.Event()
+
+# Ceiling on the whole graceful path, after which we exit regardless.  The
+# render loop may never unwind: macOS stops driving it while the window is
+# minimised, which is exactly when an unattended recording is most likely to
+# be running.  Files are already safe by then - this only bounds the wait.
+_SHUTDOWN_HARD_EXIT_SECS = 40.0
+
+
+def _finalise_recordings():
+    """Close any open video files. Idempotent.
+
+    Safe to call from a signal handler, which is the whole point of how it is
+    written:
+
+      * it touches no DearPyGui, so it does not matter which thread is mid
+        render frame;
+      * it never takes state.lock.  A Python signal handler runs ON the main
+        thread between bytecodes, so it can land inside a `with state.lock`
+        block the main thread is already holding - and threading.Lock is not
+        reentrant, so asking for it there would deadlock the process at
+        exactly the moment we are trying to save the file.
+
+    Both stops are bounded (VideoRecorder waits 30s on ffmpeg, debug capture
+    joins its writer for 5s then waits 30s), which is what sets run.sh's
+    escalation timeout.
+    """
+    if _shutdown_once.is_set():
+        return
+    _shutdown_once.set()
+
+    try:
+        if vid_rec.active:
+            log.info("[shutdown] finalising recording - closing ffmpeg pipe")
+            path = vid_rec.stop()
+            log.info(f"[shutdown] recording saved → {path}")
+    except Exception as e:
+        log.warning(f"[shutdown] recording close failed: {e}")
+
+    try:
+        if dbg_cap.active:
+            log.info("[shutdown] finalising debug capture")
+            dbg_cap.stop_run()
+    except Exception as e:
+        log.warning(f"[shutdown] debug capture close failed: {e}")
+
+
+def _on_terminate(signum, _frame):
+    """SIGTERM/SIGINT: save the files first, then unwind normally if we can."""
+    log.info(f"[shutdown] signal {signal.Signals(signum).name} received")
+
+    # Files first, before anything that could throw or block.  Everything
+    # below is best-effort; this is not.
+    _finalise_recordings()
+
+    # Now ask the render loop to exit so the `finally` block releases the
+    # camera properly - a handle freed underneath a live reader is the one
+    # failure that surfaces at the NEXT launch, as a camera that will not
+    # open.  If the loop is stalled (minimised) this does nothing, hence the
+    # backstop below.
+    try:
+        dpg.stop_dearpygui()
+    except Exception as e:
+        log.info(f"[shutdown] stop_dearpygui failed: {e}")
+
+    def _backstop():
+        time.sleep(_SHUTDOWN_HARD_EXIT_SECS)
+        log.warning(f"[shutdown] still alive {_SHUTDOWN_HARD_EXIT_SECS:.0f}s "
+                    f"after signal - forcing exit")
+        _os._exit(0)
+
+    threading.Thread(target=_backstop, daemon=True, name="shutdown-backstop").start()
+
+
+def set_recording(on: bool) -> bool:
+    """Start or stop a plain video recording. Independent of debug capture.
+
+    The single entry point for all three callers - hotkey V, the MIDI pedal
+    and POST /admin/mode - so "can I record right now?" is answered in exactly
+    one place.  Idempotent: asking for a state it is already in does nothing,
+    which matters for the mode API, where a repeated request must not restart
+    a recording and orphan the file already being written.
+
+    Returns whether recording is active afterwards, which is not always what
+    was asked for: starting is refused when there is no camera.
+    """
+    if on and not vid_rec.active:
         if _no_camera():
-            return
+            set_status("Cannot record: no camera")
+            return False
         path = vid_rec.start()
         set_status(f"Recording: {_os.path.basename(path)}")
+    elif not on and vid_rec.active:
+        path = vid_rec.stop()
+        set_status(f"Recording saved: {_os.path.basename(path)}")
+    return vid_rec.active
+
+
+def toggle_recording():
+    """Flip recording (hotkey V)."""
+    set_recording(not vid_rec.active)
 
 
 # Sized to the widest fixed-width content inside ~17px of window chrome
@@ -2655,7 +2761,17 @@ def main():
     # reading the DearPyGui registry.
     effects.refresh_param_cache()
 
+    # Must be registered from the main thread. SIGTERM is what run.sh sends
+    # on [d]/[q]/[r]; SIGINT covers a Ctrl-C if the controller is ever run in
+    # the foreground.
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_terminate)
+        except (ValueError, OSError) as e:
+            log.warning(f"[shutdown] could not install {_sig!r} handler: {e}")
+
     threading.Thread(target=lambda: poll_clients(), daemon=True).start()
+    threading.Thread(target=_mode_worker, daemon=True, name="mode-poll").start()
     threading.Thread(target=camera_scan_worker, args=(holder,), daemon=True).start()
     threading.Thread(target=_detection_worker, daemon=True).start()
     threading.Thread(target=_exposure_monitor_worker, daemon=True).start()
@@ -2663,13 +2779,7 @@ def main():
     elgato.on_state_change = _elgato_state_changed
     elgato.start()
     def _midi_set_recording(on: bool):
-        if on and not vid_rec.active:
-            if not _no_camera():
-                path = vid_rec.start()
-                set_status(f"Recording: {_os.path.basename(path)}")
-        elif not on and vid_rec.active:
-            path = vid_rec.stop()
-            set_status(f"Recording saved: {_os.path.basename(path)}")
+        set_recording(on)
 
     def _midi_set_overlays(on: bool):
         with state.lock:
@@ -2880,13 +2990,12 @@ def main():
                      "leaving the camera open rather than freeing it underneath")
             holder["cap"] = None
 
-        # Session-long debug captures are only stopped here or by the user —
-        # finalise run.mp4 + summary.json before anything else can throw.
-        if dbg_cap.active:
-            try:
-                dbg_cap.stop_run()
-            except Exception as e:
-                log.info(f"[shutdown] debug capture close failed: {e}")
+        # Finalise both video files before anything else can throw.  Covers
+        # the plain recorder too, which used to be left open on quit: only
+        # debug capture was closed here, so a recording started with V and
+        # never stopped produced an mp4 with no moov atom - unplayable.
+        # Idempotent, so it is a no-op if a signal handler already ran.
+        _finalise_recordings()
         post_json("/admin/reset", {})
         cap = holder.get("cap")
         if cap:
@@ -3034,6 +3143,88 @@ def _detection_worker():
                         set_status("Detection OFF")
         finally:
             _detect_queue.task_done()
+
+
+# ---------------------------------------------------------------- #
+# Remote mode control (POST /admin/mode)                             #
+# ---------------------------------------------------------------- #
+# Sequence of the last request applied, per mode.  Populated on the first poll
+# WITHOUT applying anything: a request made while the controller was closed is
+# stale by the time it launches, and silently starting a recording at startup
+# because someone poked the API yesterday is not a surprise anyone wants.
+_mode_seq_seen: dict[str, int] = {}
+_mode_last_ack: dict[str, bool] = {}
+
+_MODE_POLL_SECS = 0.6
+
+
+def _mode_actual(name: str) -> bool:
+    """Ground truth for a mode, read from the controller's own state."""
+    if name == "detection":
+        with state.lock:
+            return state.detecting
+    if name == "recording":
+        return vid_rec.active
+    return False
+
+
+def _apply_mode(name: str, want: bool):
+    """Bring one mode to the requested state.
+
+    Called on the mode thread, never the GUI thread.  Both branches go through
+    the same functions the pedal uses, which are already called off-thread and
+    touch DearPyGui only via state + the UI sync loop.
+    """
+    if name == "detection":
+        with state.lock:
+            current = state.detecting
+        if current != want:
+            toggle_detection()   # guards inside may still refuse; the ack tells the truth
+    elif name == "recording":
+        set_recording(want)
+
+
+def _mode_worker():
+    """Poll the server for mode requests and apply the ones not yet seen.
+
+    Its own thread rather than a few lines inside poll_clients: stopping a
+    recording drains ffmpeg and can block for seconds, and that must not hold
+    up the client-count poll.  Nothing here touches the camera or the render
+    loop, so a slow tick costs nothing but a slightly later switch.
+    """
+    global _mode_seq_seen
+    while state.running:
+        try:
+            data = fetch_json("/admin/mode")
+            if data:
+                modes = data.get("modes") or {}
+                priming = not _mode_seq_seen
+
+                for name, info in modes.items():
+                    seq = int(info.get("seq", 0))
+                    if priming:
+                        _mode_seq_seen[name] = seq   # adopt, do not fire
+                        continue
+                    if seq > _mode_seq_seen.get(name, 0):
+                        _mode_seq_seen[name] = seq
+                        want = bool(info.get("enabled"))
+                        log.info(f"[mode] applying {name}={want} (seq {seq})")
+                        _apply_mode(name, want)
+
+                if priming and modes:
+                    log.info(f"[mode] primed at {_mode_seq_seen} (nothing applied)")
+
+                # Report what is actually true, but only when it changes, so a
+                # steady show is not posting every 0.6s.  Covers local changes
+                # too: flip detection with the pedal and the API reflects it.
+                actual = {name: _mode_actual(name) for name in modes}
+                if actual != _mode_last_ack:
+                    if post_json("/admin/mode/ack", actual, timeout=0.5):
+                        _mode_last_ack.clear()
+                        _mode_last_ack.update(actual)
+        except Exception as e:
+            log.warning(f"[mode] poll failed: {e}")
+        time.sleep(_MODE_POLL_SECS)
 
 
 def _refresh_valid_blink_ids():

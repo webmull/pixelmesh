@@ -21,7 +21,7 @@ import sys
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -72,25 +72,57 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-# Public read-only admin routes — exempt from token check.
+# Public read-only admin routes - exempt from token check.
 _ADMIN_PUBLIC = {"/admin/show_stats"}
+
+# Admin routes a browser on another origin may call.  Being in here only makes
+# the browser willing to send the request and read the reply; it does NOT
+# exempt the route from the token check.  /admin/mode is deliberately in this
+# set but NOT in _ADMIN_PUBLIC: it can stop detection mid-show, so it stays
+# authenticated.  A caller must send X-Admin-Token.
+_ADMIN_CORS = _ADMIN_PUBLIC | {"/admin/mode"}
+
+_CORS_HEADERS = {
+    "Access-Control-Allow-Origin":  "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, X-Admin-Token",
+    "Access-Control-Max-Age":       "600",
+}
 
 
 class AdminTokenMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        is_public = request.url.path in _ADMIN_PUBLIC
-        if request.url.path.startswith("/admin/") and not is_public:
+        path = request.url.path
+        is_public = path in _ADMIN_PUBLIC
+        allow_cors = path in _ADMIN_CORS
+
+        # A CORS preflight carries no credentials by specification - the
+        # browser strips X-Admin-Token from the OPTIONS probe and only sends
+        # it on the real request.  Answering the preflight before the token
+        # check is therefore required, not a hole: OPTIONS reaches no handler
+        # and returns no data.
+        if allow_cors and request.method == "OPTIONS":
+            return Response(status_code=204, headers=dict(_CORS_HEADERS))
+
+        if path.startswith("/admin/") and not is_public:
             if request.headers.get("X-Admin-Token") != _ADMIN_TOKEN:
-                return Response(status_code=403)
+                # The CORS headers go on the 403 too.  Without them the
+                # browser reports an opaque "CORS error" and hides the status,
+                # so a caller with a bad token cannot tell auth failure from a
+                # misconfigured server.
+                return Response(
+                    status_code=403,
+                    headers=dict(_CORS_HEADERS) if allow_cors else None,
+                )
+
         response = await call_next(request)
         # The talk deck polls /admin/show_stats from a different origin (it is
         # opened as a file:// or localhost page), so the browser needs this
         # header before it will let that page read the response.  Scoped to
-        # _ADMIN_PUBLIC only — that route is already unauthenticated and
-        # read-only, and returns three integers.  Nothing else under /admin/
-        # becomes cross-origin readable.
-        if is_public:
-            response.headers["Access-Control-Allow-Origin"] = "*"
+        # _ADMIN_CORS - nothing else under /admin/ becomes cross-origin
+        # readable.
+        if allow_cors:
+            response.headers.update(_CORS_HEADERS)
         return response
 
 
@@ -153,6 +185,34 @@ detection_active = False
 
 # Whether the controller has enabled clock sync.
 sync_active = False
+
+
+# ------------------------------------------------------------------ #
+# Mode control (POST /admin/mode)                                      #
+# ------------------------------------------------------------------ #
+# Remote on/off switches for things the CONTROLLER owns.  The server holds no
+# camera and no recorder, so it cannot act on these itself - it records the
+# request and the controller picks it up on its next poll and does the work.
+#
+# Requests, not desired state.  Each mode carries a sequence number that only
+# increments, and the controller applies a mode only when it sees a seq it has
+# not applied yet.  A plain desired-state flag would fight the operator: stop
+# detection with the pedal and one second later the controller would read
+# "detection: true" still sitting here and switch it straight back on.
+#
+# To add a mode: add a name here and a branch in controller._apply_mode.
+MODES = ("detection", "recording")
+
+# name -> {"enabled": bool, "seq": int}.  seq 0 means "never requested", which
+# is what lets the controller adopt the current values on connect without
+# firing them.
+mode_requests: dict[str, dict] = {m: {"enabled": False, "seq": 0} for m in MODES}
+
+# What the controller reports is ACTUALLY true, echoed back after it applies a
+# request.  None until it first reports.  Kept separate from the request
+# because the two legitimately disagree: a request can be refused (no camera),
+# and the operator can change a mode locally without any request at all.
+mode_actual: dict[str, bool | None] = {m: None for m in MODES}
 
 # ------------------------------------------------------------------ #
 # State                                                                #
@@ -704,6 +764,93 @@ async def show_stats():
     }
 
 
+def _mode_snapshot() -> dict:
+    return {
+        "modes": {
+            name: {
+                "enabled": mode_requests[name]["enabled"],
+                "seq":     mode_requests[name]["seq"],
+                "actual":  mode_actual[name],
+            }
+            for name in MODES
+        },
+        "supported": list(MODES),
+    }
+
+
+@app.get("/admin/mode")
+async def get_mode():
+    """Current mode requests and what the controller reports is actually true.
+
+    The controller polls this; a browser can read it to render switch states.
+    """
+    return _mode_snapshot()
+
+
+@app.post("/admin/mode")
+async def set_mode_request(payload: dict):
+    """Turn modes on or off remotely.
+
+    Body is a flat map of mode name to boolean.  Send one or several:
+
+        {"detection": true}
+        {"recording": false}
+        {"detection": true, "recording": true}
+
+    Requires X-Admin-Token, and is CORS-enabled so a browser on another origin
+    can call it (see _ADMIN_CORS).
+
+    Unknown names are rejected as a whole rather than partially applied, so a
+    typo fails loudly instead of silently doing half of what was asked.
+    Booleans only: "true"/1/"on" are refused, because a string is far more
+    likely to be a caller bug than an intent to enable something.
+
+    Returns the same shape as GET.  "actual" will still be the OLD value in
+    this response - the controller has not polled yet.  Poll GET to confirm
+    the change landed; a request that cannot be honoured (recording with no
+    camera) leaves actual disagreeing with enabled.
+    """
+    if not isinstance(payload, dict) or not payload:
+        raise HTTPException(400, "body must be a non-empty object of mode -> bool")
+
+    unknown = [k for k in payload if k not in MODES]
+    if unknown:
+        raise HTTPException(
+            400, f"unknown mode(s): {', '.join(sorted(unknown))}. "
+                 f"supported: {', '.join(MODES)}")
+
+    bad = [k for k, v in payload.items() if not isinstance(v, bool)]
+    if bad:
+        raise HTTPException(
+            400, f"mode value must be true or false: {', '.join(sorted(bad))}")
+
+    for name, want in payload.items():
+        entry = mode_requests[name]
+        # Bump the seq even when the value is unchanged.  "Set recording on"
+        # when the server already thinks it is on still has to reach the
+        # controller - the controller may have stopped it locally, and this is
+        # the caller asking for it back.
+        entry["enabled"] = want
+        entry["seq"] += 1
+        print(f"[mode] request {name}={want} (seq {entry['seq']})", flush=True)
+
+    return _mode_snapshot()
+
+
+@app.post("/admin/mode/ack")
+async def ack_mode(payload: dict):
+    """Controller reports what is actually true after applying a request.
+
+    Not for general use - it is how GET /admin/mode can answer "did it work?".
+    Token-gated and not CORS-enabled: nothing in a browser should claim to be
+    the controller.
+    """
+    for name, val in (payload or {}).items():
+        if name in MODES and isinstance(val, bool):
+            mode_actual[name] = val
+    return _mode_snapshot()
+
+
 @app.post("/admin/reset")
 async def reset():
     global current_effect_state, detection_active, sync_active
@@ -712,6 +859,11 @@ async def reset():
     sync_active = False
     sync_stats.clear()
     positions.clear()
+    # Deliberately does NOT clear mode_requests.  Those seq counters are the
+    # controller's "have I applied this yet?" cursor, and it holds its own copy
+    # in memory.  Zeroing them here would leave the controller's cursor ahead
+    # of the server's, so every later request would look stale and silently do
+    # nothing until the seq climbed back past it.
     await set_mode(MODE_WAITING)
     await broadcast({"type": "reset"})
     return {"ok": True}
