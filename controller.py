@@ -164,6 +164,12 @@ _AUDIENCE_ISO_GAIN:  int = 100
 # the controller canvas.  Firing any other sidebar effect disarms ripple.
 _ripple_armed: bool = False
 
+# Whether the closing card is currently up on the audience's phones. Drives the
+# amber highlight on the End Scene button, so a glance at the sidebar says
+# whether the show has been ended - there is no other feedback on the operator
+# side, and it is not an action you want to fire twice by accident.
+_scene_ended: bool = False
+
 # Spotlight-follow state.  Toggled by the Spotlight sidebar button; while
 # armed, every render frame draws a glowing circle on the operator's cursor
 # (visible in both the controller preview and the MJPEG projection), and a
@@ -1008,6 +1014,7 @@ def update_ui_from_state():
     # state.current_effect now carries "ripple" while armed (set by
     # _set_ripple_armed), so the highlight follows naturally.
     ui_queue.put(("_active_effect", effect))
+    ui_queue.put(("_end_scene_active", _scene_ended))
 
     safe_set("rec_status_text", "[REC]" if rec_active else "")
     ui_queue.put(("_rec_status_show", rec_active))
@@ -1157,6 +1164,9 @@ def toggle_detection():
         # A detection run starts a new act, so the pedal's effect cycle starts
         # from the top too. Covers every entry point, since the keyboard, the
         # sidebar and switch 1 all arrive here.
+        # A new detection run is a new show, so the End Scene highlight goes.
+        global _scene_ended
+        _scene_ended = False
         midi.midi.reset_effect_cycle()
         ever_active_before = len(detector._ever_active)
         detector.reset()
@@ -1420,6 +1430,41 @@ def install_signal_handling():
             signal.signal(sig, _on_terminate)
         except (ValueError, OSError) as e:
             log.warning(f"[shutdown] could not install {sig!r} handler: {e}")
+
+
+def end_scene():
+    """End the show: stop effects and put every phone on the closing card.
+
+    One server call rather than "stop effects, then send the card". The gap
+    between two calls is a gap the room can see, and a phone that goes dark
+    and then lights up again reads as a glitch rather than an ending.
+
+    Deliberately not on the pedal. This is the one action in the show with no
+    way back - every phone leaves the effect view at once - and a foot switch
+    is exactly the wrong control for it.
+
+    GUI THREAD ONLY. The disarm below reaches DearPyGui via
+    _set_spotlight_armed, so wiring this to the MIDI thread or the mode poller
+    would make cross-thread DPG calls - the failure that does not surface here
+    but as a wedged UI later.
+    """
+    global _scene_ended
+    post_json_async("/admin/end", {})
+    _scene_ended = True
+
+    # Tear the controller's own effect state down to match. /admin/end stops
+    # the effect for the audience, but the sidebar highlight and the preview
+    # animation both read state.current_effect - so without this the operator
+    # is left watching a preview of an effect that is no longer playing
+    # anywhere, with its button still lit, while the room reads a closing card.
+    # Disarm first: both setters drive current_effect themselves, so clearing
+    # before disarming would just be overwritten.
+    _set_ripple_armed(False)
+    _set_spotlight_armed(False)
+    with state.lock:
+        state.current_effect = None
+
+    set_status("Scene ended - phones showing the closing card")
 
 
 def set_recording(on: bool) -> bool:
@@ -2482,6 +2527,12 @@ def setup_ui(holder: dict):
                                     width=30,
                                 )
 
+                        dpg.add_spacer(height=10)
+                        _heading("END")
+                        dpg.add_button(label="End Scene", tag="btn_end_scene",
+                                       callback=lambda: end_scene(),
+                                       indent=_PAD, width=-(_PAD + 1))
+
 
                 # ---- GAME tab ----
                 with dpg.tab(label="GAME"):
@@ -3004,6 +3055,12 @@ def main():
                                     dpg.bind_item_theme(btn, "fx_active_theme")
                                 else:
                                     dpg.bind_item_theme(btn, None)
+                        continue
+                    if tag == "_end_scene_active":
+                        if dpg.does_item_exist("btn_end_scene"):
+                            dpg.bind_item_theme(
+                                "btn_end_scene",
+                                "fx_active_theme" if value else None)
                         continue
                     if tag == "_refire_effect":
                         # Debounced re-fire from effects._on_settings_changed

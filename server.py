@@ -84,7 +84,7 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
 # this machine. Overlays are cosmetic - the worst this allows is markers
 # flickering on the feed. Detection and recording stay behind the token,
 # because those can stop a show.
-_ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays"}
+_ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays", "/admin/end"}
 
 # Admin routes a browser on another origin may call.  Being in here only makes
 # the browser willing to send the request and read the reply; it does NOT
@@ -186,6 +186,7 @@ app.include_router(game.router)
 MODE_WAITING   = "WAITING"        # clients show idle screen
 MODE_DETECTION = "DETECTION"     # clients blink their ID
 MODE_SHOWTIME  = "SHOWTIME"      # clients render effects
+MODE_ENDED     = "ENDED"         # show over, clients show the closing card
 
 mode = MODE_WAITING
 
@@ -218,6 +219,15 @@ detection_active = False
 
 # Whether the controller has enabled clock sync.
 sync_active = False
+
+# How long each phone took to be found, in ms, measured from the moment
+# detection started. Server-side rather than client-side on purpose: the phone
+# is the wrong place to keep it. A reload drops in-memory state, so refreshing
+# the closing card lost the number while the phone id and the map - both of
+# which come from here - survived. It is also the same clock the controller's
+# calibration log uses, so the two agree.
+detection_started_at: float | None = None
+found_ms: dict[str, int] = {}
 
 
 # ------------------------------------------------------------------ #
@@ -486,7 +496,7 @@ async def websocket_endpoint(ws: WebSocket):
                 is_spectator = True
                 await ws.send_json({
                     "type":      "spectator_hello",
-                    "build_id":  BUILD_ID,
+                    "build_id":  _app_bundle()[0],
                     "game": {
                         "active":    game.game_active,
                         "mode":      game.game_mode,
@@ -515,7 +525,8 @@ async def websocket_endpoint(ws: WebSocket):
                 pos = known_pos or {"u": 0.0, "v": 0.0}
 
                 # Build ID first — client reloads immediately if stale
-                await ws.send_json({"type": "server_hello", "build_id": BUILD_ID})
+                await ws.send_json({"type": "server_hello",
+                                    "build_id": _app_bundle()[0]})
 
                 await ws.send_json({
                     "type":       "assigned",
@@ -546,6 +557,16 @@ async def websocket_endpoint(ws: WebSocket):
                         # Detection ended while this phone was disconnected —
                         # send detection_ended so it exits PS.BLINKING cleanly.
                         await ws.send_json({"type": "detection_ended"})
+                elif mode == MODE_ENDED:
+                    # The show is over. show_end is a one-shot broadcast, so a
+                    # phone that dropped and came back - or one that joined
+                    # late - would otherwise sit on a blank idle screen for the
+                    # rest of the night instead of the closing card.
+                    await ws.send_json({
+                        "type":            "show_end",
+                        "total_connected": len(blink_assignments),
+                        "found_ms":        found_ms.get(device_id),
+                    })
                 # MODE_WAITING: no message needed — client stays on idle screen
 
                 if sync_active:
@@ -650,10 +671,15 @@ async def blink_map():
 @app.post("/admin/detect")
 async def detect(payload: dict):
     """Controller signals detection start/stop."""
-    global detection_active
+    global detection_active, detection_started_at
     detecting = payload.get("detecting", True)
     detection_active = detecting
     if detecting:
+        # A new run re-measures everyone. Without the clear, a phone found in
+        # the first run would keep that time even if the operator reset and ran
+        # detection again.
+        detection_started_at = time.time()
+        found_ms.clear()
         await set_mode(MODE_DETECTION)
         # Only tell clients who don't yet have a known position to blink;
         # already-found clients get their position re-confirmed (they may have
@@ -705,6 +731,12 @@ async def update_positions(payload: dict):
         device_id = blink_to_device(blink_id)
         if device_id is None:
             continue
+
+        # First location only. The controller re-confirms known positions, and
+        # counting those would keep pushing the number up for someone who was
+        # found immediately.
+        if device_id not in found_ms and detection_started_at is not None:
+            found_ms[device_id] = max(0, int((time.time() - detection_started_at) * 1000))
 
         positions[device_id] = {"u": pos["u"], "v": pos["v"]}
 
@@ -937,6 +969,7 @@ async def reset():
     sync_active = False
     sync_stats.clear()
     positions.clear()
+    found_ms.clear()
     # Deliberately does NOT clear mode_requests.  Those seq counters are the
     # controller's "have I applied this yet?" cursor, and it holds its own copy
     # in memory.  Zeroing them here would leave the controller's cursor ahead
@@ -989,6 +1022,49 @@ async def effect_fire(payload: dict):
     params = {k: v for k, v in payload.items() if k != "name"}
     await start_effect(name, params)
     return {"ok": True}
+
+
+@app.post("/admin/end")
+async def end_show(request: Request):
+    """End the show: kill any effect and put every phone on the closing card.
+
+    Token-free but LOCAL ONLY, same compromise as /admin/overlays and for the
+    same reason: the talk deck fires this as it leaves the camera slide, and a
+    static HTML file cannot hold a token run.sh regenerates every launch.
+
+    This one is a bigger exemption than overlays - overlays flicker, this ends
+    the show for the whole room - so the locality check is the only thing
+    standing in front of it. Anything arriving through the ngrok tunnel is
+    refused. docs/TODO.md tracks doing this properly.
+
+    One call rather than "stop effects, then send the card", because the gap
+    between two calls is a gap the room can see - a phone that has gone dark
+    and then lights up again reads as a glitch, not an ending.
+
+    The payload is deliberately thin. Everything personal on that card -
+    which phone you were, how long you took to find, where you sat - is
+    already on the device; only the room total has to come from here.
+    """
+    if not _is_local_request(request):
+        raise HTTPException(403, "this route is only served to local clients")
+
+    global current_effect_state
+    current_effect_state = None
+    await set_mode(MODE_ENDED)
+    await broadcast({"type": "effect_stop"})
+
+    # Per connection, not a broadcast. found_ms is per device, and a broadcast
+    # would hand every phone somebody else's time - the same reason the rest of
+    # this payload carries no identifiers.
+    total = len(blink_assignments)
+    for device_id, ws in list(connections.items()):
+        await _timed_send_json(ws, {
+            "type":            "show_end",
+            "total_connected": total,
+            "found_ms":        found_ms.get(device_id),
+        })
+    print(f"[end] show ended, {total} phones", flush=True)
+    return {"ok": True, "total_connected": total}
 
 
 @app.post("/admin/effect/stop")
@@ -1177,13 +1253,41 @@ def _render_html(filename: str, build_id: str | None = None) -> str | None:
         return None
     return _APP_HTML_VERSION_RE.sub(build_id, html) if build_id else html
 
-# Rendered once at import — BUILD_ID is fixed per process, so the result is
-# constant.  Avoids a blocking open()+regex on the event loop on every page hit
-# (hundreds of phones load "/" simultaneously at show start).
-_APP_HTML = _render_html("app.html", BUILD_ID)
+def _src_mtime(name: str) -> float:
+    try:
+        return os.stat(os.path.join(_PUBLIC_DIR, name)).st_mtime
+    except OSError:
+        return 0.0
+
+
+# app.html is still rendered once and reused - a blocking open()+regex on the
+# event loop for every page hit is not acceptable when hundreds of phones load
+# "/" at show start. What changed is that the cache is now keyed on the mtimes
+# of the files it was built from, so it re-renders when they actually change.
+#
+# The previous import-time snapshot was a trap. Editing app.js on a running
+# server left BUILD_ID frozen, while StaticFiles kept serving the NEW bytes at
+# app.js?v=<old id> - a URL marked immutable for a year. Phones pinned a
+# mid-edit build permanently. Worse, "/" kept serving the markup as it was at
+# startup, so a phone could run new script against old HTML, hit a card that
+# did not exist yet, and sit on "Connecting..." forever.
+#
+# Cost is two stat() calls per page load, against a read+hash+regex avoided.
+_APP_CACHE: dict = {"key": None, "build_id": BUILD_ID, "html": None}
+
+
+def _app_bundle() -> tuple[str, str | None]:
+    """(build_id, rendered html), re-derived only when a source file changes."""
+    key = (_src_mtime("app.js"), _src_mtime("app.html"))
+    if _APP_CACHE["key"] != key:
+        bid = _build_id()
+        _APP_CACHE.update(key=key, build_id=bid,
+                          html=_render_html("app.html", bid))
+    return _APP_CACHE["build_id"], _APP_CACHE["html"]
+
 
 def _serve_app_html():
-    return HTMLResponse(content=_APP_HTML, headers=_NO_CACHE)
+    return HTMLResponse(content=_app_bundle()[1], headers=_NO_CACHE)
 
 
 @app.get("/")

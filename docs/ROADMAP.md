@@ -3,6 +3,27 @@
 Design notes for planned work. Ordered roughly by value. Items marked **frozen zone** touch
 `blink_detector.py` / `blink_encoder.py` and need explicit sign-off before implementation.
 
+## Customisable end screens
+
+The outro card is per-show content dressed up as code. Venue, date, the closing
+line and the URL all differ between the September talk and MotoCon in October,
+and a card that says the wrong venue is worse than one that says nothing - which
+is why the venue line came straight back out of the mock rather than being
+hardcoded.
+
+Wanted: the end screen driven by config rather than markup. A small block the
+operator sets per show (venue, date, headline, footer line, whether to show the
+map at all), read by the phone client the same way it reads any other state.
+`/admin/mode` already has the shape for pushing show state to clients, so this
+is closer to "add fields" than "build a system".
+
+Worth doing at the same time: a preview route, so the card can be checked on a
+phone before the room is full. The mock lives at `artifacts/mobiletest/` and was
+served over viaduct for exactly that reason; that should be a first-class thing
+rather than a scratch directory.
+
+Blocked on nothing. Deliberately not started until the card design settles.
+
 ## Faster decode: PHASE_MS 300ms -> 250ms
 
 Cuts the cycle 13.2s -> 11s (-17%) with the full 512-ID space intact - warmup floor, every

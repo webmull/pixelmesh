@@ -116,6 +116,7 @@ const CARDS = {
   located: document.getElementById("card-located"),
   effects: document.getElementById("card-effects"),
   game:    document.getElementById("card-game"),
+  end:     document.getElementById("card-end"),
 };
 
 // Named view states → which card to show
@@ -127,9 +128,16 @@ const VIEW_CARD = {
   missed:    "blink",    // detection ended, not found — red flash
   effects:   "effects",  // showtime effect playing
   game:      "game",     // avatar race card
+  ended:     "end",      // show over, closing card
 };
 
 let view = "idle";
+
+/* Declared here, not down with the socket state, because setView() reads it -
+   and setView is defined 200 lines before that block. It only worked because
+   the first call happens at the very bottom of the file; anything that called
+   setView earlier would have hit a temporal dead zone. */
+let everConnected = false;   // false until the first successful WS open this page-load
 
 // Explicit display type for each card when shown.
 // We set this directly rather than relying on CSS cascade (removing inline
@@ -140,7 +148,24 @@ const CARD_DISPLAY = {
   located: "flex",
   effects: "block",
   game:    "flex",
+  end:     "flex",
 };
+
+/* Every access to a card goes through here. app.html is cached separately from
+   app.js, so a phone can run new script against older markup and find a card
+   missing - and a bare CARDS.x.style threw, which on the render loop meant
+   throwing on every frame and on the disconnect path meant a phone that
+   dropped could never recover. The stub absorbs the call: a missing card
+   costs that card, never the show.
+
+   Deliberately not a Proxy - this runs inside the 60fps render loop on phones
+   from 2016. */
+const _CARD_STUB = {
+  style: {},
+  classList: { add(){}, remove(){}, toggle(){}, contains(){ return false; } },
+  addEventListener(){}, removeEventListener(){},
+};
+function card(name) { return CARDS[name] || _CARD_STUB; }
 
 let _posMapAnim = null;
 
@@ -166,6 +191,14 @@ function setView(name) {
   view = name;
   const active = VIEW_CARD[name];
   for (const [k, el] of Object.entries(CARDS)) {
+    // Skip a card the page does not have. app.html is cached separately from
+    // app.js, so a phone can end up running new script against older markup -
+    // and this loop throwing took the whole app down with it: setView is on
+    // every path, so the page never connected and sat on "Connecting..."
+    // forever. The build_id check that repairs a stale page lives inside the
+    // server_hello handler, which never ran. Missing one card should cost that
+    // card, not the show.
+    if (!el) continue;
     el.style.display = k === active ? CARD_DISPLAY[k] : "none";
   }
   // Connection chrome only where it can't pollute the show. Before the
@@ -197,6 +230,24 @@ statusBar.style.display = "flex";
 // serves whichever of show or holding page is right.
 const bootTime = Date.now();
 let lastVisibleTs = Date.now();
+
+/* One way out. Four paths independently wanted to reload - the liveness
+   watchdog (three of its own branches), the 8s handover deadline, the
+   build-id check, and a throwing constructor - and none knew about the
+   others. A flapping server could have several in flight at once, which is
+   how a phone ends up reloading in a loop instead of recovering.
+
+   Also latched: once a reload is committed the page is going away, so a
+   second caller has nothing useful to add. The reason is kept for the console
+   because "why did that phone reload" is otherwise unanswerable after a show. */
+let _reloadCommitted = false;
+function commitReload(reason) {
+  if (_reloadCommitted) return;
+  if (view === "ended") return;   // never take the closing card away
+  _reloadCommitted = true;
+  try { console.info("[pixelmesh] reloading:", reason); } catch (e) {}
+  location.reload();
+}
 function _livenessCheck() {
   if (document.hidden) return;
   if (view !== "idle") return;      // any assigned/show state is alive
@@ -208,23 +259,17 @@ function _livenessCheck() {
   // closes hung CONNECTING sockets, so this state is always young.
   if (ws && ws.readyState === WebSocket.CONNECTING) return;
   if (!everConnected) {
-    if (now - bootTime > 15000) location.reload();
+    if (now - bootTime > 15000) commitReload("never connected in 15s");
   } else if (ws && ws.readyState === WebSocket.OPEN) {
     // open socket but never left idle: assign lost somewhere
-    if (lastOpenTs && now - lastOpenTs > 10000) location.reload();
+    if (lastOpenTs && now - lastOpenTs > 10000) commitReload("open socket, no assign in 10s");
   } else if (disconnectedSince && now - disconnectedSince > 10000) {
     // the 8s reloadTimer should have fired; frozen timers backstop
-    location.reload();
+    commitReload("outage past the 10s backstop");
   }
 }
 setInterval(_livenessCheck, 3000);
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) return;
-  lastVisibleTs = Date.now();
-  // Restart the disconnect clock too: it may have aged while frozen,
-  // and the reconnect deserves its full window in the foreground.
-  if (disconnectedSince) disconnectedSince = Date.now();
-});
+
 
 ["gesturestart", "gesturechange", "gestureend"].forEach((t) =>
   document.addEventListener(t, (e) => e.preventDefault())
@@ -242,6 +287,14 @@ if (!deviceId) {
 let myBlinkId     = null;
 let myBlinkPhases = [];
 let blinkStartMs  = 0;
+/* How long this phone took to be found. Comes from the server, which owns the
+   clock: an in-memory value here died on every reload, so refreshing the
+   closing card lost the number while the phone id and the map - both
+   server-sourced - survived. It also cannot be measured accurately from here.
+   blinkStartMs looks like the right baseline and is not: it is the phase
+   anchor for the blink cycle, backdated by a per-phone stagger and re-anchored
+   whenever the page returns to the foreground. */
+let foundMs = null;
 let missedStart   = 0;
 
 let myU = 0;
@@ -375,7 +428,14 @@ function _ordinalLabel(rank) {
 
 
 let ws              = null;
-let everConnected   = false;  // false until the first successful WS open this page-load
+/* Generation counter. Every socket carries the number it was created with, and
+   each handler drops out if it is no longer the current one. Without this, a
+   socket closed by a newer connect() still ran its onclose - scheduling another
+   reconnect, blacking the card out, arming a reload - on behalf of a
+   connection nobody was waiting for any more. That is what produced
+   overlapping chains closing each other's sockets. */
+let wsGen           = 0;
+let reconnectTimer  = null;   // at most one pending reconnect, ever
 let lastOpenTs      = 0;      // wall-clock of the most recent successful WS open
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
@@ -439,8 +499,15 @@ async function requestWakeLock() {
   } catch {}
 }
 
+/* One handler for coming back to the foreground. This was two separate
+   listeners doing related work, which is an easy way to change half of a
+   behaviour by accident. Order is preserved from the originals. */
 document.addEventListener("visibilitychange", async () => {
   if (document.visibilityState !== "visible") return;
+  lastVisibleTs = Date.now();
+  // Restart the disconnect clock too: it may have aged while frozen, and the
+  // reconnect deserves its full window in the foreground.
+  if (disconnectedSince) disconnectedSince = Date.now();
   await requestWakeLock();
   // Resync after a brief background: re-open the socket if it died, and
   // restart the blink cycle anchor so we begin a clean guard-run from now
@@ -476,32 +543,58 @@ function startHeartbeat() {
 // WebSocket
 // ------------------------------------------------------------------ //
 
+/* One pending reconnect at a time. Several paths want to retry - onclose, a
+   throwing constructor, returning to the foreground - and each used to arm its
+   own timer, so a phone that flapped a few times ended up with several
+   independent chains all reconnecting on their own backoff. */
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, reconnectDelay);
+  reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+}
+
 function connect() {
+  // Never tear down a healthy socket. A CONNECTING one is bounded by the 3s
+  // watchdog and will resolve on its own; closing it here - which is what the
+  // visibilitychange handler effectively did on every return to foreground -
+  // is the other half of the overlapping-chain bug.
+  if (ws && (ws.readyState === WebSocket.OPEN ||
+             ws.readyState === WebSocket.CONNECTING)) return;
   if (ws) { try { ws.close(); } catch {} ws = null; }
 
+  const gen = ++wsGen;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   // Constructor can throw synchronously in some in-app browsers; without
   // this the page would sit on Connecting forever with no retry loop.
+  let sock;
   try {
-    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    sock = new WebSocket(`${proto}://${location.host}/ws`);
   } catch (e) {
     ws = null;
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+    scheduleReconnect();
     return;
   }
+  ws = sock;
 
   connectWatchdog = setTimeout(() => {
-    if (ws && ws.readyState === WebSocket.CONNECTING) {
-      try { ws.close(); } catch {}
+    if (sock.readyState === WebSocket.CONNECTING) {
+      try { sock.close(); } catch {}
     }
   }, 3000);
 
-  ws.onopen = () => {
+  // Every handler drops out if a newer connect() has superseded this socket.
+  const stale = () => gen !== wsGen;
+
+  sock.onopen = () => {
+    if (stale()) { try { sock.close(); } catch {} return; }
     clearTimeout(connectWatchdog);
     everConnected = true;
     lastOpenTs = Date.now();
     reconnectDelay = 500;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     disconnectedSince = 0;
     if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
 
@@ -511,12 +604,21 @@ function connect() {
     startHeartbeat();
   };
 
-  ws.onmessage = (ev) => {
-    const msg = JSON.parse(ev.data);
-    handleMessage(msg);
+  sock.onmessage = (ev) => {
+    if (stale()) return;
+    // Contained on purpose. handleMessage is a long if-chain over a payload
+    // this page does not control, and an unexpected shape used to throw out of
+    // the socket handler - losing that message and anything it would have done
+    // after the throw. One bad frame should not cost the show.
+    let msg;
+    try { msg = JSON.parse(ev.data); }
+    catch (e) { return; }
+    try { handleMessage(msg); }
+    catch (e) { /* keep the socket alive */ }
   };
 
-  ws.onclose = () => {
+  sock.onclose = () => {
+    if (stale()) return;          // a superseded socket speaks for nobody
     clearTimeout(connectWatchdog);
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
@@ -524,7 +626,13 @@ function connect() {
     // Pre-show drops keep the waiting card up with an amber status bar
     // instead of cutting to black; a page that has never connected keeps
     // its Connecting state; every other view blacks out as before.
-    if (view !== "waiting" && everConnected) {
+    //
+    // "ended" is exempt for the same reason "waiting" is: the closing card
+    // needs no socket. It is a static souvenir people are being asked to
+    // screenshot, and phones drop constantly - screen lock, a walk to the
+    // exit, conference wifi. Blacking it out on close wiped the card
+    // moments after it appeared, which read as a flicker to black.
+    if (view !== "waiting" && view !== "ended" && everConnected) {
       goBlack();
     } else {
       // Text change re-centres the bar and moves the dot; nudge a
@@ -533,7 +641,12 @@ function connect() {
       statusBar.classList.add("warn");
       statusBar.style.transform = "translateX(-50%) translateZ(0)";
     }
-    if (!disconnectedSince) {
+    // Never on the closing card. This deadline exists to hand a phone over to
+    // the holding page once the show is genuinely down - but when the show has
+    // ENDED there is nothing to hand over to, and a reload throws away the one
+    // thing the audience is being asked to keep. It was also the flicker:
+    // socket fails, 8s later the page reloads, the card paints and dies again.
+    if (!disconnectedSince && view !== "ended") {
       disconnectedSince = Date.now();
       // Hard 8s deadline: reconnects handle short blips, but once the
       // show is genuinely down, hand over to the holding page fast -
@@ -545,14 +658,13 @@ function connect() {
         // the liveness interval backstops if it dies.
         if (ws && (ws.readyState === WebSocket.OPEN ||
                    ws.readyState === WebSocket.CONNECTING)) return;
-        location.reload();
+        commitReload("8s handover deadline");
       }, 8000);
     }
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
+    scheduleReconnect();
   };
 
-  ws.onerror = () => { try { ws.close(); } catch {} };
+  sock.onerror = () => { if (!stale()) { try { sock.close(); } catch {} } };
 }
 
 function goBlack() {
@@ -560,13 +672,23 @@ function goBlack() {
   calibrated    = false;
   myBlinkPhases = [];
   _cleanupGame();
-  CARDS.effects.style.background = "#000";
+  card("effects").style.background = "#000";
   setView("idle");
 }
 
 function handleMessage(msg) {
+  if (msg.type === "show_end") {
+    foundMs = (typeof msg.found_ms === "number") ? msg.found_ms : null;
+    showEndCard(msg.total_connected || 0);
+    return;
+  }
+
   if (msg.type === "shutdown") {
-    goBlack();
+    // Not once the closing card is up. The natural order is: end the show,
+    // finish the talk, quit pixelmesh - and people are still holding that
+    // card on the way out. Blacking it out because the operator closed an app
+    // they cannot see would take the souvenir away mid-screenshot.
+    if (view !== "ended") goBlack();
     return;
   }
 
@@ -581,7 +703,7 @@ function handleMessage(msg) {
     const myBuild = tag && (tag.src.match(/[?&]v=([^&]+)/) || [])[1];
     if (myBuild && msg.build_id && myBuild !== msg.build_id) {
       document.body.style.background = "#00e676";
-      setTimeout(() => location.reload(), 200);
+      setTimeout(() => commitReload("build id differs from this page"), 200);
     }
     return;
   }
@@ -652,7 +774,7 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "phones_located") {
-    for (const [bid, pos] of Object.entries(msg.positions)) {
+    for (const [bid, pos] of Object.entries(msg.positions || {})) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
     if (view === "located" && !_posMapAnim) _startPositionMapAnim();
@@ -660,7 +782,7 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "crowd_map") {
-    for (const [bid, pos] of Object.entries(msg.positions)) {
+    for (const [bid, pos] of Object.entries(msg.positions || {})) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
     if (view === "located" && !_posMapAnim) _startPositionMapAnim();
@@ -754,7 +876,7 @@ function handleMessage(msg) {
     raceInRoster  = (msg.blink_ids || []).includes(myBlinkId);
     raceRosterSize = (msg.blink_ids || []).length;
 
-    CARDS.game.classList.add("mode-race");
+    card("game").classList.add("mode-race");
     _resetRaceView();
     setView("game");
     return;
@@ -857,6 +979,92 @@ function _drawPositionMap() {
 }
 
 // ------------------------------------------------------------------ //
+// Closing card
+// ------------------------------------------------------------------ //
+
+/* Drawn once, not animated. The located map pulses because it is telling you
+   something is happening; this one is a souvenir being held still to be
+   photographed, and a pulsing dot screenshots at whatever brightness it
+   happened to be at. */
+function _drawEndMap() {
+  const c = document.getElementById("endMap");
+  if (!c) return;
+  const x = c.getContext("2d"), W = c.width, H = c.height;
+  x.clearRect(0, 0, W, H);
+
+  x.strokeStyle = "rgba(255,255,255,0.07)";
+  x.lineWidth = 2;
+  for (let i = 1; i < 4; i++) {
+    x.beginPath(); x.moveTo(i / 4 * W, 0); x.lineTo(i / 4 * W, H); x.stroke();
+  }
+  for (let j = 1; j < 3; j++) {
+    x.beginPath(); x.moveTo(0, j / 3 * H); x.lineTo(W, j / 3 * H); x.stroke();
+  }
+
+  // Dot radius scales with how full the room was. Fixed-size dots merge into
+  // a smear once a few hundred phones are on the map.
+  const n = Object.keys(knownPositions).length || 1;
+  const r = Math.max(3, Math.min(7, 620 / Math.sqrt(Math.max(n, 25)) / 6));
+
+  for (const [bid, pos] of Object.entries(knownPositions)) {
+    if (parseInt(bid) === myBlinkId) continue;
+    x.beginPath(); x.arc(pos.u * W, pos.v * H, r, 0, Math.PI * 2);
+    x.fillStyle = "rgba(255,255,255,0.42)"; x.fill();
+  }
+
+  // No dot and no chip for a phone that was never located: better an honest
+  // map of the room than a marker invented for someone who was not on it.
+  const me = myBlinkId !== null ? knownPositions[myBlinkId] : null;
+  if (!me) return;
+
+  const mx = me.u * W, my = me.v * H, R = 80;
+  const g = x.createRadialGradient(mx, my, 0, mx, my, R);
+  g.addColorStop(0, "rgba(0,230,118,0.62)");
+  g.addColorStop(1, "rgba(0,230,118,0)");
+  x.beginPath(); x.arc(mx, my, R, 0, Math.PI * 2); x.fillStyle = g; x.fill();
+  x.beginPath(); x.arc(mx, my, R * 0.42, 0, Math.PI * 2);
+  x.lineWidth = 2.5; x.strokeStyle = "rgba(0,230,118,0.85)"; x.stroke();
+  x.beginPath(); x.arc(mx, my, R * 0.17, 0, Math.PI * 2);
+  x.fillStyle = "#00e676"; x.fill();
+
+  // A chip, not bare text. Green type sitting straight on a field of white
+  // dots is unreadable at phone size, and unreadable again once the shared
+  // screenshot is viewed small.
+  const fs = Math.max(24, W / 24);
+  x.font = "700 " + fs + "px -apple-system,system-ui,sans-serif";
+  const pw = x.measureText("YOU").width + 26, ph = fs + 16;
+  // Flip to whichever side has room, or an edge-of-room phone points off-map.
+  const left = mx > W * 0.5;
+  const cx = left ? mx - R - 10 - pw : mx + R + 10;
+  x.beginPath();
+  x.moveTo(left ? mx - R : mx + R, my);
+  x.lineTo(left ? cx + pw : cx, my);
+  x.lineWidth = 2; x.strokeStyle = "rgba(0,230,118,0.8)"; x.stroke();
+  x.beginPath();
+  if (x.roundRect) x.roundRect(cx, my - ph / 2, pw, ph, ph / 2);
+  else x.rect(cx, my - ph / 2, pw, ph);
+  x.fillStyle = "#00e676"; x.fill();
+  x.fillStyle = "#02140a"; x.textAlign = "center"; x.textBaseline = "middle";
+  x.fillText("YOU", cx + pw / 2, my + 1);
+}
+
+function showEndCard(total) {
+  const phone = document.getElementById("endPhone");
+  const found = document.getElementById("endFound");
+  const room  = document.getElementById("endTotal");
+
+  // Em dash where there is no number rather than a 0 or a blank: some phones
+  // are never found, and that is the point of the talk, not a bug to hide.
+  if (phone) phone.textContent = myBlinkId !== null ? String(myBlinkId + 1) : "\u2014";
+  if (found) found.textContent = foundMs !== null ? (foundMs / 1000).toFixed(1) + "s" : "\u2014";
+  if (room)  room.textContent  = total > 0 ? total.toLocaleString("en-GB") : "\u2014";
+
+  currentEffect = null;          // nothing should still be painting behind it
+  setView("ended");
+  _drawEndMap();
+}
+
+// ------------------------------------------------------------------ //
 // Avatar race
 // ------------------------------------------------------------------ //
 
@@ -882,10 +1090,10 @@ function _resetRaceView() {
     c.clearRect(0, 0, raceMyAvatar.width, raceMyAvatar.height);
   }
   if (raceInRoster && !raceTapHandlerOn) {
-    CARDS.game.addEventListener("pointerdown", _onRaceTap);
+    card("game").addEventListener("pointerdown", _onRaceTap);
     raceTapHandlerOn = true;
   } else if (!raceInRoster && raceTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    card("game").removeEventListener("pointerdown", _onRaceTap);
     raceTapHandlerOn = false;
   }
 }
@@ -896,14 +1104,14 @@ function _onRaceTap(e) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "game_tap" }));
   }
-  CARDS.game.classList.add("tapping");
-  setTimeout(() => CARDS.game.classList.remove("tapping"), 90);
+  card("game").classList.add("tapping");
+  setTimeout(() => card("game").classList.remove("tapping"), 90);
 }
 
 function _showRaceWinner(msg) {
   raceActive = false;
   if (raceTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    card("game").removeEventListener("pointerdown", _onRaceTap);
     raceTapHandlerOn = false;
   }
   // Manual stop with no winner — fall back to wave silently.
@@ -932,29 +1140,33 @@ function _cleanupGame() {
   raceActive   = false;
   raceInRoster = false;
   if (raceTapHandlerOn) {
-    CARDS.game.removeEventListener("pointerdown", _onRaceTap);
+    card("game").removeEventListener("pointerdown", _onRaceTap);
     raceTapHandlerOn = false;
   }
   if (raceWinner)    raceWinner.classList.remove("show", "you-won");
   if (raceBarMine)   raceBarMine.style.width   = "0%";
   if (raceBarLeader) raceBarLeader.style.width = "0%";
   // Card-level state
-  CARDS.game.classList.remove("mode-race", "tapping");
+  card("game").classList.remove("mode-race", "tapping");
 }
 
 // ------------------------------------------------------------------ //
 // Blink emission
 // ------------------------------------------------------------------ //
 
+/* Date.now(), not serverNow(), and that is deliberate: the blink pattern is
+   this phone's own identity being emitted for the camera, deliberately
+   staggered so the room does not flash in unison. Effects are the opposite -
+   they must land together, so they use server time. */
 function updateBlink() {
   if (VIEW_CARD[view] !== "blink") return;
 
-  const card = CARDS.blink;
+  const blinkCard = card("blink");
 
   if (view === "blinking" && myBlinkPhases.length > 0) {
     const totalMs  = myBlinkPhases.length * PHASE_MS;
     const phaseIdx = Math.floor((Date.now() - blinkStartMs) % totalMs / PHASE_MS);
-    card.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
+    blinkCard.style.background = myBlinkPhases[phaseIdx] === 1 ? "#ffffff" : "#000000";
     return;
   }
 
@@ -962,7 +1174,7 @@ function updateBlink() {
     const age = (Date.now() - missedStart) / 1000;
     if (age < 1.2) {
       const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
-      card.style.background = on ? "rgb(200,0,0)" : "#000";
+      blinkCard.style.background = on ? "rgb(200,0,0)" : "#000";
     } else {
       setView("idle");
     }
@@ -970,7 +1182,7 @@ function updateBlink() {
   }
 
   // idle / any other blink-card view
-  card.style.background = "#000";
+  blinkCard.style.background = "#000";
 }
 
 // ------------------------------------------------------------------ //
@@ -1226,11 +1438,11 @@ function renderLoop() {
       // No active effect (e.g. operator armed ripple → effect_stop) or
       // pre-calibration: hold black so the previous frame's colour
       // doesn't linger on screen.
-      CARDS.effects.style.background = "#000";
+      card("effects").style.background = "#000";
     } else {
       const t = (serverNow() - effectStartTime) / 1000;
       const [r, g, b] = shade(myU, myV, t);
-      CARDS.effects.style.background = `rgb(${r},${g},${b})`;
+      card("effects").style.background = `rgb(${r},${g},${b})`;
     }
   }
 
