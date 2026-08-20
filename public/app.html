@@ -61,15 +61,23 @@ html, body {
   background: #020204;
 }
 
+/* A found phone stops being a screen you read and becomes a light in the
+   room: full-bleed green, message small along the bottom, so the crowd and
+   the stage can watch the mesh fill in. The map that used to live here is
+   now on the closing card, where it is a souvenir rather than a diagram
+   nobody has time to study. */
 #card-located {
   position: fixed;
   inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 16px;
-  background: #000;
+  justify-content: flex-end;
+  gap: 5px;
+  text-align: center;
+  background: #009e52;
+  animation: located-breathe 8s linear infinite;
+  padding: 0 28px calc(74px + env(safe-area-inset-bottom));
   pointer-events: none;
 }
 
@@ -94,40 +102,63 @@ html, body {
 }
 
 /* ---- Located card ---- */
-#positionCanvas { display: block; }
-#positionLabel {
-  color: rgba(255,255,255,0.5);
-  font: 600 15px -apple-system, system-ui, sans-serif;
-  letter-spacing: -0.2px;
-  text-align: center;
+
+/* The pulse is shallow, slow and linear, and all three are detection
+   constraints rather than taste. blink_detector is entirely variance-based:
+   a rolling std over its last 24 samples (gate floors at 0.05) and a
+   frame-diff accumulated over 5 frames (threshold 10 of 255). Brightness is
+   irrelevant to both - a steady panel at full white scores zero. Only
+   movement inside those two windows registers, so a found phone can be as
+   bright as we like as long as it changes slowly.
+
+   Measured against the real curve at 8fps, which is the case that binds:
+   recent_n is a fixed 24 SAMPLES, so the slower the detection thread runs
+   the more seconds that window spans and the more of the pulse it sees. The
+   detector drops to ~8fps under load, where this animation reads 0.039 std
+   and 7.2/255 diff against gates of 0.050 and 10. At its usual 15fps it is
+   0.021 and 3.9, roughly a 2.5x margin.
+
+   Linear, not ease-in-out: same swing over the same period, but ease-in-out
+   piles all of it into the middle of each half and peaks 45% higher, which
+   put the 6s version over both gates. Spreading the change evenly is what
+   buys the headroom - the corner at each turnaround is invisible at 8s.
+
+   The tempting version, black to full green over 2s, measures 0.22 - four
+   times the gate. That would put every found phone back in the detector's
+   candidate set, where they sort ABOVE the dim distant phones still waiting
+   (candidates rank by std, and admission to _ever_active is capped at
+   30/sec) and spend their decode budget. The people already found would
+   cost the show the people who are not.
+
+   If you retune, both numbers move together: std and diff each scale with
+   swing/period, so a pulse twice as fast needs to be half as deep. */
+@keyframes located-breathe {
+  0%, 100% { background-color: #009e52; }
+  50%      { background-color: #00e676; }
 }
-#positionLabelSub {
-  color: rgba(255,255,255,0.55);
-  font: 400 12px -apple-system, system-ui, sans-serif;
-  text-align: center;
+
+/* Dark ink on the green, not white. White type on a full-brightness green
+   field is the one thing on this card that could glare back at the person
+   holding it, and the card is held up for minutes at a time. */
+#locatedFound {
+  color: rgba(0,38,18,0.88);
+  font: 700 27px -apple-system, system-ui, sans-serif;
+  letter-spacing: -0.5px;
+}
+#locatedSub {
+  color: rgba(0,38,18,0.62);
+  font: 500 15px -apple-system, system-ui, sans-serif;
 }
 #locatedPhoneId {
-  margin-top: 6px;
-  color: rgba(255,255,255,0.85);
-  font: 600 14px -apple-system, system-ui, sans-serif;
-  letter-spacing: 0.3px;
-  text-align: center;
+  margin-top: 12px;
+  color: rgba(0,38,18,0.5);
+  font: 700 11px -apple-system, system-ui, sans-serif;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
 }
-#locatedMsg {
-  margin-top: 18px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-#locatedMsg .lm-headline {
-  color: rgba(255,255,255,0.85);
-  font: 600 20px -apple-system, system-ui, sans-serif;
-  letter-spacing: -0.3px;
-}
-#locatedMsg .lm-sub {
-  color: rgba(255,255,255,0.55);
-  font: 400 13px -apple-system, system-ui, sans-serif;
+#locatedCare {
+  color: rgba(0,38,18,0.38);
+  font: 500 12px -apple-system, system-ui, sans-serif;
 }
 
 /* ---- Waiting card content (design shared with the show-offline
@@ -222,6 +253,17 @@ html, body {
   letter-spacing: 0.3px;
   z-index: 60;
 }
+
+/* On the located card the bar sits on green, where its black fade-out band
+   reads as a smear rather than as chrome. Same bar, same states, inverted
+   ink - dropping it there instead would leave a phone that silently
+   disconnects glowing green with nothing to say so, and that card is where
+   phones sit longest before the show. */
+#statusBar.on-green {
+  background: none;
+  color: rgba(0,38,18,0.6);
+}
+#statusBar.on-green .sb-dot { background: rgba(0,38,18,0.8); }
 
 /* The status marker is a pixel: steady when connected (a found
    phone), hard-blinking while reconnecting (a phone still
@@ -708,16 +750,10 @@ html, body {
 </div>
 
 <div id="card-located" style="display:none">
-  <canvas id="positionCanvas"></canvas>
-  <div id="positionLabel">Found you!</div>
-  <div id="positionLabelSub">Here's your position in the crowd</div>
+  <div id="locatedFound">Found you</div>
+  <div id="locatedSub">The show will start soon</div>
   <div id="locatedPhoneId"></div>
-  <div class="wm-divider"></div>
-  <div id="locatedMsg">
-    <div class="lm-headline">You're all set</div>
-    <div class="lm-sub">Hold your screen up when the show begins</div>
-    <div class="lm-sub" style="margin-top:10px; color:rgba(255,255,255,0.2)">Brightness to full · Turn off auto-lock</div>
-  </div>
+  <div id="locatedCare">Keep this screen up, bright and awake</div>
 </div>
 
 <!-- Effects card: showtime -->

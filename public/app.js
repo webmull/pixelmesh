@@ -32,9 +32,10 @@ const waitingId      = document.getElementById("waitingId");
 const statusBar      = document.getElementById("statusBar");
 const likeBtn        = document.getElementById("likeBtn");
 const likeCount      = document.getElementById("likeCount");
-const positionCanvas = document.getElementById("positionCanvas");
-const _posCtx        = positionCanvas.getContext("2d");
 const locatedPhoneId = document.getElementById("locatedPhoneId");
+/* Still collected on the located card even though nothing draws it there any
+   more: the closing card's map is built from this, and the positions arrive
+   over the whole show rather than at the end. */
 const knownPositions = {};   // blink_id → {u, v}
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
@@ -167,27 +168,7 @@ const _CARD_STUB = {
 };
 function card(name) { return CARDS[name] || _CARD_STUB; }
 
-let _posMapAnim = null;
-
-function _startPositionMapAnim() {
-  _stopPositionMapAnim();
-  function frame() {
-    try { _drawPositionMap(); } catch(e) { /* don't kill the loop */ }
-    _posMapAnim = requestAnimationFrame(frame);
-  }
-  _posMapAnim = requestAnimationFrame(frame);
-}
-
-function _stopPositionMapAnim() {
-  if (_posMapAnim) { cancelAnimationFrame(_posMapAnim); _posMapAnim = null; }
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (!document.hidden && view === "located") _startPositionMapAnim();
-});
-
 function setView(name) {
-  if (name !== "located") _stopPositionMapAnim();
   view = name;
   const active = VIEW_CARD[name];
   for (const [k, el] of Object.entries(CARDS)) {
@@ -206,6 +187,9 @@ function setView(name) {
   // reads as "connecting" rather than a blank screen.
   statusBar.style.display =
     (name === "waiting" || name === "located" || !everConnected) ? "flex" : "none";
+  // Located is the one card the bar sits on a light background; the class
+  // only swaps its colours, so warn/flash keep working underneath.
+  statusBar.classList.toggle("on-green", name === "located");
 }
 
 // ------------------------------------------------------------------ //
@@ -729,7 +713,6 @@ function handleMessage(msg) {
     if (calibrated) {
       knownPositions[myBlinkId] = {u: myU, v: myV};
       locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
-      _startPositionMapAnim();
       setView("located");
     } else {
       setView("waiting");
@@ -768,7 +751,6 @@ function handleMessage(msg) {
     calibrated = true;
     if (myBlinkId !== null) knownPositions[myBlinkId] = {u: myU, v: myV};
     if (myBlinkId !== null) locatedPhoneId.textContent = `Phone #${myBlinkId + 1}`;
-    _startPositionMapAnim();
     setView("located");
     return;
   }
@@ -777,7 +759,6 @@ function handleMessage(msg) {
     // Legacy single-phone variant — kept for backwards compat with older
     // server versions; current server batches via "phones_located".
     knownPositions[msg.blink_id] = {u: msg.u, v: msg.v};
-    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
 
@@ -785,7 +766,6 @@ function handleMessage(msg) {
     for (const [bid, pos] of Object.entries(msg.positions || {})) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
-    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
 
@@ -793,7 +773,6 @@ function handleMessage(msg) {
     for (const [bid, pos] of Object.entries(msg.positions || {})) {
       knownPositions[parseInt(bid)] = {u: pos.u, v: pos.v};
     }
-    if (view === "located" && !_posMapAnim) _startPositionMapAnim();
     return;
   }
 
@@ -925,64 +904,6 @@ function _statusBarOk(flash) {
     // Drop the class once the join blink finishes so the dot returns
     // to its idle wink animation instead of freezing on the last frame.
     setTimeout(() => statusBar.classList.remove("flash"), 1200);
-  }
-}
-
-// ------------------------------------------------------------------ //
-// Position map
-// ------------------------------------------------------------------ //
-
-function _drawPositionMap() {
-  const size = Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.78);
-  const ctx = _posCtx;
-  if (positionCanvas.width !== size || positionCanvas.height !== size) {
-    positionCanvas.width  = size;
-    positionCanvas.height = size;
-  } else {
-    ctx.clearRect(0, 0, size, size);
-  }
-
-  // Grid lines
-  ctx.strokeStyle = "rgba(255,255,255,0.07)";
-  ctx.lineWidth = 1;
-  for (let i = 1; i < 4; i++) {
-    const p = (i / 4) * size;
-    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, size); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(size, p); ctx.stroke();
-  }
-
-  // Border
-  ctx.strokeStyle = "rgba(255,255,255,0.18)";
-  ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
-
-  // Other phones
-  for (const [bid, pos] of Object.entries(knownPositions)) {
-    if (parseInt(bid) === myBlinkId) continue;
-    ctx.beginPath();
-    ctx.arc(pos.u * size, pos.v * size, 4, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,255,255,0.5)";
-    ctx.fill();
-  }
-
-  // Own phone — larger, glowing green (animated pulse)
-  if (myBlinkId !== null && knownPositions[myBlinkId]) {
-    const x = knownPositions[myBlinkId].u * size;
-    const y = knownPositions[myBlinkId].v * size;
-    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 1000 * Math.PI * 2 * 2); // 2 Hz
-    const glowR = 18 + pulse * 24;        // 18–42 px
-    const dotR  = 6  + pulse * 4;         // 6–10 px
-    const alpha = 0.2 + pulse * 0.55;     // 0.2–0.75
-    const grd = ctx.createRadialGradient(x, y, 0, x, y, glowR);
-    grd.addColorStop(0, `rgba(0,230,118,${alpha.toFixed(2)})`);
-    grd.addColorStop(1, "rgba(0,230,118,0)");
-    ctx.beginPath();
-    ctx.arc(x, y, glowR, 0, Math.PI * 2);
-    ctx.fillStyle = grd;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, dotR, 0, Math.PI * 2);
-    ctx.fillStyle = "#00e676";
-    ctx.fill();
   }
 }
 
