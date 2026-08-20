@@ -43,10 +43,14 @@ class AppState:
         self.last_detections  = []           # list of DetectedDevice
         self.last_detection_count = 0
 
-        self.cameras          = []
-        self.selected_camera_idx = 0
-        self.camera_label_to_index = {}
-        self.camera_listbox_items  = []
+        # The camera list that used to live here fed a picker that no longer
+        # exists - there is one acceptable camera now, resolved by name.
+        # The index is for logging and the HUD only: AVFoundation does not
+        # order devices stably across launches (the Elgato has been observed
+        # at 0 and at 1 on the same machine minutes apart), so the name is
+        # the identity and the index is just where it happened to be.
+        self.selected_camera_idx   = -1
+        self.selected_camera_label = ""
 
         self.cam_offset       = (0, 0)
         self.cam_frame_size   = (PREVIEW_WIDTH, PREVIEW_HEIGHT)

@@ -321,14 +321,42 @@ _DEBUG_AUTO_ON_DETECT = False
 # Camera helpers
 # ------------------------------------------------------------------ #
 
-# Names that indicate virtual / software / continuity cameras to exclude
+# Names that indicate virtual / software / continuity cameras to exclude.
+# Consulted BEFORE the Elgato match, never after: "Elgato Virtual Camera" is
+# a real entry in the device list on the show machine, it contains "elgato",
+# and it would otherwise win the match and hand the detector a software
+# device instead of the Facecam.
 _VIRTUAL_CAM_NAMES = (
     "iphone", "ipad", "continuity", "virtual", "facetime",
     "obs", "snap camera", "mmhmm", "camo", "reincubate", "ndisourcevirtualcam",
 )
 
+
+def _avf_device_names() -> dict[int, str]:
+    """{capture index: device name}, without opening anything.
+
+    This is the list OpenCV's own AVFoundation backend indexes into
+    (cap_avfoundation_mac.mm enumerates devicesWithMediaType:AVMediaTypeVideo
+    and takes the nth), so these indices are exactly the ones VideoCapture
+    will use. It is in-process, instant, and - the whole point - enumerating
+    a device does not switch it on.
+    """
+    try:
+        from AVFoundation import AVCaptureDevice
+        devices = AVCaptureDevice.devicesWithMediaType_("vide")
+        return {i: str(d.localizedName()) for i, d in enumerate(devices)}
+    except Exception as e:
+        log.info(f"[camera] AVFoundation enumeration unavailable: {e}")
+        return {}
+
+
 def _avfoundation_device_names() -> dict[int, str]:
-    """Use ffmpeg to list AVFoundation video devices → {index: name}."""
+    """Use ffmpeg to list AVFoundation video devices → {index: name}.
+
+    Fallback for when pyobjc is missing. ffmpeg also lists the screen-capture
+    pseudo-devices, which AVCaptureDevice does not, but they sort after the
+    real cameras so the camera indices agree.
+    """
     import subprocess, re
     try:
         import shutil
@@ -350,27 +378,45 @@ def _avfoundation_device_names() -> dict[int, str]:
         return {}
 
 
-def find_cameras(max_idx: int = 8) -> list[int]:
-    names  = _avfoundation_device_names()
-    no_names = not names   # ffmpeg failed — we have no name info
-    found  = []
-    for i in range(max_idx):
-        name = names.get(i, "").lower()
-        if any(v in name for v in _VIRTUAL_CAM_NAMES):
-            log.info(f"[camera] skipping virtual camera [{i}] {names.get(i)}")
+def _video_device_names() -> dict[int, str]:
+    return _avf_device_names() or _avfoundation_device_names()
+
+
+_last_scan_signature = None   # log the device list only when it changes
+
+
+def find_elgato() -> tuple[int | None, str]:
+    """Resolve the Elgato's capture index by name. Opens nothing.
+
+    The previous version probed indices 0-7 with VideoCapture to see which
+    ones answered. That is what put every other camera in the building on
+    air: on the show machine index 0 is a Logitech C925e and index 3 is the
+    built-in FaceTime camera, so each scan lit both of them up, and while the
+    Elgato was unplugged that repeated every few seconds. Names are enough to
+    find the one device we want, so nothing else is ever opened.
+    """
+    global _last_scan_signature
+    names = _video_device_names()
+
+    signature = tuple(sorted(names.items()))
+    changed = signature != _last_scan_signature
+    _last_scan_signature = signature
+
+    match = None
+    for idx in sorted(names):
+        label = names[idx]
+        if any(v in label.lower() for v in _VIRTUAL_CAM_NAMES):
             continue
-        # When ffmpeg can't list devices, skip index 0 — on macOS it's always
-        # the built-in FaceTime/iSight camera which we never want as the default.
-        if no_names and i == 0:
-            log.info("[camera] skipping index 0 (no name info, assumed built-in)")
-            continue
-        cap = cv2.VideoCapture(i, cv2.CAP_AVFOUNDATION)
-        if cap.isOpened():
-            label = names.get(i, f"Camera {i}")
-            log.info(f"[camera] found [{i}] {label}")
-            found.append(i)
-            cap.release()
-    return found
+        if _is_elgato_label(label) and match is None:
+            match = (idx, label)
+
+    if changed:
+        listing = ", ".join(f"[{i}] {names[i]}" for i in sorted(names)) or "none"
+        log.info(f"[camera] devices: {listing}")
+        log.info(f"[camera] using [{match[0]}] {match[1]}" if match
+                 else "[camera] no Elgato in the list")
+
+    return match if match else (None, "")
 
 
 def _avf_lock_exposure(camera_name: str) -> bool:
@@ -501,7 +547,7 @@ def _exposure_monitor_worker():
                 _last_ok_log = now
 
 
-def open_camera(idx: int) -> cv2.VideoCapture | None:
+def open_camera(idx: int, device_name: str = "elgato") -> cv2.VideoCapture | None:
     cap = cv2.VideoCapture(idx, cv2.CAP_AVFOUNDATION)
     if not cap.isOpened():
         return None
@@ -527,8 +573,10 @@ def open_camera(idx: int) -> cv2.VideoCapture | None:
 
     # Belt-and-suspenders: directly lock via AVFoundation for cameras (like the
     # Elgato Facecam 4K) that ignore OpenCV's CAP_PROP_AUTO_EXPOSURE.
-    # We try common Elgato name fragments; harmless if camera not found.
-    _avf_lock_exposure("elgato")
+    # Locks by the resolved device name rather than the bare fragment
+    # "elgato", which on a machine that also has the Elgato Virtual Camera
+    # installed can match whichever of the two AVFoundation lists first.
+    _avf_lock_exposure(device_name)
 
     return cap
 
@@ -2100,73 +2148,85 @@ def _is_elgato_label(label: str) -> bool:
 
 
 def _scan_and_pick_elgato(holder, retrying=False):
-    """Refresh the camera list and open the Elgato if it's available.
-    Returns True if an Elgato is now open, False otherwise."""
-    names  = _avfoundation_device_names()
-    cams   = find_cameras(8)
-    labels = [names.get(i, f"Camera {i}") for i in cams] or ["No cameras found"]
-    lmap   = {names.get(i, f"Camera {i}"): i for i in cams}
+    """Open the Elgato if it's there. Returns True if one is now open.
 
-    with state.lock:
-        state.cameras               = cams
-        state.camera_listbox_items  = labels
-        state.camera_label_to_index = lmap
-        current_idx                 = state.selected_camera_idx
+    The only function in the controller that opens a camera, and it can only
+    ever open an Elgato: there is no index it could be handed by a caller and
+    no fallback if the Elgato is absent. Falling back was never acceptable
+    anyway - the audience phones need the locked exposure, and the Camera Hub
+    watchdog only speaks to the Elgato - but it used to be a convention
+    rather than something the code enforced.
+    """
+    if holder is None:
+        return False
 
-    # If the currently-open camera is already the Elgato, leave it alone.
-    current_label = next(
-        (l for l, i in lmap.items() if i == current_idx),
-        "",
-    )
-    if holder and holder.get("cap") and _is_elgato_label(current_label):
-        return True
-
-    # Find an Elgato in the new list and open it.
-    elgato_label = next((l for l in labels if _is_elgato_label(l)), None)
-    if elgato_label is None:
+    idx, label = find_elgato()
+    if idx is None:
         if not retrying:
-            log.info(f"[camera] no Elgato found in {labels} — waiting for one to appear")
             set_status("Plug in the Elgato Facecam - waiting...")
         return False
 
-    idx = lmap.get(elgato_label)
-    if idx is None or holder is None:
-        return False
-    cap = open_camera(idx)
+    # Compared by name, not by index. AVFoundation does not order devices
+    # stably, so the Elgato can be index 0 on one launch and index 1 on the
+    # next, and plugging in an unrelated USB camera can renumber it while we
+    # are running. On an index comparison that reads as "wrong camera" and
+    # tears down a working capture mid-show; the open handle is bound to the
+    # device, not the number, so the name is what actually has to match.
+    with state.lock:
+        already = state.selected_camera_label == label
+    if holder.get("cap") and already:
+        return True
+
+    cap = open_camera(idx, label)
     if not cap:
-        log.info(f"[camera] failed to open Elgato at index {idx}")
+        log.info(f"[camera] failed to open {label} at index {idx}")
         return False
     old = holder.get("cap")
     if old:
         old.release()
     holder["cap"] = cap
     with state.lock:
-        state.selected_camera_idx = idx
-        state.status_text         = elgato_label
-    log.info(f"[camera] auto-opened {elgato_label}")
+        state.selected_camera_idx   = idx
+        state.selected_camera_label = label
+        state.status_text           = label
+    log.info(f"[camera] opened {label} at index {idx}")
     return True
 
 
+CAMERA_SCAN_INTERVAL = 2.0   # seconds between scans while there is no camera
+
+
 def camera_scan_worker(holder=None):
-    """Initial Elgato scan + background re-scan loop.  Refuses to silently
-    fall back to a non-Elgato camera (audience phones need consistent
-    exposure, and Camera Hub watchdog only works on the Elgato).  If the
-    Elgato isn't present yet, the loop keeps re-scanning every 5 seconds
-    so plugging it in later picks it up automatically."""
-    if _scan_and_pick_elgato(holder, retrying=False):
-        return
+    """Own the camera for the whole session: acquire the Elgato, then keep
+    watching for it.
+
+    Runs for the life of the process rather than returning on first success.
+    It used to stop as soon as it found one, which meant a cable knocked out
+    mid-show was permanent - the capture thread sat on a dead handle and
+    nothing was left running to notice the Elgato come back. Now the capture
+    thread drops the handle when reads stop working and this loop picks it up
+    again, so a replug recovers on its own within a couple of seconds.
+
+    While a camera is open this costs one dict lookup per tick. The device
+    scan only runs when there is nothing open, which is exactly when we want
+    to be looking hard.
+    """
+    waiting = False
     while True:
-        try:
-            with state.lock:
-                if not state.running:
-                    return
-            time.sleep(5.0)
-            if _scan_and_pick_elgato(holder, retrying=True):
-                set_status("Elgato connected")
+        with state.lock:
+            if not state.running:
                 return
+        try:
+            if holder is not None and holder.get("cap") is None:
+                if _scan_and_pick_elgato(holder, retrying=waiting):
+                    if waiting:
+                        set_status("Elgato connected")
+                    waiting = False
+                else:
+                    waiting = True
         except Exception as e:
             log.info(f"[camera] rescan error: {e}")
-            time.sleep(5.0)
+        time.sleep(CAMERA_SCAN_INTERVAL)
 
 
 
@@ -2692,22 +2752,9 @@ def setup_ui(holder: dict):
     dpg.bind_item_theme("main_window", _main_theme)
 
 
-def on_camera_selected(label: str, holder: dict):
-    with state.lock:
-        idx = state.camera_label_to_index.get(label)
-    if idx is None:
-        return
-    cap = open_camera(idx)
-    if cap is None:
-        set_status(f"Could not open {label}")
-        return
-    old = holder.get("cap")
-    if old:
-        old.release()
-    holder["cap"] = cap
-    with state.lock:
-        state.selected_camera_idx = idx
-        state.status_text = label
+# on_camera_selected() lived here: it opened whatever index a label mapped to,
+# for a camera picker that no longer exists in the sidebar. Nothing called it,
+# and it was the only remaining way a non-Elgato could have been opened.
 
 
 # ------------------------------------------------------------------ #
@@ -2750,6 +2797,8 @@ def _capture_worker(holder):
     """
     global _camera_fps, _stream_latest, _latest_texture, _dbg_counter
     global _detected_ids, _detection_start_time
+
+    _read_failing_since = 0.0   # wall clock of the first of a failing run of reads
 
     while not _capture_stop.is_set():
         with state.lock:
@@ -2795,7 +2844,21 @@ def _capture_worker(holder):
                 # would spin hot on a sick camera — the old code was held back
                 # by vsync and no longer is.
                 _capture_stop.wait(0.01)
+                # Unplugged cameras fail this way forever. Give up on the
+                # handle after a couple of seconds of solid failure and hand
+                # the slot back to camera_scan_worker, which is watching for
+                # the Elgato to reappear. Time-based, not a failure count: a
+                # count is really a measure of how fast we spin.
+                if _read_failing_since == 0.0:
+                    _read_failing_since = time.time()
+                elif time.time() - _read_failing_since > 2.0:
+                    log.info("[camera] reads failing for 2s - releasing the "
+                             "handle and waiting for the Elgato to come back")
+                    holder["cap"] = None
+                    cap.release()
+                    _read_failing_since = 0.0
             else:
+                _read_failing_since = 0.0
                 with state.lock:
                     detecting = state.detecting
                     show_ov   = state.show_device_overlay
