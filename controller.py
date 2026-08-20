@@ -2117,11 +2117,11 @@ def reset_server():
         _detection_start_time = 0.0
         _detection_amplitudes.clear()
         _iso_hint = ""
+    _forget_positions()
     with state.lock:
         state.detecting = False
         state.syncing = False
         state.current_effect = None
-        state.calibrated_positions.clear()
         state.last_detections = []
         state.last_detection_count = 0
     game.set_game_btn_highlight(False)
@@ -2821,9 +2821,9 @@ def _capture_worker(holder):
             _detected_ids = set()
             _detection_start_time = 0.0
             detector.reset()
+            _forget_positions()
             with state.lock:
                 state.detecting = False
-                state.calibrated_positions.clear()
                 state.last_detections = []
                 state.last_detection_count = 0
             post_json_async("/admin/detect", {"detecting": False})
@@ -3489,6 +3489,30 @@ def _mode_worker():
         time.sleep(_MODE_POLL_SECS)
 
 
+# A phone must be missing from the blink map for this long before we throw its
+# position away. /admin/blink_map lists CONNECTED clients, and phones drop off
+# it constantly: every iOS backgrounding, every reload, every network blip.
+# Deleting on the first poll that missed one was a one-way loss - detection
+# freezes each blink_id in _detected_ids the first time it is decoded, so a
+# re-detect skips it and the position never comes back. Over a show that
+# drained calibrated_positions to empty with every phone still connected,
+# which silently disabled the effect buttons.
+#
+# 60s is comfortably longer than any blip and comfortably shorter than the
+# server's own 90s heartbeat reap, so a phone that is genuinely gone still
+# leaves the overlay before the server forgets it.
+POSITION_GRACE_SECS = 60.0
+_blink_absent_since: dict[int, float] = {}
+
+
+def _forget_positions():
+    """Drop every calibrated position and the grace-period bookkeeping with
+    it. For the paths that genuinely start a new session."""
+    _blink_absent_since.clear()
+    with state.lock:
+        state.calibrated_positions.clear()
+
+
 def _refresh_valid_blink_ids():
     """Fetch the current blink map and update _valid_blink_ids immediately."""
     global _valid_blink_ids
@@ -3499,12 +3523,22 @@ def _refresh_valid_blink_ids():
     new_ids = {int(bid) for bid in bmap}
     if 511 in new_ids:
         log.warning(f"[poll] blink_id 511 is assigned to a connected client: {bmap}")
-    if new_ids != _valid_blink_ids:
-        _valid_blink_ids = new_ids
-        with state.lock:
-            stale = [bid for bid in state.calibrated_positions if bid not in new_ids]
-            for bid in stale:
+    _valid_blink_ids = new_ids
+
+    # Runs every tick, not only when the set changes: the grace period has to
+    # be able to expire while the map sits still.
+    now = time.time()
+    with state.lock:
+        for bid in list(state.calibrated_positions):
+            if bid in new_ids:
+                _blink_absent_since.pop(bid, None)
+                continue
+            first_missed = _blink_absent_since.setdefault(bid, now)
+            if now - first_missed > POSITION_GRACE_SECS:
                 del state.calibrated_positions[bid]
+                _blink_absent_since.pop(bid, None)
+                log.info(f"[poll] dropped position for blink_id={bid} - "
+                         f"gone for {POSITION_GRACE_SECS:.0f}s")
 
 
 def poll_clients():

@@ -248,8 +248,25 @@ def _get(effect: str, param: str, default):
 def trigger_effect(name: str, extra: dict | None = None):
     with _state.lock:
         positions = _state.calibrated_positions.copy()
-    if not positions:
-        _set_status("No devices detected - effect blocked")
+        clients   = _state.client_count
+
+    # Gated on phones being CONNECTED, not on the controller still holding
+    # detection bookkeeping for them. Only "groups" reads positions here -
+    # every other effect is rendered from the phone's own u,v, which lives on
+    # the server and survives everything this process forgets. Blocking wave
+    # because the controller's copy had drained was the operator clicking a
+    # button and watching nothing happen, in a room full of phones that could
+    # have rendered it perfectly.
+    if clients <= 0:
+        log.info(f"[effect] {name} blocked - no phones connected")
+        _set_status("No phones connected - effect blocked")
+        return
+    if name == "groups" and not positions:
+        # This one genuinely cannot be built without positions: it sorts the
+        # room left-to-right to assign columns, and an empty sort produces
+        # n=0, which reaches the client as a divide-by-zero.
+        log.info("[effect] groups blocked - no calibrated positions")
+        _set_status("Groups needs detected phones - run detection first")
         return
     color  = _get(name, "color",  (255, 255, 255, 255))
     color2 = _get(name, "color2", (255,   0,   0, 255))
