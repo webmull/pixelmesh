@@ -5,25 +5,25 @@
 ![A dark venue full of phones held up, screens glowing](public/stats/london_opener_hero.gif)
 
 Every phone that opens a URL becomes one pixel of a crowd-sized screen. A single camera pointed
-at the audience finds each phone by the pattern it blinks — no app install, no QR codes, no GPS,
+at the audience finds each phone by the pattern it blinks. No app install, no QR codes, no GPS,
 no seat map, no calibration step. Once located, every device renders light effects in perfect
 sync: waves sweep the room, ripples spread from a click on the camera preview, and the crowd
 becomes the show.
 
-Built for live events and proven at them — 50+ phones located by one camera in real venues.
+Built for live events and proven at them: 50+ phones located by one camera in real venues.
 Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
 [pixelmesh.live](https://pixelmesh.live), in its own
 [pixelmesh.website](https://github.com/webmull/pixelmesh.website) repo.
 
 **How a show runs, in four beats:**
 
-1. **Connect** — the audience opens `pixelmesh.show`. Each phone gets an ID and a like button to
+1. **Connect:** the audience opens `pixelmesh.show`. Each phone gets an ID and a like button to
    keep it busy.
-2. **Blink** — the operator presses `D`. Every unfound phone flashes a Manchester-encoded ID,
+2. **Blink:** the operator presses `D`. Every unfound phone flashes a Manchester-encoded ID,
    white/black at 300 ms per phase.
-3. **Locate** — the camera decodes every blinking screen simultaneously and pins each phone to
+3. **Locate:** the camera decodes every blinking screen simultaneously and pins each phone to
    its position in the frame. Typical time to first find: 15–20 s.
-4. **Render** — effects sequence across the crowd by real spatial position. Games, likes, and a
+4. **Render:** effects sequence across the crowd by real spatial position. Games, likes, and a
    post-show report round out the set.
 
 ---
@@ -52,7 +52,7 @@ Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
   site-packages, with no venv)
 - [ngrok](https://ngrok.com) account with the reserved domain `pixelmesh.show`, set up as a
   cloud endpoint (see [Show URL & offline page](#show-url--offline-page))
-- A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
+- A wired USB webcam. The controller auto-selects an Elgato Facecam 4K if present
 - Elgato Camera Hub for manual-exposure control; `run.sh` launches and babysits it
 
 ```bash
@@ -64,14 +64,14 @@ Homebrew's Python is marked externally-managed (PEP 668), so plain `pip install`
 run. Since there is no venv here by design, `--break-system-packages` is the flag that lets it
 write to the global site-packages the controller actually reads from.
 
-The controller must be started via `run.sh` — it will not launch directly. `run.sh` wraps itself
+The controller must be started via `run.sh`; it will not launch directly. `run.sh` wraps itself
 in a `tmux` session named `pixelmesh`; re-running it reattaches if the session already exists.
 
 | Key | Action |
 |-----|--------|
 | `s` | Start server, ngrok, and controller (plus `caffeinate` for the show's lifetime, a controller crash watchdog, and the Elgato Camera Hub if it isn't running) |
-| `r` | Reload — kill everything and restart |
-| `d` | Die — kill everything |
+| `r` | Reload: kill everything and restart |
+| `d` | Die: kill everything |
 | `q` | Quit |
 
 Server and ngrok start in parallel. The controller waits up to 10 s for the server's `/health`
@@ -81,16 +81,16 @@ endpoint before launching.
 
 | URL | Description |
 |-----|-------------|
-| `https://pixelmesh.show` | Audience URL — share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
-| `https://pixelmesh.live` | Public site — its own repo, [pixelmesh.website](https://github.com/webmull/pixelmesh.website), deployed by DigitalOcean on every push to its `main` |
-| `https://pixelmesh.show/admin/show_stats` | Live show state as JSON. Public, no auth — see below |
-| `http://localhost:8000/admin/mode` | Turn detection and recording on and off remotely. Token required, CORS-enabled — see below |
+| `https://pixelmesh.show` | Audience URL: share this on screen. Offline, it serves a holding page that doubles as pre-show onboarding and auto-joins when the show starts |
+| `https://pixelmesh.live` | Public site: its own repo, [pixelmesh.website](https://github.com/webmull/pixelmesh.website), deployed by DigitalOcean on every push to its `main` |
+| `https://pixelmesh.show/admin/show_stats` | Live show state as JSON. Public, no auth. See below |
+| `http://localhost:8000/admin/mode` | Turn detection and recording on and off remotely. Token required, CORS-enabled. See below |
 | `http://localhost:8000/internal/dashboard` | Admin dashboard |
 | `http://localhost:8000/internal/feed/v1` | Live camera feed at up to 60 fps. Browsers get a canvas viewer fed binary JPEG frames over WebSocket (newest frame only, cannot lag); the same URL serves raw MJPEG to `<img>` embeds and curl |
-| `http://localhost:8000/internal/debug` | Debug runs — annotated videos and calibration logs |
+| `http://localhost:8000/internal/debug` | Debug runs: annotated videos and calibration logs |
 
 **`/admin/show_stats`** is the only public admin route: read-only, unauthenticated,
-CORS-open, and free of anything identifying — counts and effect names, never a
+CORS-open, and free of anything identifying: counts and effect names, never a
 `device_uuid`. It is cheap enough to poll (four `len()` calls and two globals, no locks),
 which the talk deck's join slide does every three seconds.
 
@@ -109,26 +109,26 @@ which the talk deck's join slide does every three seconds.
 
 `total_connected` only ever rises; `connected_now` falls when someone locks their screen
 or leaves, which is why both exist. `effect_started` exists because the name alone cannot
-distinguish "wave fired again" from "wave is still playing" — the talk deck uses it to
-re-announce a re-fired effect. Keys are additive — the first three predate the rest
+distinguish "wave fired again" from "wave is still playing". The talk deck uses it to
+re-announce a re-fired effect. Keys are additive: the first three predate the rest
 and are consumed elsewhere, so nothing is renamed or removed.
 
-### Remote mode control — `/admin/mode`
+### Remote mode control: `/admin/mode`
 
 Turns controller-owned things on and off over HTTP, so the show can be driven from
-something other than the keyboard or the pedal — a phone on a lectern, a browser tab,
+something other than the keyboard or the pedal: a phone on a lectern, a browser tab,
 a script.
 
-Ships with two modes:
+Ships with three modes:
 
 | Mode | Effect |
 |------|--------|
-| `detection` | Starts or stops a detection run — the same path as hotkey `D` and pedal switch 1 |
-| `recording` | Starts or stops a plain video recording — the same path as hotkey `V` |
-| `overlays` | Shows or hides the device markers on the feed — sets **both** `show_overlays` (the `H` master switch) and `show_device_overlay` (`O`) |
+| `detection` | Starts or stops a detection run: the same path as hotkey `D` and pedal switch 1 |
+| `recording` | Starts or stops a plain video recording: the same path as hotkey `V` |
+| `overlays` | Shows or hides the device markers on the feed: sets **both** `show_overlays` (the `H` master switch) and `show_device_overlay` (`O`) |
 
 `overlays` sets both flags on purpose. `show_overlays` gates every canvas annotation, so
-either flag alone can silently veto the other — and firing an effect from the pedal forces
+either flag alone can silently veto the other, and firing an effect from the pedal forces
 the master off (the "showtime stomp" that cleans the feed). Setting only the device flag
 after an effect changes the state and nothing on screen, which is exactly how it first
 shipped. `actual` reports `show_overlays and show_device_overlay` for the same reason: it
@@ -150,29 +150,30 @@ curl -X POST http://localhost:8000/admin/mode \
 {
   "modes": {
     "detection": {"enabled": true,  "seq": 2, "actual": true},
-    "recording": {"enabled": true,  "seq": 1, "actual": false}
+    "recording": {"enabled": true,  "seq": 1, "actual": false},
+    "overlays":  {"enabled": false, "seq": 0, "actual": false}
   },
-  "supported": ["detection", "recording"]
+  "supported": ["detection", "recording", "overlays"]
 }
 ```
 
 **`enabled` is what was asked for; `actual` is what the controller reports is really
 true.** They legitimately disagree: a recording requested with no camera attached never
 starts, and the operator can flip a mode locally with the pedal without any request. Poll
-`GET` to confirm a change landed rather than trusting the `POST` response — the reply to a
+`GET` to confirm a change landed rather than trusting the `POST` response. The reply to a
 `POST` still carries the *old* `actual`, because the controller has not polled yet.
 
 **Requests, not desired state.** Each mode carries a `seq` that only increments, and the
 controller applies a mode only when it sees a `seq` it has not applied. A plain
 desired-state flag would fight the operator: stop detection with the pedal, and a second
 later the controller would read `"detection": true` still sitting there and switch it
-straight back on. For the same reason `seq` bumps even when the value is unchanged —
-asking for a mode you already requested is a real instruction, not a no-op.
+straight back on. For the same reason `seq` bumps even when the value is unchanged.
+Asking for a mode you already requested is a real instruction, not a no-op.
 
 The controller adopts the current `seq` values on its first poll **without applying
 them**, so a request made while it was closed does not fire at launch.
 
-**Auth and CORS.** Unlike `show_stats` this route is *not* public — it can stop detection
+**Auth and CORS.** Unlike `show_stats` this route is *not* public. It can stop detection
 mid-show, so it requires `X-Admin-Token`. It *is* CORS-enabled, including a proper
 `OPTIONS` preflight, so a browser on another origin can call it. Those are separate
 things: CORS makes the browser willing to send the request, the token decides whether it
@@ -187,7 +188,7 @@ rejects the whole request rather than partially applying it, so a typo fails lou
 To add a mode: add a name to `MODES` in `server.py` and a branch to `_apply_mode` in
 `controller.py`.
 
-### `POST /admin/overlays` — token-free, local only
+### `POST /admin/overlays`: token-free, local only
 
 One narrow exception to all of the above, for the talk deck, which turns overlays on when it
 reaches the camera slide and cannot hold a token that `run.sh` regenerates every launch.
@@ -199,7 +200,7 @@ curl -X POST http://localhost:8000/admin/overlays \
 
 It drives the same `seq` counter as `/admin/mode`, so the two cannot disagree about ordering.
 It is **not** open to the world: `_is_local_request()` serves only loopback clients carrying
-no ngrok forwarding headers, and returns `403` otherwise. Loopback alone would prove nothing —
+no ngrok forwarding headers, and returns `403` otherwise. Loopback alone would prove nothing:
 ngrok forwards `pixelmesh.show` to `127.0.0.1`, so tunnelled traffic also arrives from a local
 address; the forwarding headers are what separate them.
 
@@ -207,12 +208,12 @@ The handler reads and parses the body itself rather than declaring `payload: dic
 would make FastAPI insist on `Content-Type: application/json`. That matters more than it
 looks: a JSON content type is not CORS-"simple", so the browser sends a preflight first, and
 a preflight from a `file://` page to a local address is what Chrome's Private Network Access
-rules refuse. The deck therefore posts as `text/plain` and no preflight happens at all — the
+rules refuse. The deck therefore posts as `text/plain` and no preflight happens at all. The
 same reason its `show_stats` GET has always worked. Responses also carry
 `Access-Control-Allow-Private-Network: true` for any caller that does preflight.
 
 This is a deliberate stopgap and `docs/TODO.md` tracks replacing it: any page open in a
-browser on the show laptop can still poke it, since CORS is `*`. The blast radius is cosmetic —
+browser on the show laptop can still poke it, since CORS is `*`. The blast radius is cosmetic:
 markers flicker on the feed; it cannot stop detection or recording.
 
 ---
@@ -224,11 +225,11 @@ markers flicker on the feed; it cannot stop detection or recording.
 The camera **must be on manual exposure** before starting detection.
 
 **Why auto-exposure breaks things:** the blink signal is a screen switching between full-white
-and full-black at 300 ms per phase. Auto-exposure tracks and cancels the blink — the resulting
+and full-black at 300 ms per phase. Auto-exposure tracks and cancels the blink. The resulting
 signal has a brightness range of ~0.28 instead of ~0.99, producing `empty_win` failures on every
 decode attempt.
 
-The Elgato Facecam 4K ignores both OpenCV and AVFoundation exposure locks — the firmware runs its
+The Elgato Facecam 4K ignores both OpenCV and AVFoundation exposure locks. The firmware runs its
 own internal AE loop. **The only reliable fix is Elgato Camera Hub:**
 
 1. Open **Elgato Camera Hub**
@@ -237,7 +238,7 @@ own internal AE loop. **The only reliable fix is Elgato Camera Hub:**
 4. Leave shutter at whatever gives stable 60 fps in your venue
 
 **Watchdog:** `elgato.py` connects to Camera Hub via its local WebSocket API and monitors AE
-throughout the session. Camera Hub occasionally re-enables AE on its own — the watchdog forces it
+throughout the session. Camera Hub occasionally re-enables AE on its own. The watchdog forces it
 back off within 5 seconds. `run.sh` also keeps the Hub itself alive: it launches it before the
 stack if absent and relaunches it in the background (~10 s check) if it dies, since the AE
 watchdog and ISO control die with it. The sidebar shows live status, current AE state, and an ISO slider for
@@ -252,7 +253,7 @@ light sensors dimming screens. When the exposure monitor spots a fixable cause i
 amber hint under the sidebar's ISO slider.
 
 **Displays: plug in before starting, don't hot-unplug.** Disconnecting a display (projector
-HDMI) while the controller runs wedges the GUI — GLFW cannot survive the macOS display-topology
+HDMI) while the controller runs wedges the GUI. GLFW cannot survive the macOS display-topology
 change (MaccTech, Jul 2026: frozen app, `r` reload, ~90 s to full recovery including
 re-detection). Connect the projector before `run.sh`, and stop the controller before unplugging.
 If it happens mid-show: a watchdog in `run.sh` notices a dead controller within ~2 s and
@@ -266,33 +267,33 @@ in the room.
 
 ![Detector's view: binary ID streams overlaid on blinking phone screens](public/stats/decoder_view.gif)
 
-- **Blocked if nobody is connected** — `D` with no clients shows "No clients connected"
-- **Partial re-detection** — already-located phones keep their positions; only unfound phones are
+- **Blocked if nobody is connected:** `D` with no clients shows "No clients connected"
+- **Partial re-detection:** already-located phones keep their positions; only unfound phones are
   asked to blink again
 - **Auto-stops** when all connected phones are found
-- **Positions persist** across detection runs — only cleared by an explicit Reset (`R`)
-- **Identity survives reconnects** — WS drops (iOS backgrounding, network blips) keep the phone's
+- **Positions persist** across detection runs, cleared only by an explicit Reset (`R`)
+- **Identity survives reconnects:** WS drops (iOS backgrounding, network blips) keep the phone's
   blink ID and stored position for 30 minutes of silence; the phone returns to its located view
   immediately on reconnect
-- **Dead socket eviction** — if `update_position` fails on a stale TCP connection,
+- **Dead socket eviction:** if `update_position` fails on a stale TCP connection,
   `_drop_connection` fires immediately so the phone reconnects and receives the message on its
   next `hello`
-- **Clean state per run** — the detector's internal candidate set is cleared at the start of every
+- **Clean state per run:** the detector's internal candidate set is cleared at the start of every
   detection session, preventing fps degradation across multiple runs without an app restart
 
 Expect 15–20 s from a phone connecting to first detection at typical range. The bottom-right
 HUD shows `camera fps / detection fps` (text goes green while detecting) plus a
 `found / connected` counter: amber while chasing, green once everyone is found. Both render in
 real Verdana rasterised onto the canvas, so they also appear in recordings and the stream. A
-thick green border marks the active detection region — the inner ROI when one is set, the full
+thick green border marks the active detection region: the inner ROI when one is set, the full
 frame otherwise.
 
 **ROI (Region of Interest):** the detection grid normally covers the entire camera frame. ROI
-crops it — excluding the top, bottom, left, or right edges as a fraction of the frame — so the
+crops it, excluding the top, bottom, left, or right edges as a fraction of the frame, so the
 detector only looks where the audience actually is.
 
-Why this matters: anything that changes brightness — a monitor, a moving light, a reflective
-surface — can activate grid points and consume CPU. Trimming the ROI to the audience band
+Why this matters: anything that changes brightness (a monitor, a moving light, a reflective
+surface) can activate grid points and consume CPU. Trimming the ROI to the audience band
 eliminates those false sources before they reach the detector; in venues with active stage
 lighting it roughly doubles detection-thread throughput.
 
@@ -306,7 +307,7 @@ effect on the next run.
 ### 3. Effects
 
 Click the sidebar buttons to fire effects. Each effect has its own parameter dialog (`...`
-button) — changing a value immediately re-fires with the new settings. Effects are blocked until
+button). Changing a value immediately re-fires with the new settings. Effects are blocked until
 at least one phone has been detected. The grid leads with the seven pedal-friendly effects in the
 pedal's cycle order; the three that need the mouse (Ripple's click point, Spotlight's cursor,
 Groups' column colours) sit at the end.
@@ -319,11 +320,11 @@ Listed in sidebar order:
 | Gradient | Colour, Speed, Direction |
 | Pulse | Colour, BPM |
 | Rainbow | Speed, Direction, Frequency |
-| Sparkle | Colour A, Colour B, Rate, Density — soft tinkle bloom that picks colour per-cycle |
+| Sparkle | Colour A, Colour B, Rate, Density: soft tinkle bloom that picks colour per-cycle |
 | Sections | Colour A, Colour B, Speed, Columns, Rows |
-| Ring | Colour, Breath, Thickness — an outer ring that eases in to the centre and back out, one breath every 8.3 s by default |
-| Ripple | Speed — click-armed; the controller fires it from your click point on the camera preview |
-| Spotlight | Colour, Radius — follows the operator's cursor across the camera preview; the tightest radius picks out a single phone |
+| Ring | Colour, Breath, Thickness: an outer ring that eases in to the centre and back out, one breath every 8.3 s by default |
+| Ripple | Speed: click-armed; the controller fires it from your click point on the camera preview |
+| Spotlight | Colour, Radius: follows the operator's cursor across the camera preview; the tightest radius picks out a single phone |
 | Groups | Columns + a colour swatch per column (up to 16 stripes), Chase speed |
 
 The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect
@@ -344,19 +345,19 @@ sequence phones across the crowd.
 
 ### 4. Avatar race
 
-Every detected phone gets a procedurally-generated character — body colour, hat style, skin tone
-all hashed from its blink ID — and races left-to-right on the stage projection (`/stage`). Tap
+Every detected phone gets a procedurally-generated character (body colour, hat style, skin tone
+all hashed from its blink ID) and races left-to-right on the stage projection (`/stage`). Tap
 the phone to step forward; first across the finish line wins.
 
 - **Target:** 40 taps to finish (`RACE_TAPS_PER_PLAYER` in `game.py`)
-- **Tap rate cap:** ~12 taps/s per phone — beyond that taps are ignored
+- **Tap rate cap:** ~12 taps/s per phone; beyond that taps are ignored
 - **Progress broadcast:** 10 Hz; the stage eases each runner's displayed x toward the latest
   server position so motion stays smooth even on slow networks
-- **Lanes auto-fit** — the track divides evenly across however many runners are in the round,
+- **Lanes auto-fit:** the track divides evenly across however many runners are in the round,
   scaling avatar size down so 70+ phones still fit cleanly
-- **Phone-side avatar preview** — the user's own character is painted into the race card header
+- **Phone-side avatar preview:** the user's own character is painted into the race card header
   alongside their live rank ("12th of 47"), so they can find themselves in a crowded projection
-- **Winner overlay** — text-only, with looping confetti until the operator triggers the next
+- **Winner overlay:** text-only, with looping confetti until the operator triggers the next
   thing; manual stop ends the round silently
 
 Launch from the sidebar: **Start Avatar Race**. Open `/stage` on a second screen (or projector)
@@ -364,7 +365,7 @@ to display the race.
 
 ### 5. Likes
 
-A global like counter on the waiting screen. Tap the thumbs-up to add to it — flying heart
+A global like counter on the waiting screen. Tap the thumbs-up to add to it. Flying heart
 animations play locally. Taps are batched server-side at ~3 broadcasts/second so simultaneous
 taps from 300 people don't flood connections.
 
@@ -402,7 +403,7 @@ ENGAGEMENT
 Sections are omitted if they didn't happen. Reports are kept indefinitely. Combined with the
 per-run calibration logs and debug captures, every show leaves a full paper trail:
 
-![Spatial map of a real show — every phone plotted at its detected position, shaded by time-to-decode](public/stats/07_spatial_labelled.png)
+![Spatial map of a real show: every phone plotted at its detected position, shaded by time-to-decode](public/stats/07_spatial_labelled.png)
 
 ### Foot controller (BOSS FS-1-WL)
 
@@ -456,28 +457,28 @@ Phones cycle through these views as the show progresses:
 | `effects` | Showtime | Synchronised light effect |
 | `game` | Avatar race active | Tap-to-run card with personal avatar + live rank |
 
-Each card is a fixed full-screen div. `setView()` is the only point that changes the display —
+Each card is a fixed full-screen div. `setView()` is the only point that changes the display:
 cards are shown/hidden via `style.display`, never via CSS class toggles.
 
-**Waiting screen** — shares the holding page's design language (wordmark, grid background,
+**Waiting screen:** shares the holding page's design language (wordmark, grid background,
 breathing glow) so the audience sees one continuous brand from pre-show to found. A numbered
 three-step card (keep the page open / brightness to full, auto-lock off / how to hold the
 phone), the like button (tap: white screen-blink flash, a burst of scattering pixel squares, a
 flying thumb; the count pops on every update including other people's likes), and a Wake Lock
 request to keep the phone awake.
 
-**Connection status bar** — fixed chrome above the home indicator, shown on the waiting and
+**Connection status bar:** fixed chrome above the home indicator, shown on the waiting and
 located views only: a black band fading out at the sides with a pixel-square marker. Steady
 pixel with an occasional double-blink wink = connected; continuous hard blinking = reconnecting;
 triple-blink = just joined. Shows "Connecting…" from the instant a fresh page loads, so startup
 can never look like a blank screen.
 
-**Connection resilience** — a fresh page that cannot connect reloads to the holding page after
+**Connection resilience:** a fresh page that cannot connect reloads to the holding page after
 15 s; a mid-wait disconnect shows the amber state and hands over after 8 s; a liveness watchdog
 on wall-clock time catches the states no socket event reaches (constructor hangs, iOS freezing
 the page in background), with grace periods so a mid-handshake socket is never reloaded.
 
-**Located screen** — "Found you!" with a position map: white dots for other detected phones, a
+**Located screen:** "Found you!" with a position map: white dots for other detected phones, a
 large animated green dot for this phone, and the pre-show reminders ("Hold your screen up when
 the show begins · Brightness to full · Turn off auto-lock"). The green dot pulses at 2 Hz on a
 `requestAnimationFrame` loop synced to the visibility API, so it restarts automatically when the
@@ -502,8 +503,8 @@ Each device blinks one full cycle continuously:
 | Cycle length | 13.2 s | 44 phases × 300 ms |
 
 - Manchester: bit `1` → `[bright, dark]`, bit `0` → `[dark, bright]`
-- ID transmitted twice per cycle — up to 1 bit error corrected via majority vote
-- Decoding uses actual frame timestamps + known `PHASE_MS` as ground truth — immune to variable
+- ID transmitted twice per cycle, so up to 1 bit error is corrected via majority vote
+- Decoding uses actual frame timestamps + known `PHASE_MS` as ground truth, immune to variable
   camera fps
 - Anchor computed from the end of the guard run, so phones arriving mid-cycle decode correctly
 
@@ -514,22 +515,22 @@ before attempting a decode. Expect 15–20 s from connection to first detection.
 
 ### Decode pipeline behaviours
 
-- **Decode backoff** — failed points retry at `min(interval × 2^failures, 5s)`. Counter resets on
+- **Decode backoff:** failed points retry at `min(interval × 2^failures, 5s)`. Counter resets on
   success.
-- **Stream display gate** — the binary stream overlay is only shown once a point has been active
+- **Stream display gate:** the binary stream overlay is only shown once a point has been active
   ≥4 s with fewer than 6 consecutive failures.
-- **Phantom ID suppression** — two IDs within 60 px are deduplicated; the lower-confidence one is
+- **Phantom ID suppression:** two IDs within 60 px are deduplicated; the lower-confidence one is
   dropped. Reduced from 120 px to allow phones closer together in a dense crowd (≈1.6 m exclusion
   radius at 30 m/1080p). IDs belonging to connected phones (`valid_ids`) are exempt: at meetup
   density real neighbours sit 15–50 px apart in frame, and the 16 Jul demo showed a decoded,
   still-blinking phone (conf 0.87) silently discarded for a whole run because a found neighbour
   40 px away outranked it. Only unassigned (phantom) IDs are dropped now; each exempted keep is
   logged once (`[blink] kept valid ID=…`).
-- **Backward-scan decoder** — phones that started blinking before detection began are decoded
+- **Backward-scan decoder:** phones that started blinking before detection began are decoded
   from pre-guard history. Confidence penalised 5% per assumed bit.
-- **Stale-entry eviction** — entries below gate for >13.2 s are evicted every 3 seconds
+- **Stale-entry eviction:** entries below gate for >13.2 s are evicted every 3 seconds
   (wall-clock). Logged at DEBUG: `[blink] evicted N stale pts from _ever_active (remaining=M)`.
-- **Guard-phase extension** — after the main decode loop, points whose std has just dropped below
+- **Guard-phase extension:** after the main decode loop, points whose std has just dropped below
   gate are retried, recovering phones whose dark guard phase coincided with their warmup
   threshold crossing.
 
@@ -552,7 +553,7 @@ browser clients  ──WS──►  server.py (FastAPI)
                                   (Manchester codec)
 ```
 
-The display and detection threads run independently. Frames pass via `Queue(maxsize=1)` — if the
+The display and detection threads run independently. Frames pass via `Queue(maxsize=1)`. If the
 detector is busy the frame is dropped and the camera loop continues unblocked.
 
 The operator feed rides a side channel: a stream thread JPEG-encodes the newest display frame
@@ -564,12 +565,12 @@ stale-frame dropping, so a slow viewer skips to the newest frame instead of buil
 over it on a semi-transparent scrim. `Tab` hides and shows the sidebar outright; the preview
 never moves.
 
-- **Chrome** — black (#020204, the site's background), the pixelmesh wordmark as the sidebar
+- **Chrome:** black (#020204, the site's background), the pixelmesh wordmark as the sidebar
   header, bold Verdana section headings with no separator lines.
-- **Type** — Verdana at an effective 16 px throughout, 26 px for tab labels.
-- **Dock icon** — the cube, set via AppKit at runtime, because GLFW ignores viewport icons on
+- **Type:** Verdana at an effective 16 px throughout, 26 px for tab labels.
+- **Dock icon:** the cube, set via AppKit at runtime, because GLFW ignores viewport icons on
   Cocoa.
-- **HUD and ROI text** — rasterised onto the canvas with PIL in the same Verdana. DPG overlay
+- **HUD and ROI text:** rasterised onto the canvas with PIL in the same Verdana. DPG overlay
   layers (viewport drawlists, autosized floating windows) do not render reliably on the macOS
   Metal backend, so anything that must always be visible stays on the canvas.
 
@@ -588,24 +589,24 @@ The sidebar is three tabs:
 | `effects.py` | Effect definitions, per-effect parameter storage, settings dialogs |
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
-| `game.py` | Avatar race — server routes, tap handling, controller UI |
-| `midi.py` | Foot controller — pedal discovery, learned key map, effect cycling |
-| `public/stage.js` | Stage projection — avatar race rendering, confetti, winner overlay |
-| `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
+| `game.py` | Avatar race: server routes, tap handling, controller UI |
+| `midi.py` | Foot controller: pedal discovery, learned key map, effect cycling |
+| `public/stage.js` | Stage projection: avatar race rendering, confetti, winner overlay |
+| `report.py` | Post-show report generator: writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
 | `camera.py` | Gamma and contrast helpers, plus the rounded ID badge shared by the overlay and the detector |
 | `dashboard.html` | Admin dashboard page served at `/internal/dashboard` |
 | `network.py` | HTTP helpers + feed WebSocket client for controller → server calls |
-| `elgato.py` | Camera Hub watchdog — AE monitor, ISO control via local WebSocket API |
+| `elgato.py` | Camera Hub watchdog: AE monitor, ISO control via local WebSocket API |
 | `state.py` | Shared state between threads |
 | `log.py` | File logger (`debug/pixelmesh.log`) |
 | `debug_capture.py` | Frame capture for offline analysis |
 | `public/app.js` | Client-side blink renderer, effect engine, waiting/located/game UI |
-| `ngrok.pixelmesh.yml` | Show tunnel — binds the internal endpoint behind the cloud endpoint |
+| `ngrok.pixelmesh.yml` | Show tunnel: binds the internal endpoint behind the cloud endpoint |
 | `ngrok.cloud-policy.yml` | Traffic policy for `pixelmesh.show`, incl. the offline holding page |
 | `content/` | Posts, talk slides, and other written material |
 | `tools/` | Offline work: the effect editor, detector replay, signal heatmaps, GIF/still generators |
-| `docs/` | Notes kept alongside the code — see below |
+| `docs/` | Notes kept alongside the code: see below |
 | `artifacts/` | Local working files: sample clips and screenshots. Untracked |
 | `docs/testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
 | `docs/ROADMAP.md` | Design notes for planned work |
@@ -649,16 +650,16 @@ Key parameters in `blink_detector.py`:
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | `grid_step` | 8 px | Distance between sample points. At step=8 a phone just 3 px wide always overlaps a patch. Covers phones at 25–30 m at 1080p. |
-| `sample_radius` | 4 px | Patch radius — 8×8=64 px per point. Keeps the sampling matrix at 1.66 MB, fitting inside L2/L3 cache on M1. r=6 (3.7 MB) spills to RAM and makes `np.partition` 10× slower. |
+| `sample_radius` | 4 px | Patch radius: 8×8=64 px per point. Keeps the sampling matrix at 1.66 MB, fitting inside L2/L3 cache on M1. r=6 (3.7 MB) spills to RAM and makes `np.partition` 10× slower. |
 | `brightness_pct` | 3 | Percentile used when sampling a patch. The ~2.8th percentile catches even a single dark pixel during the dark phase. |
-| `min_recent_std` | adaptive | Auto-tuned to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Asymmetric EMA (α=0.4 up, α=0.05 down) — a brightness spike raises the gate within 2–3 frames. |
-| `recent_n` | 18 | Samples in recent window (~1.2 s at 15 fps). Reduced from 24 — ~25% cheaper `np.std` with no decode impact at typical frame rates. |
-| `history_seconds` | 15.0 | Rolling brightness history per point. Reduced from 30 s — halves list size and `add_sample` trim cost; well above the 13.2 s minimum for a full decode cycle. |
+| `min_recent_std` | adaptive | Auto-tuned to `EMA(p90(all stds)) × 3.5`, clamped 0.05–0.15. Asymmetric EMA (α=0.4 up, α=0.05 down). A brightness spike raises the gate within 2–3 frames. |
+| `recent_n` | 18 | Samples in recent window (~1.2 s at 15 fps). Reduced from 24. ~25% cheaper `np.std` with no decode impact at typical frame rates. |
+| `history_seconds` | 15.0 | Rolling brightness history per point. Reduced from 30 s. Halves list size and `add_sample` trim cost; well above the 13.2 s minimum for a full decode cycle. |
 | `decode_interval` | 0.2 s | Time between decode attempts per point (undiscovered phones only) |
 | `roi_*_frac` | 0.0 | Fraction of frame excluded from the detection grid on each edge. Controlled via sidebar sliders. |
 
 **Tested on Apple M1 Pro, 16 GB RAM.** Display thread runs at ~60 fps; detection thread at
-~50 fps. The bottleneck at 300+ phones is not compute — it is the 13.2 s warmup each phone must
+~50 fps. The bottleneck at 300+ phones is not compute. It is the 13.2 s warmup each phone must
 complete before its first decode attempt.
 
 | Optimisation | Impact |
@@ -667,7 +668,7 @@ complete before its first decode attempt.
 | 50 ms wall-clock decode budget | Prevents per-frame overrun regardless of phone count |
 | Early-exit decoder at confidence ≥0.95 | ~7× speedup per decode with clean signal |
 | No re-decode of found phones | Zero cost per frame once located |
-| `sample_radius=4` — 1.66 MB matrix | Fits L2/L3 cache; avoids RAM latency |
+| `sample_radius=4`: 1.66 MB matrix | Fits L2/L3 cache; avoids RAM latency |
 | `np.std` over circular buffer | Single vectorised call, GIL released |
 | Precomputed flat patch indices | One numpy gather per frame, no per-point slicing |
 | Gated history recording | `add_sample` only called for active/gate-crossing points |
@@ -683,12 +684,12 @@ complete before its first decode attempt.
 ### Debug capture
 
 Press **G** to start/stop a debug run. Each run is saved to a friendly-named folder under
-`debug/` (e.g. `autumn-fox-42`). Runs are kept indefinitely — prune manually if disk space
+`debug/` (e.g. `autumn-fox-42`). Runs are kept indefinitely; prune manually if disk space
 matters.
 
 **A debug run does not stop when detection stops.** It stays up until you press `G` again or
-quit the app, and `run.mp4` takes every frame regardless of whether detection is running —
-only the per-frame JPEGs under `frames/` are gated on it. At 1920×1080 that is roughly
+quit the app, and `run.mp4` takes every frame regardless of whether detection is running.
+Only the per-frame JPEGs under `frames/` are gated on it. At 1920×1080 that is roughly
 **1.1 GB/hour**, plus a continuous 1080p ffmpeg encode competing with the show on the same
 machine. It used to auto-start with detection (`_DEBUG_AUTO_ON_DETECT`), which meant one
 overnight session quietly wrote 2.6 GB across 7 hours with detection off the whole time; it is
@@ -711,12 +712,12 @@ debug/autumn-fox-42/
 
 | File | Contents |
 |------|----------|
-| `/tmp/pixelmesh-server.log` | FastAPI / uvicorn — HTTP, WebSocket, assignments, broadcasts, errors |
-| `/tmp/pixelmesh-ngrok.log` | ngrok tunnel — connection status, forwarding address |
-| `/tmp/pixelmesh-controller.log` | Controller stdout/stderr — startup errors, Dear PyGui exceptions |
-| `debug/pixelmesh.log` | Blink detection diagnostics — gate/std stats, decode failures, effect triggers. Appended across restarts. |
-| `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session — time-to-detect and confidence per blink ID |
-| `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report — generated automatically on every reset |
+| `/tmp/pixelmesh-server.log` | FastAPI / uvicorn: HTTP, WebSocket, assignments, broadcasts, errors |
+| `/tmp/pixelmesh-ngrok.log` | ngrok tunnel: connection status, forwarding address |
+| `/tmp/pixelmesh-controller.log` | Controller stdout/stderr: startup errors, Dear PyGui exceptions |
+| `debug/pixelmesh.log` | Blink detection diagnostics: gate/std stats, decode failures, effect triggers. Appended across restarts. |
+| `debug/calibration_logs/YYYYMMDD_HHMMSS.log` | One file per detection session: time-to-detect and confidence per blink ID |
+| `debug/reports/YYYYMMDD_HHMMSS.txt` | Post-show report: generated automatically on every reset |
 | `debug/recordings/YYYYMMDD_HHMMSS.mp4` | Video recording (hotkey `V`). Not committed to git. |
 
 ### Show URL & offline page
@@ -724,13 +725,13 @@ debug/autumn-fox-42/
 `pixelmesh.show` is an always-on **cloud endpoint** at ngrok's edge, not a direct tunnel. The
 agent (started by `run.sh` from `ngrok.pixelmesh.yml`) binds the internal endpoint
 `https://pixelmesh-agent.internal`; the cloud endpoint's traffic policy forwards to it when the
-agent is up and serves an edge-hosted holding page when it isn't — wordmark, "The show has not
+agent is up and serves an edge-hosted holding page when it isn't: wordmark, "The show has not
 yet begun", and a 10 s countdown that quietly `fetch`-probes the origin, reloading only when the
-response stops carrying the `x-pixelmesh-holding` marker header (i.e. the show is actually up) —
-no reload flash while waiting. No laptop involvement while offline, no `ERR_NGROK_3200`.
+response stops carrying the `x-pixelmesh-holding` marker header (i.e. the show is actually up).
+No reload flash while waiting. No laptop involvement while offline, no `ERR_NGROK_3200`.
 
 The policy (including the embedded holding-page HTML) is versioned at `ngrok.cloud-policy.yml`.
-The dashboard serves whatever was pasted last — re-paste after editing the file
+The dashboard serves whatever was pasted last; re-paste after editing the file
 (dashboard → Universal Gateway → Endpoints → `pixelmesh.show` → Traffic Policy).
 
 **How the pieces fit:**
@@ -740,7 +741,7 @@ The dashboard serves whatever was pasted last — re-paste after editing the fil
 | Reserved domain `pixelmesh.show` | ngrok dashboard → Domains | DNS for the show URL (CNAME at the registrar per ngrok's instructions) |
 | Cloud endpoint on `pixelmesh.show` | dashboard → Endpoints | Always-on edge listener; runs the traffic policy |
 | Traffic policy | pasted from `ngrok.cloud-policy.yml` | `forward-internal` to the agent; holding page when the forward fails **or** returns a 5xx (agent up, app closed) |
-| Internal endpoint `pixelmesh-agent.internal` | claimed by the agent at start | Private rendezvous between edge and laptop — not publicly reachable |
+| Internal endpoint `pixelmesh-agent.internal` | claimed by the agent at start | Private rendezvous between edge and laptop: not publicly reachable |
 | Agent authtoken | `~/Library/Application Support/ngrok/ngrok.yml` | Default agent config; `run.sh` passes it alongside the project config |
 | Tunnel definition | `ngrok.pixelmesh.yml` | Binds the internal endpoint to `localhost:8000`, inspection off, compression on |
 
@@ -751,7 +752,7 @@ The dashboard serves whatever was pasted last — re-paste after editing the fil
 2. **Endpoints → New → Cloud Endpoint**, bind `https://pixelmesh.show`.
 3. Paste the contents of `ngrok.cloud-policy.yml` into the endpoint's Traffic Policy and save.
 4. Put the account authtoken in the default agent config (`ngrok config add-authtoken …`).
-   Nothing to configure for the internal endpoint — the agent claims it on start.
+   Nothing to configure for the internal endpoint: the agent claims it on start.
 
 **Region:** the domain's "Region & IP resolution" is pinned to **Europe** in the dashboard
 (Jul 2026). It defaults to global latency-aware DNS, but `pixelmesh.show` reaches ngrok via a
@@ -784,7 +785,7 @@ save_frame stall. Silence means pacing is fine.
 
 The server hashes `app.js` at startup into a `BUILD_ID`, stamped into both the page's script
 tag and `server_hello`. The client compares the server's build against the one embedded in its
-own page (not localStorage history — that reloaded already-current pages once per deploy), so a
+own page (not localStorage history, which reloaded already-current pages once per deploy), so a
 fresh page always matches and connects once, while a stale parked page reloads exactly once.
 
 - Same code + server restart → same hash, no reload
@@ -804,12 +805,12 @@ Eight files, no network and no fixtures beyond a `conftest.py`:
 |------|--------|
 | `test_blink_encoder.py` | encode/decode round-trips and structural invariants, with a simulated camera |
 | `test_server_pool.py` | blink ID pool management and the `blink_assignments` / `blink_reverse` pair |
-| `test_show_stats.py` | the `/admin/show_stats` payload — shape, counts, show state, and that the keys the talk deck reads still exist |
-| `test_mode_api.py` | `/admin/mode` — sequence semantics, rejection of bad input, request vs actual, and the token/CORS/preflight behaviour |
-| `test_end_show.py` | `POST /admin/end` — that one call both stops effects and sends the closing card, in an order that cannot leave a phone dark-then-lit |
+| `test_show_stats.py` | the `/admin/show_stats` payload: shape, counts, show state, and that the keys the talk deck reads still exist |
+| `test_mode_api.py` | `/admin/mode`: sequence semantics, rejection of bad input, request vs actual, and the token/CORS/preflight behaviour |
+| `test_end_show.py` | `POST /admin/end`: that one call both stops effects and sends the closing card, in an order that cannot leave a phone dark-then-lit |
 | `test_effect_gate.py` | why an effect button could silently do nothing: phones dropping out of `/admin/blink_map` drained the controller's copy of the room, and `trigger_effect` gated on it |
-| `test_camera_pick.py` | camera selection — that only the Elgato is ever opened, including when it is absent, so no other camera is woken by probing |
-| `test_shutdown.py` | recordings survive a quit — real ffmpeg round-trips verified with `ffprobe`, `stop()` under a live capture thread, the SIGTERM handler in a real subprocess, and unique filenames |
+| `test_camera_pick.py` | camera selection: that only the Elgato is ever opened, including when it is absent, so no other camera is woken by probing |
+| `test_shutdown.py` | recordings survive a quit: real ffmpeg round-trips verified with `ffprobe`, `stop()` under a live capture thread, the SIGTERM handler in a real subprocess, and unique filenames |
 
 `test_shutdown.py` needs `ffmpeg`/`ffprobe`; those tests skip without them. It also asserts two
 invariants against the *source* rather than by running it, because `controller.py` cannot be
@@ -818,13 +819,13 @@ are silent: a signal handler that takes `state.lock` deadlocks instead of errori
 `kill -9` in `run.sh` truncates a recording without any sign until you try to play it.
 
 `conftest.py` sets `PIXELMESH_ADMIN_TOKEN` for the session. Without it every test that
-imports `server` dies with `SystemExit`, because the module refuses to load unauthenticated —
+imports `server` dies with `SystemExit`, because the module refuses to load unauthenticated,
 which is correct in production and fatal in a test runner.
 
 Handlers are tested by calling them directly rather than over HTTP: they take plain dicts
 and return plain dicts, so an HTTP client would exercise nothing extra, and it keeps `httpx`
 out of the dependency list. The exception is the admin middleware, which is driven through
-the real ASGI stack in `test_mode_api.py` — the token check, the preflight and the CORS
+the real ASGI stack in `test_mode_api.py`: the token check, the preflight and the CORS
 headers only exist at that layer, so there is nowhere else to test them.
 
 ---
@@ -836,31 +837,31 @@ headers only exist at that layer, so there is nowhere else to test them.
 this one at `~/Desktop/projects/pixelmesh.website`). It used to sit in `site/` here; the split
 happened on 11 Aug 2026 and the site's history came across with it.
 
-- Static site on DigitalOcean App Platform, served from that repo's root — **every push to its
+- Static site on DigitalOcean App Platform, served from that repo's root. **Every push to its
   `main` deploys it**.
 - The hero loop, detection clip, poster, and `og-image.jpg` are cut from real show footage with
-  ffmpeg — sources are the debug captures under `debug/` here and the London opener edit.
+  ffmpeg. Sources are the debug captures under `debug/` here and the London opener edit.
 - Brand rule: **pixelmesh is always lowercase**, and no em dashes in site copy.
 
 ---
 
 ## Origins
 
-Three generations of one idea — a crowd's phones as pixels:
+Three generations of one idea, a crowd's phones as pixels:
 
 - **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
-  (Seb Lee-Delisle, 2011) — phones held up and positioned by hand.
-- **pixelmesh V1** — AprilTags on lock screens, homography calibration. Worked; printing the
+  (Seb Lee-Delisle, 2011): phones held up and positioned by hand.
+- **pixelmesh V1:** AprilTags on lock screens, homography calibration. Worked; printing the
   tags was the friction.
-- **pixelmesh V2** (this repo) — the phones find themselves. Each screen blinks its ID, one
+- **pixelmesh V2** (this repo): the phones find themselves. Each screen blinks its ID, one
   camera reads the whole room. No tags, no calibration, no install.
 
 ### Guiding principles
 
-- **Time over position** — sync clocks first; spatial layout is optional decoration.
-- **Detection over configuration** — the system finds you, you don't set anything up.
-- **Fast join over precision** — a phone joining 5 seconds late should still play.
-- **Robustness over perfection** — partial detections, dropped frames, and reconnects are the
+- **Time over position:** sync clocks first; spatial layout is optional decoration.
+- **Detection over configuration:** the system finds you, you don't set anything up.
+- **Fast join over precision:** a phone joining 5 seconds late should still play.
+- **Robustness over perfection:** partial detections, dropped frames, and reconnects are the
   norm, not the exception.
 
 ---
@@ -869,10 +870,10 @@ Three generations of one idea — a crowd's phones as pixels:
 
 Full design notes in [docs/ROADMAP.md](docs/ROADMAP.md). Headlines:
 
-- **Faster decode** — PHASE_MS 300→250ms cuts every timeline 17% with the ID space intact
-- **Found-state visibility** — steady green on found, so raised phones show their status from behind
-- **Blackout command** — instant all-phones-off for dramatic moments
-- **Photo-light warning** — pre-show prompt + HUD alert when strobes degrade detection
-- **Spatial coherence pre-filter** — kill lone-pixel noise before it reaches the decode budget
-- **Drawn ROI** — free-hand polygon regions instead of edge percentages
-- **Souvenirs** — a personal post-show page per phone: their pixel's story, as a shareable GIF
+- **Faster decode:** PHASE_MS 300→250ms cuts every timeline 17% with the ID space intact
+- **Found-state visibility:** steady green on found, so raised phones show their status from behind
+- **Blackout command:** instant all-phones-off for dramatic moments
+- **Photo-light warning:** pre-show prompt + HUD alert when strobes degrade detection
+- **Spatial coherence pre-filter:** kill lone-pixel noise before it reaches the decode budget
+- **Drawn ROI:** free-hand polygon regions instead of edge percentages
+- **Souvenirs:** a personal post-show page per phone: their pixel's story, as a shareable GIF
