@@ -1,0 +1,1405 @@
+<title>pixelmesh effect editor</title>
+
+<style>
+  /* JetBrains Mono, lifted straight from public/fonts/ so the editor is
+     set in the project's own face rather than whatever the OS supplies. */
+  /* Inter for the interface, JetBrains Mono for numbers and code.
+     Both lifted from public/fonts/ so the editor matches the project. */
+  @font-face {
+    font-family: "Inter";
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+    src: url(../public/fonts/InterVariable.woff2) format("woff2");
+  }
+  @font-face {
+    font-family: "JetBrains Mono";
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    src: url(../public/fonts/JetBrainsMono-Regular.woff2) format("woff2");
+  }
+
+  /* ------------------------------------------------------------------ *
+   * Deliberately single-theme.  The subject is a dark room full of phone
+   * screens; a light-mode version of that would be a lie about the show.
+   * ------------------------------------------------------------------ */
+  /* Tokens follow the audience client: pure black ground, white wordmark,
+     hairlines as low-alpha white rather than a separate slate palette. */
+  /* Chrome is deliberately neutral grey, not blue-grey: the only colour in
+     the room should be the phones themselves. */
+  :root {
+    --ground:   #000;
+    --panel:    #0a0a0a;
+    --panel-2:  #141414;
+    --line:     rgba(255,255,255,0.09);
+    --line-hot: rgba(255,255,255,0.2);
+    --text:     #e8e8e5;
+    --muted:    #9d9d97;
+    --dim:      #7a7a73;
+    --accent:   #8cd2ff;
+    --accent-2: #1d3c4f;
+
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --sans: "Inter", -apple-system, system-ui, "Helvetica Neue", sans-serif;
+
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(circle at 50% 0%, rgba(255,255,255,0.035), transparent 55%),
+      var(--ground);
+    background-attachment: fixed;
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  code { font-family: var(--mono); font-size: 12px; }
+
+  .app {
+    max-width: 1560px;
+    margin: 0 auto;
+    padding: 18px 20px 56px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* ---- header ---- */
+
+  .bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  .lockup { display: flex; align-items: center; gap: 15px; }
+  .wordmark { display: block; height: 34px; width: auto; color: #fff; }
+  .wordmark path, .wordmark polygon { fill: currentColor; }
+  .bar h1 {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 400;
+    color: var(--muted);
+    padding-left: 15px;
+    border-left: 1px solid var(--line-hot);
+  }
+  .bar p {
+    margin: 0;
+    font-family: var(--sans);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--muted);
+    max-width: 58ch;
+  }
+  .bar .spacer { flex: 1; }
+  .bar .build {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+
+  /* ---- shell ---- */
+
+  .editor {
+    display: grid;
+    grid-template-columns: 172px minmax(0, 1fr) 306px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  /* ---- effect list ---- */
+
+  .effects { display: flex; flex-direction: column; gap: 2px; }
+  .effects h2, .rail h2, .crowd h2 {
+    margin: 0 0 4px;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--dim);
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+  }
+  .effects button {
+    text-align: left;
+    padding: 7px 10px;
+    font-size: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .effects button:hover { color: var(--text); border-color: var(--line-hot); }
+  .effects button[aria-pressed="true"] {
+    background: var(--accent-2);
+    border-color: #3d6d8c;
+    color: #e2f3ff;
+  }
+  .effects button .flag { font-size: 11px; color: var(--dim); }
+  .effects button[aria-pressed="true"] .flag { color: #9fc4d8; }
+
+  /* ---- stage ---- */
+
+  .stage { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+
+  .canvas-wrap {
+    position: relative;
+    background: #000;
+    border: 1px solid var(--line);
+    border-radius: 0;
+    overflow: hidden;
+    aspect-ratio: var(--room-ratio, 2);
+  }
+  canvas { display: block; width: 100%; height: 100%; }
+  .canvas-wrap.pointing { cursor: crosshair; }
+
+  .stamp {
+    font-family: var(--mono);
+    position: absolute;
+    left: 10px; top: 9px;
+    font-size: 10px;
+    color: var(--dim);
+    pointer-events: none;
+  }
+  .hint-overlay {
+    position: absolute;
+    right: 10px; top: 9px;
+    font-size: 10px;
+    color: var(--accent);
+    opacity: 0.75;
+    pointer-events: none;
+  }
+
+  /* ---- crowd bar (always visible, never below the fold) ---- */
+
+  .crowd {
+    display: grid;
+    grid-template-columns: 168px minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 14px;
+    align-items: end;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 10px 12px;
+  }
+  .crowd .ctl { gap: 3px; }
+  .crowd .lab span:first-child { font-size: 11px; }
+
+  /* ---- readout ---- */
+
+  .readout {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    overflow: hidden;
+  }
+  .readout div { background: var(--panel); padding: 7px 11px; }
+  .readout dt {
+    margin: 0;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .readout dd {
+    margin: 2px 0 0;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .readout dd .unit { font-size: 11px; color: var(--dim); margin-left: 3px; }
+
+  /* ---- transport ---- */
+
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 8px 12px;
+  }
+  .status {
+    font-family: var(--mono);
+    margin: 0;
+    padding: 0 1px;
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: pre;
+    overflow-x: auto;
+  }
+  .transport .scrub { flex: 1; }
+  .transport .clock {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
+    font-size: 11px;
+    min-width: 62px;
+    text-align: right;
+  }
+
+  button {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--text);
+    background: var(--panel-2);
+    border: 1px solid var(--line-hot);
+    border-radius: 0;
+    padding: 5px 11px;
+    cursor: pointer;
+  }
+  button:hover { border-color: #3d6d8c; color: var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.play { min-width: 66px; }
+
+  /* ---- param rail ---- */
+
+  .rail {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 0;
+    padding: 13px 13px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .rail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .rail-head h2 { border: none; padding: 0; margin: 0; }
+  .rail-note {
+    font-family: var(--sans);
+    font-size: 11px;
+    color: var(--dim);
+    line-height: 1.45;
+    margin: 0;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sub-head {
+    font-size: 12px;
+    color: var(--dim);
+    margin: 2px 0 -4px;
+  }
+
+  .ctl { display: flex; flex-direction: column; gap: 4px; }
+  .ctl .lab { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .ctl .lab span:first-child { color: var(--text); font-size: 12px; }
+  .ctl .lab .val { font-family: var(--mono); color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; }
+  .ctl .hint { font-family: var(--sans); font-size: 11px; color: var(--dim); line-height: 1.4; margin: 0; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 18px; background: transparent; cursor: pointer; margin: 0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track { height: 2px; background: var(--line-hot); }
+  input[type="range"]::-moz-range-track { height: 2px; background: var(--line-hot); }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 11px; height: 11px; margin-top: -4.5px;
+    border-radius: 50%; background: var(--accent); border: none;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 11px; height: 11px; border-radius: 50%; background: var(--accent); border: none;
+  }
+  input[type="range"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .seg { display: flex; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 0; }
+  .seg button {
+    flex: 1; border: none; border-radius: 0; background: var(--panel-2);
+    color: var(--muted); padding: 6px 4px; font-size: 11px;
+  }
+  .seg button[aria-pressed="true"] { background: var(--accent-2); color: #dff1ff; }
+  .seg button:hover { color: var(--text); }
+
+  select {
+    font-family: var(--sans); font-size: 12px; color: var(--text);
+    background: var(--panel-2); border: 1px solid var(--line-hot);
+    border-radius: 0; padding: 6px 8px; width: 100%;
+  }
+  select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .swatch-row { display: flex; align-items: center; gap: 9px; }
+  input[type="color"] {
+    -webkit-appearance: none; appearance: none;
+    width: 40px; height: 25px; padding: 0;
+    border: 1px solid var(--line-hot); border-radius: 0; background: none; cursor: pointer;
+  }
+  input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+  input[type="color"]::-webkit-color-swatch { border: none; border-radius: 0; }
+  .swatch-row .rgb { font-family: var(--mono); color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+
+  /* compact swatch grid for the Groups palette */
+  .swatch-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .swatch-grid label { display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .swatch-grid span { font-size: 10px; color: var(--dim); }
+  .swatch-grid input[type="color"] { width: 100%; height: 22px; }
+
+  .check { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+  input[type="checkbox"] { accent-color: var(--accent); width: 13px; height: 13px; cursor: pointer; }
+
+  /* ---- code panel ---- */
+
+  .code { display: flex; flex-direction: column; gap: 10px; }
+  .code-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 14px; flex-wrap: wrap; padding-bottom: 9px; border-bottom: 1px solid var(--line);
+  }
+  .code-head h2 {
+    margin: 0; font-size: 12px; font-weight: 400; color: var(--dim);
+  }
+  .code-head p { margin: 0; font-family: var(--sans); font-size: 12px; color: var(--dim); }
+  .code-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .snippet {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 0; overflow: hidden; min-width: 0;
+  }
+  .snippet header {
+    font-family: var(--mono);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 7px 11px; border-bottom: 1px solid var(--line);
+    font-size: 11px; color: var(--muted);
+  }
+  .snippet pre {
+    font-family: var(--mono);
+    margin: 0; padding: 11px; overflow-x: auto;
+    font-size: 12px; line-height: 1.62; color: #b9c2d4; tab-size: 2;
+  }
+
+  @media (max-width: 1180px) {
+    .editor { grid-template-columns: 1fr; }
+    .effects { flex-direction: row; flex-wrap: wrap; }
+    .effects h2 { width: 100%; }
+    .code-cols { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 720px) {
+    .crowd { grid-template-columns: 1fr; align-items: stretch; }
+    .readout { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+
+<div class="app">
+
+  <header class="bar">
+    <div class="lockup">
+      <svg class="wordmark" role="img" aria-label="pixelmesh" viewBox="295 570 710 145"><g><path fill="#FFFFFF" d="M325.004,682.565l0.917,11.153v27.81h-21.086V644.06c0-11.918,3.056-20.958,9.168-27.122c6.111-6.163,15.227-9.245,27.351-9.245h2.903c12.121,0,21.239,3.082,27.351,9.245c6.112,6.163,9.168,15.203,9.168,27.122v10.542c0,11.716-2.879,20.706-8.634,26.971c-5.756,6.264-13.88,9.396-24.371,9.396h-3.056C336.056,690.968,329.485,688.168,325.004,682.565z M329.74,667.36c2.546,2.7,6.469,4.05,11.767,4.05h2.444c10.391,0,15.586-5.447,15.586-16.35V643.6c0-10.795-5.195-16.196-15.586-16.196h-2.444c-5.298,0-9.221,1.325-11.767,3.973c-2.547,2.649-3.819,6.723-3.819,12.223v11.46C325.921,660.562,327.193,664.663,329.74,667.36z"/><path fill="#FFFFFF" d="M391.012,578.813h21.086v20.476h-21.086V578.813z M391.012,609.984h21.086v78.692h-21.086V609.984z"/><g><polygon fill="none" points="458.544,631.618 443.422,609.984 457.327,633.668"/><polygon fill="#FFFFFF" points="496.75,609.984 471.385,609.984 467.902,615.853 481.086,633.857"/><polygon fill="#FFFFFF" points="457.327,633.668 443.422,609.984 418.057,609.984 443.27,648.49 416.377,688.677 441.894,688.677 457.327,663.77 473.065,688.677 498.43,688.677 458.544,631.618"/></g><path fill="#FFFFFF" d="M506.376,681.725c-6.112-6.163-9.168-15.204-9.168-27.123V644.06c0-11.918,3.056-20.958,9.168-27.122c6.111-6.163,15.227-9.245,27.351-9.245h1.68c12.122,0,21.24,3.082,27.351,9.245c6.113,6.163,9.168,15.203,9.168,27.122v13.293h-53.786c0.305,10.085,5.449,15.128,15.433,15.128h1.987c3.667,0,6.646-0.636,8.938-1.91c2.292-1.273,3.997-3.233,5.119-5.884h21.545c-3.262,17.522-15.18,26.281-35.756,26.281h-1.68C521.603,690.968,512.487,687.888,506.376,681.725z M551.298,641.767c-0.102-5.294-1.451-9.218-4.049-11.766c-2.598-2.544-6.444-3.82-11.536-3.82h-2.14c-5.095,0-8.914,1.276-11.46,3.82c-2.547,2.548-3.872,6.471-3.973,11.766H551.298z"/><path fill="#FFFFFF" d="M603.553,579.426v78.232c0,4.278,1.017,7.285,3.056,9.016c2.037,1.733,5.602,2.597,10.697,2.597h3.667v19.406h-8.557c-7.132,0-12.861-1.017-17.19-3.057c-4.331-2.036-7.54-5.447-9.626-10.236c-2.089-4.787-3.132-11.255-3.132-19.406v-76.552H603.553z"/><path fill="#FFFFFF" d="M638.696,616.632c5.704-5.96,14.158-8.938,25.365-8.938h0.457c7.028,0,12.707,1.221,17.038,3.667c4.328,2.444,7.512,5.603,9.55,9.473c2.036-3.87,5.22-7.028,9.549-9.473c4.329-2.446,9.957-3.667,16.885-3.667h0.612c11.205,0,19.657,2.979,25.365,8.938c5.703,5.958,8.555,14.797,8.555,26.511v45.534h-21.084V643.6c0-4.99-1.2-8.809-3.591-11.459c-2.396-2.647-5.937-3.974-10.621-3.974h-0.917c-9.474,0-14.209,5.145-14.209,15.433v45.077h-21.088V643.6c0-5.091-1.198-8.938-3.591-11.536c-2.394-2.598-5.934-3.897-10.619-3.897h-0.915c-9.475,0-14.212,5.145-14.212,15.433v45.077H630.14v-45.534C630.14,631.429,632.99,622.59,638.696,616.632z"/><path fill="#FFFFFF" d="M770.868,681.725c-6.113-6.163-9.168-15.204-9.168-27.123V644.06c0-11.918,3.055-20.958,9.168-27.122c6.109-6.163,15.227-9.245,27.351-9.245h1.681c12.12,0,21.238,3.082,27.352,9.245c6.111,6.163,9.168,15.203,9.168,27.122v13.293h-53.787c0.306,10.085,5.449,15.128,15.435,15.128h1.986c3.667,0,6.646-0.636,8.938-1.91c2.291-1.273,3.997-3.233,5.118-5.884h21.544c-3.261,17.522-15.178,26.281-35.754,26.281h-1.681C786.095,690.968,776.978,687.888,770.868,681.725z M815.79,641.767c-0.104-5.294-1.451-9.218-4.05-11.766c-2.596-2.544-6.443-3.82-11.534-3.82h-2.14c-5.096,0-8.916,1.276-11.461,3.82c-2.548,2.548-3.872,6.471-3.974,11.766H815.79z"/><path fill="#FFFFFF" d="M856.814,687.377c-4.735-2.391-8.326-5.677-10.771-9.855c-2.444-4.174-3.668-8.81-3.668-13.904h21.24c0,2.75,0.787,4.916,2.367,6.494c1.579,1.58,4.713,2.369,9.398,2.369h5.348c4.279,0,7.334-0.482,9.168-1.453c1.833-0.967,2.75-2.521,2.75-4.66c0-1.834-0.637-3.284-1.91-4.354c-1.274-1.069-3.234-1.856-5.882-2.367c-9.374-2.037-15.688-3.363-18.948-3.974c-7.334-1.627-12.887-4.227-16.655-7.792c-3.769-3.566-5.652-8.963-5.652-16.198c0-7.739,2.75-13.675,8.251-17.8c5.501-4.126,13.395-6.188,23.684-6.188h5.808c6.618,0,12.322,1.198,17.111,3.591c4.788,2.395,8.406,5.629,10.851,9.702c2.443,4.075,3.667,8.609,3.667,13.599h-21.24c0-2.647-0.79-4.71-2.369-6.188c-1.579-1.476-4.712-2.217-9.396-2.217h-3.21c-4.38,0-7.463,0.486-9.245,1.453c-1.781,0.968-2.672,2.521-2.672,4.661c0,1.834,0.611,3.312,1.834,4.431c1.221,1.122,3.154,1.937,5.805,2.444l19.101,3.974c7.334,1.631,12.885,4.228,16.655,7.792c3.767,3.567,5.654,8.965,5.654,16.198c0,7.742-2.751,13.65-8.252,17.724s-13.396,6.111-23.684,6.111h-7.945C867.282,690.968,861.552,689.77,856.814,687.377z"/><path fill="#FFFFFF" d="M922.287,579.426h21.087l-0.307,25.364l-0.459,11.154c4.482-5.5,11.002-8.251,19.561-8.251h3.667c9.572,0,16.907,3.108,22.002,9.319c5.094,6.216,7.641,15.231,7.641,27.047v44.617h-21.087v-44.311c0-10.9-4.635-16.351-13.905-16.351h-3.209c-9.27,0-13.903,5.451-13.903,16.351v44.311h-21.087V579.426z"/></g><polygon fill="#FFFFFF" points="498.43,688.677 443.422,609.984 418.057,609.984 469.71,688.677"/></svg>
+      <h1>effect editor</h1>
+    </div>
+    <p>
+      Every effect runs the same math as <code>app.js</code>, on a simulated crowd.
+      Tune here, then paste the generated defaults into <code>effects.py</code>.
+    </p>
+    <span class="spacer"></span>
+    <span class="build">companion to controller.py</span>
+  </header>
+
+  <div class="editor">
+
+    <nav class="effects" id="effect-list">
+      <h2>effects</h2>
+    </nav>
+
+    <section class="stage">
+      <div class="canvas-wrap" id="wrap">
+        <canvas id="cv"></canvas>
+        <div class="stamp" id="stamp">0 PHONES</div>
+        <div class="hint-overlay" id="canvas-hint"></div>
+      </div>
+
+      <div class="crowd">
+        <div class="ctl">
+          <label class="lab" for="layout"><span>Crowd layout</span></label>
+          <select id="layout">
+            <option value="scatter" selected>Scatter (realistic)</option>
+            <option value="grid">Even grid</option>
+          </select>
+        </div>
+        <div class="ctl">
+          <label class="lab" for="count"><span>Phones</span><span class="val" id="v-count">420</span></label>
+          <input type="range" id="count" min="12" max="2000" step="4" value="420">
+        </div>
+        <div class="ctl">
+          <label class="lab" for="ratio"><span>Room width : depth</span><span class="val" id="v-ratio">2.00</span></label>
+          <input type="range" id="ratio" min="1" max="3.2" step="0.05" value="2">
+        </div>
+        <button id="reshuffle">reshuffle</button>
+      </div>
+
+      <div class="transport">
+        <button class="play" id="play" aria-pressed="true">pause</button>
+        <button id="restart">restart</button>
+        <input type="range" class="scrub" id="scrub" min="0" max="20000" value="0" aria-label="Time">
+        <span class="clock" id="clock">0.00s</span>
+      </div>
+
+      <p class="status" id="status"></p>
+    </section>
+
+    <aside class="rail">
+      <div class="rail-head">
+        <h2 id="rail-title">Wave</h2>
+        <button id="reset">reset</button>
+      </div>
+      <p class="rail-note" id="rail-note"></p>
+      <div id="params" style="display:flex; flex-direction:column; gap:14px;"></div>
+    </aside>
+
+  </div>
+
+  <section class="code">
+    <div class="code-head">
+      <h2>generated source</h2>
+      <p>Live from the settings above. ASCII-only, ready to paste.</p>
+    </div>
+    <div class="code-cols">
+      <div class="snippet">
+        <header><span id="js-title">public/app.js</span><button id="copy-js">copy</button></header>
+        <pre><code id="out-js"></code></pre>
+      </div>
+      <div class="snippet">
+        <header><span>effects.py</span><button id="copy-py">copy</button></header>
+        <pre><code id="out-py"></code></pre>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+  // Wang integer hash, the same one app.js and effects.py use for per-phone
+  // randomness. Keeps the scattered crowd stable between redraws.
+  function hashFloat(n) {
+    n = ((n ^ 61) ^ (n >>> 16)) >>> 0;
+    n = ((n + (n << 3)) & 0x7FFFFFFF) >>> 0;
+    n =  (n ^ (n >>> 4)) >>> 0;
+    n = ((n * 0x27D4EB2D) & 0x7FFFFFFF) >>> 0;
+    n =  (n ^ (n >>> 15)) >>> 0;
+    return (n & 0x7FFFFFFF) / 0x7FFFFFFF;
+  }
+
+  function hslToRgb(h, s, l) {
+    const c = (1 - Math.abs(2 * l - 1)) * s;
+    const x = c * (1 - Math.abs(((h * 6) % 2) - 1));
+    const m = l - c / 2;
+    const i = Math.floor(h * 6) % 6;
+    const t = [[c,x,0],[x,c,0],[0,c,x],[0,x,c],[x,0,c],[c,0,x]][i];
+    return [(t[0]+m)*255, (t[1]+m)*255, (t[2]+m)*255];
+  }
+
+  // ---------------------------------------------------------------- //
+  // Effect definitions                                               //
+  // ---------------------------------------------------------------- //
+  // Param schemas mirror EFFECT_PARAMS in effects.py, including the slot
+  // reuse (spatial_freq doubling as radius / thickness / columns, bpm as
+  // rows) so the generated defaults drop straight in.
+
+  const P_COLOR = (key, label, def, hint) =>
+    ({ key, label, kind: "color", def, hint });
+  const P_RANGE = (key, label, def, min, max, step, hint) =>
+    ({ key, label, kind: "range", def, min, max, step: step || 0.01, hint });
+
+  const EFFECTS = [
+    {
+      id: "wave", label: "Wave",
+      note: "Sine wave sweeping along the chosen axis.",
+      params: [
+        P_COLOR("color", "Colour", [255,255,255]),
+        P_RANGE("speed", "Speed", 0.4, 0.05, 4, 0.01),
+        P_RANGE("angle", "Direction", 0, 0, 360, 1, "Degrees. 0 sweeps across the width."),
+        P_RANGE("spatial_freq", "Frequency", 2.0, 0.5, 10, 0.1, "Wavelengths across the room."),
+      ],
+      shade(u, v, i, t, P) {
+        const d = directed(u, v, P.angle);
+        const iv = 0.5 + 0.5 * Math.sin(2 * Math.PI * (d * P.spatial_freq - t * P.speed));
+        return [iv * P.cr, iv * P.cg, iv * P.cb];
+      },
+      cycle: (P) => 1 / P.speed,
+    },
+    {
+      id: "gradient", label: "Gradient",
+      note: "Sawtooth ramp, dark to full, rolling along the axis.",
+      params: [
+        P_COLOR("color", "Colour", [255,255,255]),
+        P_RANGE("speed", "Speed", 0.4, 0.05, 4, 0.01),
+        P_RANGE("angle", "Direction", 0, 0, 360, 1),
+      ],
+      shade(u, v, i, t, P) {
+        const d = directed(u, v, P.angle);
+        let iv = (d - t * P.speed) % 1;
+        if (iv < 0) iv += 1;
+        return [iv * P.cr, iv * P.cg, iv * P.cb];
+      },
+      cycle: (P) => 1 / P.speed,
+    },
+    {
+      id: "pulse", label: "Pulse",
+      note: "Whole crowd flashing together on the beat. The clock-sync showpiece.",
+      params: [
+        P_COLOR("color", "Colour", [255,255,255]),
+        P_RANGE("bpm", "BPM", 100, 20, 300, 1),
+      ],
+      shade(u, v, i, t, P) {
+        const iv = Math.max(0, Math.sin(2 * Math.PI * (P.bpm / 60) * t));
+        return [iv * P.cr, iv * P.cg, iv * P.cb];
+      },
+      cycle: (P) => 60 / P.bpm,
+      cycleLabel: "Beat",
+    },
+    {
+      id: "rainbow", label: "Rainbow",
+      note: "Hue sweep along the axis. Ignores the colour slots by design.",
+      params: [
+        P_RANGE("speed", "Speed", 0.4, 0.05, 4, 0.01),
+        P_RANGE("angle", "Direction", 0, 0, 360, 1),
+        P_RANGE("spatial_freq", "Frequency", 1.5, 0.5, 10, 0.1),
+      ],
+      shade(u, v, i, t, P) {
+        const d = directed(u, v, P.angle);
+        const hue = ((d * P.spatial_freq - t * P.speed) % 1 + 1) % 1;
+        return hslToRgb(hue, 1.0, 0.5);
+      },
+      cycle: (P) => 1 / P.speed,
+    },
+    {
+      id: "sparkle", label: "Sparkle",
+      note: "Per-phone rate and phase, soft bloom, colour picked per cycle.",
+      params: [
+        P_COLOR("color", "Colour A", [255,200,80]),
+        P_COLOR("color2", "Colour B", [80,180,255]),
+        P_RANGE("speed", "Rate", 1.5, 0.1, 10, 0.1),
+        P_RANGE("split", "Density", 0.18, 0, 1, 0.01, "Share of phones lit at any moment."),
+      ],
+      shade(u, v, idx, t, P) {
+        const h0 = hashFloat(idx);
+        const h1 = hashFloat(idx * 7 + 1);
+        const flashRate = 0.5 + h0;
+        const threshold = 1.0 - 2.0 * P.split;
+        const rawPhase = t * P.speed * flashRate + h1;
+        const sinVal = Math.sin(2 * Math.PI * rawPhase);
+        let iv = 0;
+        if (sinVal > threshold) {
+          const n = (sinVal - threshold) / Math.max(1.0 - threshold, 1e-6);
+          iv = n * n * (3.0 - 2.0 * n);
+        }
+        const cyc = Math.floor(rawPhase);
+        const h2 = hashFloat(idx * 13 + 2 + cyc * 97);
+        return h2 < 0.5
+          ? [iv * P.cr, iv * P.cg, iv * P.cb]
+          : [iv * P.cr2, iv * P.cg2, iv * P.cb2];
+      },
+    },
+    {
+      id: "sections", label: "Sections",
+      note: "Checkerboard of blocks with a diagonal sweep. Hard on and off, no fade.",
+      params: [
+        P_COLOR("color", "Colour A", [255,40,40]),
+        P_COLOR("color2", "Colour B", [40,40,255]),
+        P_RANGE("speed", "Speed", 0.4, 0, 4, 0.01),
+        P_RANGE("spatial_freq", "Columns", 2, 1, 8, 1),
+        P_RANGE("bpm", "Rows", 2, 1, 8, 1, "Reuses the bpm slot."),
+      ],
+      shade(u, v, i, t, P) {
+        const nCols = Math.max(1, Math.round(P.spatial_freq));
+        const nRows = Math.max(1, Math.round(P.bpm));
+        const col = Math.min(nCols - 1, Math.floor(u * nCols));
+        const row = Math.min(nRows - 1, Math.floor(v * nRows));
+        const isA = (col + row) % 2 === 0;
+        const colFrac = nCols > 1 ? col / (nCols - 1) : 0.5;
+        const rowFrac = nRows > 1 ? row / (nRows - 1) : 0.5;
+        const wave = Math.sin(2 * Math.PI * ((colFrac + rowFrac) * 0.5 - t * P.speed));
+        const iv = wave > 0 ? 1.0 : 0.0;
+        return isA
+          ? [iv * P.cr, iv * P.cg, iv * P.cb]
+          : [iv * P.cr2, iv * P.cg2, iv * P.cb2];
+      },
+      cycle: (P) => (P.speed > 0.001 ? 1 / P.speed : null),
+    },
+    {
+      id: "ripple", label: "Ripple",
+      note: "Click the crowd to fire from that point. Colour is fixed light-blue in app.js, so the picker is deliberately absent.",
+      params: [
+        P_RANGE("speed", "Speed", 0.6, 0.05, 1.5, 0.01),
+        P_RANGE("_loop", "Auto-refire", 3.0, 0, 8, 0.5, "Editor only. Seconds between automatic fires, 0 to fire only on click."),
+      ],
+      pointer: "click",
+      pointerHint: "click to fire",
+      shade(u, v, i, t, P, C) {
+        const ou = C.originU, ov = C.originV;
+        const dist = Math.sqrt((u - ou) ** 2 + (v - ov) ** 2);
+        const front = t * P.speed;
+        const totalWidth = 0.7;
+        const delta = dist - front;
+        let iv = 0;
+        if (delta <= 0 && delta >= -totalWidth) {
+          iv = Math.exp((delta / totalWidth) * 3.0);
+        }
+        iv *= Math.exp(-dist * dist * 0.6);
+        iv *= 0.6;
+        const liveTime = (1.414 + totalWidth) / Math.max(P.speed, 0.05);
+        if (t > liveTime) iv *= Math.max(0, 1 - (t - liveTime) * 0.6);
+        const tint = Math.min(1, dist * 1.2);
+        return [
+          iv * (100 - tint * 90),
+          iv * (180 - tint * 120),
+          iv * (255 - tint * 55),
+        ];
+      },
+    },
+    {
+      id: "spotlight", label: "Spotlight",
+      note: "Follows the operator cursor. Move your pointer over the crowd.",
+      params: [
+        P_COLOR("color", "Colour", [255,230,180]),
+        P_RANGE("spatial_freq", "Radius", 0.09, 0.03, 0.6, 0.005, "0.03 picks out a single phone."),
+      ],
+      pointer: "move",
+      pointerHint: "move to aim",
+      shade(u, v, i, t, P, C) {
+        const r = Math.max(0.05, P.spatial_freq);
+        const du = u - C.originU, dv = v - C.originV;
+        const sigma2 = r * r * 0.5;
+        const iv = Math.exp(-(du * du + dv * dv) / Math.max(sigma2, 1e-6));
+        return [iv * P.cr, iv * P.cg, iv * P.cb];
+      },
+    },
+    {
+      id: "groups", label: "Groups",
+      note: "Phones sorted left to right and split into equal-count columns, one colour each.",
+      params: [
+        P_RANGE("spatial_freq", "Columns", 2, 2, 16, 1),
+        P_RANGE("speed", "Chase", 0, 0, 4, 0.01, "0 leaves every column lit at full."),
+      ],
+      palette: true,
+      shade(u, v, idx, t, P, C) {
+        const n = Math.max(2, Math.round(P.spatial_freq));
+        const col = C.groups[idx] !== undefined
+          ? C.groups[idx]
+          : Math.min(n - 1, Math.floor(u * n));
+        const c = P.palette[col] || [P.cr, P.cg, P.cb];
+        let r = c[0], g = c[1], b = c[2];
+        if (P.speed > 0.001) {
+          const phase = (((col / n) - t * P.speed) % 1 + 1) % 1;
+          const focus = 0.5 + 0.5 * Math.cos(2 * Math.PI * phase);
+          r *= focus; g *= focus; b *= focus;
+        }
+        return [r, g, b];
+      },
+      cycle: (P) => (P.speed > 0.001 ? 1 / P.speed : null),
+    },
+    {
+      id: "ring", label: "Ring", isNew: true,
+      note: "Proposed. An annulus that eases in from the crowd edge to the centre and back out.",
+      params: [
+        P_COLOR("color", "Colour", [140,210,255]),
+        P_RANGE("speed", "Breath", 0.12, 0.03, 0.6, 0.005, "Maps to the speed slot. One in-and-out per 1/rate seconds."),
+        P_RANGE("spatial_freq", "Thickness", 0.12, 0.02, 0.4, 0.005, "Gaussian half-width. Reuses spatial_freq."),
+        { key: "_maxr", label: "Outer radius", kind: "range", def: 0.78, min: 0.4, max: 1.1, step: 0.01,
+          baked: true, hint: "Room corner sits at 0.707. Above that the ring starts off the crowd." },
+        { key: "_ease", label: "Motion curve", kind: "seg", def: "cos", baked: true,
+          options: [["cos","cosine"],["linear","linear"],["dwell","dwell"]],
+          hints: {
+            cos: "Eases at both ends, fastest through the middle. Loops seamlessly.",
+            linear: "Constant speed with a hard turnaround at each end.",
+            dwell: "Holds out wide, then collapses inward and returns.",
+          } },
+        { key: "_geom", label: "Ring geometry", kind: "seg", def: "uv", baked: true,
+          options: [["uv","crowd-fitted"],["true","true circle"]],
+          hints: {
+            uv: "Circle in u/v space. Oval from above, but reaches the side walls and the back row together.",
+            true: "Corrected for room shape, so it is round on the floor. Never reaches the side walls.",
+          } },
+      ],
+      shade(u, v, i, t, P, C) {
+        const asp = P._geom === "true" ? C.ratio : 1;
+        const du = u - 0.5;
+        const dv = (v - 0.5) / asp;
+        const dist = Math.sqrt(du * du + dv * dv);
+        const p = ((t * P.speed) % 1 + 1) % 1;
+        const radius = P._maxr * easeRadius(P._ease, p);
+        const w = Math.max(0.02, P.spatial_freq);
+        const d = dist - radius;
+        const iv = Math.exp(-(d * d) / (2 * w * w));
+        return [iv * P.cr, iv * P.cg, iv * P.cb];
+      },
+      cycle: (P) => 1 / P.speed,
+      cycleLabel: "Breath",
+    },
+  ];
+
+  const BY_ID = Object.fromEntries(EFFECTS.map((e) => [e.id, e]));
+
+  function easeRadius(mode, p) {
+    if (mode === "linear") return 2 * Math.abs(p - 0.5);
+    if (mode === "dwell")  return Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * p), 0.55);
+    return 0.5 + 0.5 * Math.cos(2 * Math.PI * p);
+  }
+
+  function directed(u, v, angleDeg) {
+    const a = (angleDeg || 0) * Math.PI / 180;
+    return (u * Math.cos(a) + v * Math.sin(a) + 1) / 2;
+  }
+
+  // Groups palette, same sixteen evenly spaced hues as _GROUPS_COL_DEFAULTS.
+  const GROUP_DEFAULTS = Array.from({ length: 16 }, (_, i) => {
+    const [r, g, b] = hslToRgb(i / 16, 1.0, 0.5);
+    return [Math.round(r), Math.round(g), Math.round(b)];
+  });
+
+  // ---------------------------------------------------------------- //
+  // State                                                            //
+  // ---------------------------------------------------------------- //
+
+  const VALS = {};
+  for (const e of EFFECTS) {
+    VALS[e.id] = {};
+    for (const p of e.params) VALS[e.id][p.key] = Array.isArray(p.def) ? p.def.slice() : p.def;
+    if (e.palette) VALS[e.id].palette = GROUP_DEFAULTS.map((c) => c.slice());
+  }
+
+  const S = {
+    effect: "ring",
+    layout: "scatter",
+    count: 420,
+    ratio: 2.0,
+    seed: 1,
+    time: 0,
+    playing: true,
+    originU: 0.5,
+    originV: 0.5,
+    rippleFiredAt: 0,
+  };
+
+  // ---------------------------------------------------------------- //
+  // Crowd                                                            //
+  // ---------------------------------------------------------------- //
+
+  let phones = [];
+  let groupMap = {};
+
+  function buildCrowd() {
+    phones = [];
+    const target = S.count;
+    const cols = Math.max(2, Math.round(Math.sqrt(target * S.ratio)));
+    const rows = Math.max(2, Math.round(target / cols));
+
+    if (S.layout === "grid") {
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          phones.push({
+            u: cols > 1 ? c / (cols - 1) : 0.5,
+            v: rows > 1 ? r / (rows - 1) : 0.5,
+            bright: 1,
+          });
+        }
+      }
+    } else {
+      // Jittered rows with gaps and per-phone screen brightness, so it reads
+      // like a real room rather than a perfect lattice.
+      const wanted = target;
+      let n = S.seed * 7919;
+      let guard = 0;
+      while (phones.length < wanted && guard < wanted * 6) {
+        guard++;
+        n++;
+        const h0 = hashFloat(n * 3 + 7);
+        if (h0 < 0.16) continue;                       // gaps in the crowd
+        const idx = phones.length;
+        const c = idx % cols, r = Math.floor(idx / cols) % rows;
+        const h1 = hashFloat(n * 11 + 3);
+        const h2 = hashFloat(n * 17 + 5);
+        const h3 = hashFloat(n * 29 + 13);
+        const u = clamp((c + 0.5 + (h1 - 0.5) * 0.9) / cols, 0, 1);
+        const v = clamp((r + 0.5 + (h2 - 0.5) * 0.9) / rows, 0, 1);
+        phones.push({ u, v, bright: 0.62 + h3 * 0.38 });
+      }
+    }
+    assignGroups();
+    spriteCache.clear();
+  }
+
+  function assignGroups() {
+    // Mirrors trigger_effect: sort by u, then split into n equal-count bands.
+    const n = Math.max(2, Math.round(VALS.groups.spatial_freq));
+    const order = phones.map((p, i) => i).sort((a, b) => phones[a].u - phones[b].u);
+    const total = order.length || 1;
+    const eff = Math.min(n, total);
+    groupMap = {};
+    order.forEach((idx, i) => {
+      groupMap[idx] = Math.min(eff - 1, Math.floor(i * eff / total));
+    });
+  }
+
+  // ---------------------------------------------------------------- //
+  // Canvas                                                           //
+  // ---------------------------------------------------------------- //
+
+  const wrap = $("wrap");
+  const cv = $("cv");
+  const ctx = cv.getContext("2d", { alpha: false });
+  let W = 0, H = 0, dpr = 1;
+
+  const spriteCache = new Map();
+
+  function coreRadius() {
+    const n = Math.max(phones.length, 1);
+    return clamp(W / Math.sqrt(n) / 9, 1.0, 4.2);
+  }
+
+  function spriteFor(r, g, b) {
+    // Quantised so a hue sweep reuses a few dozen sprites instead of
+    // building a fresh radial gradient per phone per frame.
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    let s = spriteCache.get(key);
+    if (s) return s;
+    const core = coreRadius();
+    const size = Math.max(8, Math.round(core * 16));
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const g2 = c.getContext("2d");
+    const grad = g2.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+    const rgb = `${r}, ${g}, ${b}`;
+    grad.addColorStop(0.00, `rgba(${rgb}, 0.85)`);
+    grad.addColorStop(0.16, `rgba(${rgb}, 0.34)`);
+    grad.addColorStop(0.45, `rgba(${rgb}, 0.08)`);
+    grad.addColorStop(1.00, `rgba(${rgb}, 0)`);
+    g2.fillStyle = grad;
+    g2.fillRect(0, 0, size, size);
+    s = { canvas: c, size };
+    spriteCache.set(key, s);
+    return s;
+  }
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const rect = wrap.getBoundingClientRect();
+    W = Math.max(1, Math.round(rect.width));
+    H = Math.max(1, Math.round(rect.height));
+    cv.width = Math.round(W * dpr);
+    cv.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    spriteCache.clear();
+  }
+
+  function resolved(def) {
+    const raw = VALS[def.id];
+    const P = {};
+    for (const p of def.params) P[p.key] = raw[p.key];
+    const c = raw.color || [255, 255, 255];
+    const c2 = raw.color2 || [255, 0, 0];
+    P.cr = c[0]; P.cg = c[1]; P.cb = c[2];
+    P.cr2 = c2[0]; P.cg2 = c2[1]; P.cb2 = c2[2];
+    P.palette = raw.palette;
+    return P;
+  }
+
+  function draw() {
+    const def = BY_ID[S.effect];
+    const P = resolved(def);
+    const C = {
+      originU: S.originU, originV: S.originV,
+      ratio: S.ratio, groups: groupMap,
+    };
+
+    let t = S.time;
+    if (def.id === "ripple") {
+      const loop = P._loop;
+      t = loop > 0 ? (S.time - S.rippleFiredAt) % loop : (S.time - S.rippleFiredAt);
+      if (t < 0) t = 0;
+    }
+
+    const padX = W * 0.055;
+    const padY = H * 0.075;
+    const core = coreRadius();
+
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.055)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(padX - 0.5, padY - 0.5, W - padX * 2 + 1, H - padY * 2 + 1);
+
+    let lit = 0, peak = 0;
+    ctx.globalCompositeOperation = "lighter";
+
+    for (let i = 0; i < phones.length; i++) {
+      const p = phones[i];
+      let col = def.shade(p.u, p.v, i, t, P, C);
+      const r = clamp(col[0] * p.bright, 0, 255);
+      const g = clamp(col[1] * p.bright, 0, 255);
+      const b = clamp(col[2] * p.bright, 0, 255);
+      const inten = Math.max(r, g, b) / 255;
+      if (inten > peak) peak = inten;
+      if (inten > 0.1) lit++;
+      if (inten < 0.004) continue;
+
+      const x = padX + p.u * (W - padX * 2);
+      const y = padY + p.v * (H - padY * 2);
+
+      const sp = spriteFor(r | 0, g | 0, b | 0);
+      const sz = sp.size * (0.55 + 0.45 * inten);
+      ctx.globalAlpha = Math.min(1, inten);
+      ctx.drawImage(sp.canvas, x - sz / 2, y - sz / 2, sz, sz);
+
+      // The screen itself: a small portrait rectangle, not a dot.
+      ctx.globalAlpha = Math.min(1, inten * 1.15);
+      ctx.fillStyle = `rgb(${r | 0}, ${g | 0}, ${b | 0})`;
+      ctx.fillRect(x - core * 0.42, y - core * 0.72, core * 0.84, core * 1.44);
+    }
+
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    return { lit, peak, t, P, def };
+  }
+
+  // ---------------------------------------------------------------- //
+  // Loop                                                             //
+  // ---------------------------------------------------------------- //
+
+  let last = null;
+  const SCRUB_MAX = 20;
+
+  function frame(ts) {
+    if (last === null) last = ts;
+    const dt = Math.min((ts - last) / 1000, 0.1);
+    last = ts;
+
+    if (S.playing) {
+      S.time += dt;
+      if (S.time > SCRUB_MAX) { S.time = 0; S.rippleFiredAt = 0; }
+      $("scrub").value = String(Math.round(S.time * 1000));
+    }
+
+    const out = draw();
+    $("clock").textContent = S.time.toFixed(2) + "s";
+
+    // One dense status line, the way the controller reports state, rather
+    // than a row of dashboard tiles.
+    const cyc = out.def.cycle ? out.def.cycle(out.P) : null;
+    const bits = [
+      `t ${S.time.toFixed(1)}s`,
+      cyc ? `${(out.def.cycleLabel || "cycle").toLowerCase()} ${cyc.toFixed(2)}s` : null,
+      `lit ${out.lit}/${phones.length}`,
+      `peak ${Math.round(out.peak * 100)}%`,
+    ].filter(Boolean);
+    $("status").textContent = bits.join("   ");
+
+    requestAnimationFrame(frame);
+  }
+
+  // ---------------------------------------------------------------- //
+  // Param rail                                                       //
+  // ---------------------------------------------------------------- //
+
+  function el(tag, cls, txt) {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (txt !== undefined) n.textContent = txt;
+    return n;
+  }
+
+  function toHex(c) {
+    return "#" + c.map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, "0")).join("");
+  }
+
+  function buildRail() {
+    const def = BY_ID[S.effect];
+    const host = $("params");
+    host.textContent = "";
+    $("rail-title").textContent = def.label;
+    $("rail-note").textContent = def.note;
+
+    let bakedHeaderDone = false;
+
+    for (const p of def.params) {
+      if (p.baked && !bakedHeaderDone) {
+        const h = el("p", "sub-head", "baked constants");
+        host.appendChild(h);
+        bakedHeaderDone = true;
+      }
+
+      const ctl = el("div", "ctl");
+
+      if (p.kind === "color") {
+        const lab = el("div", "lab");
+        lab.appendChild(el("span", null, p.label));
+        ctl.appendChild(lab);
+        const row = el("div", "swatch-row");
+        const inp = document.createElement("input");
+        inp.type = "color";
+        inp.value = toHex(VALS[def.id][p.key]);
+        inp.setAttribute("aria-label", p.label);
+        const rgb = el("span", "rgb", VALS[def.id][p.key].join(", "));
+        inp.addEventListener("input", (e) => {
+          const h = e.target.value;
+          const c = [parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16)];
+          VALS[def.id][p.key] = c;
+          rgb.textContent = c.join(", ");
+          emit();
+        });
+        row.appendChild(inp);
+        row.appendChild(rgb);
+        ctl.appendChild(row);
+
+      } else if (p.kind === "seg") {
+        const lab = el("div", "lab");
+        lab.appendChild(el("span", null, p.label));
+        ctl.appendChild(lab);
+        const seg = el("div", "seg");
+        seg.setAttribute("role", "group");
+        seg.setAttribute("aria-label", p.label);
+        const hint = el("p", "hint", p.hints ? p.hints[VALS[def.id][p.key]] : "");
+        for (const [val, txt] of p.options) {
+          const b = el("button", null, txt);
+          b.setAttribute("aria-pressed", String(VALS[def.id][p.key] === val));
+          b.addEventListener("click", () => {
+            VALS[def.id][p.key] = val;
+            [...seg.children].forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+            if (p.hints) hint.textContent = p.hints[val];
+            emit();
+          });
+          seg.appendChild(b);
+        }
+        ctl.appendChild(seg);
+        if (hint.textContent) ctl.appendChild(hint);
+
+      } else {
+        const lab = el("div", "lab");
+        lab.appendChild(el("span", null, p.label));
+        const val = el("span", "val", fmt(VALS[def.id][p.key], p.step));
+        lab.appendChild(val);
+        ctl.appendChild(lab);
+        const inp = document.createElement("input");
+        inp.type = "range";
+        inp.min = p.min; inp.max = p.max; inp.step = p.step;
+        inp.value = VALS[def.id][p.key];
+        inp.setAttribute("aria-label", p.label);
+        inp.addEventListener("input", (e) => {
+          VALS[def.id][p.key] = parseFloat(e.target.value);
+          val.textContent = fmt(VALS[def.id][p.key], p.step);
+          if (def.id === "groups" && p.key === "spatial_freq") {
+            assignGroups();
+            buildPalette();
+          }
+          emit();
+        });
+        ctl.appendChild(inp);
+        if (p.hint) ctl.appendChild(el("p", "hint", p.hint));
+      }
+
+      host.appendChild(ctl);
+    }
+
+    if (def.palette) {
+      host.appendChild(el("p", "sub-head", "column palette"));
+      const holder = el("div", "swatch-grid");
+      holder.id = "palette-grid";
+      host.appendChild(holder);
+      buildPalette();
+    }
+
+    updatePointerMode();
+    emit();
+  }
+
+  function buildPalette() {
+    const holder = $("palette-grid");
+    if (!holder) return;
+    holder.textContent = "";
+    const n = Math.max(2, Math.round(VALS.groups.spatial_freq));
+    for (let i = 0; i < n; i++) {
+      const lab = document.createElement("label");
+      const inp = document.createElement("input");
+      inp.type = "color";
+      inp.value = toHex(VALS.groups.palette[i]);
+      inp.setAttribute("aria-label", "Column " + (i + 1));
+      inp.addEventListener("input", (e) => {
+        const h = e.target.value;
+        VALS.groups.palette[i] = [
+          parseInt(h.slice(1,3),16), parseInt(h.slice(3,5),16), parseInt(h.slice(5,7),16),
+        ];
+      });
+      lab.appendChild(inp);
+      lab.appendChild(el("span", null, String(i + 1)));
+      holder.appendChild(lab);
+    }
+  }
+
+  function fmt(v, step) {
+    if (step >= 1) return String(Math.round(v));
+    if (step >= 0.01) return v.toFixed(2);
+    return v.toFixed(3);
+  }
+
+  function updatePointerMode() {
+    const def = BY_ID[S.effect];
+    wrap.classList.toggle("pointing", !!def.pointer);
+    $("canvas-hint").textContent = def.pointerHint || "";
+  }
+
+  // ---------------------------------------------------------------- //
+  // Effect list                                                      //
+  // ---------------------------------------------------------------- //
+
+  const listHost = $("effect-list");
+  for (const e of EFFECTS) {
+    const b = el("button", null);
+    b.appendChild(el("span", null, e.label));
+    if (e.isNew) b.appendChild(el("span", "flag", "proposed"));
+    b.dataset.id = e.id;
+    b.setAttribute("aria-pressed", String(e.id === S.effect));
+    b.addEventListener("click", () => {
+      S.effect = e.id;
+      S.time = 0;
+      S.rippleFiredAt = 0;
+      [...listHost.querySelectorAll("button")].forEach((x) =>
+        x.setAttribute("aria-pressed", String(x.dataset.id === e.id)));
+      buildRail();
+    });
+    listHost.appendChild(b);
+  }
+
+  // ---------------------------------------------------------------- //
+  // Generated source                                                 //
+  // ---------------------------------------------------------------- //
+
+  const EASE_JS = {
+    cos: "0.5 + 0.5 * Math.cos(2 * Math.PI * p)",
+    linear: "2 * Math.abs(p - 0.5)",
+    dwell: "Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * p), 0.55)",
+  };
+  const EASE_PY = {
+    cos: "0.5 + 0.5 * math.cos(2 * math.pi * p)",
+    linear: "2 * abs(p - 0.5)",
+    dwell: "(0.5 + 0.5 * math.cos(2 * math.pi * p)) ** 0.55",
+  };
+
+  const WIDGET_LINE = (p, val) => {
+    if (p.kind === "color") {
+      return `    ("${p.key}", ${pad(p.label)} "color",\n` +
+             `        {"default_value": (${val.join(", ")}, 255)}),`;
+    }
+    return `    ("${p.key}", ${pad(p.label)} "slider_float",\n` +
+           `        {"default_value": ${fmt(val, p.step)}, "min_value": ${p.min}, "max_value": ${p.max}}),`;
+  };
+
+  function pad(label) {
+    const q = `"${label}",`;
+    return q + " ".repeat(Math.max(1, 12 - q.length));
+  }
+
+  function emit() {
+    const def = BY_ID[S.effect];
+    const raw = VALS[def.id];
+
+    // ---- Python: EFFECT_PARAMS entry with the tuned defaults ----
+    const lines = def.params
+      .filter((p) => !p.baked && !p.key.startsWith("_"))
+      .map((p) => WIDGET_LINE(p, raw[p.key]));
+
+    let py = `# effects.py -> EFFECT_PARAMS\n"${def.id}": [\n${lines.join("\n")}\n],`;
+
+    if (def.palette) {
+      py += `\n\n# Column colours come from _GROUPS_COL_DEFAULTS via\n` +
+            `# _groups_color_params(), so they are not emitted here.`;
+    }
+
+    if (def.isNew) {
+      const asp = (raw._geom === "true" ? S.ratio : 1).toFixed(2);
+      py += `\n\n# effects.py -> EFFECT_LABELS\n"${def.id}": "${def.label}",\n\n` +
+`# effects.py -> _shade_preview
+if effect == "${def.id}":
+    du = u - 0.5
+    dv = (v - 0.5) / ${asp}
+    dist = math.sqrt(du * du + dv * dv)
+    p = (t * sp) % 1.0
+    radius = ${raw._maxr.toFixed(2)} * (${EASE_PY[raw._ease]})
+    w = max(0.02, sf)
+    d = dist - radius
+    iv = math.exp(-(d * d) / (2 * w * w))
+    return (iv * r, iv * g, iv * b)`;
+    }
+    $("out-py").textContent = py;
+
+    // ---- JS: only meaningful for an effect that does not exist yet ----
+    if (def.isNew) {
+      const asp = (raw._geom === "true" ? S.ratio : 1).toFixed(2);
+      $("js-title").textContent = "public/app.js  ->  new shade() branch";
+      $("out-js").textContent =
+`const RING_MAX_R  = ${raw._maxr.toFixed(2)};   // outer radius, room corner is 0.707
+const RING_ASPECT = ${asp};   // 1.0 = circle in u/v space
+
+if (currentEffect === "${def.id}") {
+  // Breathing ring: an annulus that eases in from the crowd
+  // edge to the centre and back out, one breath per 1/speed s.
+  const du = u - 0.5;
+  const dv = (v - 0.5) / RING_ASPECT;
+  const dist = Math.sqrt(du * du + dv * dv);
+  const p = ((t * effectSpeed) % 1 + 1) % 1;
+  const radius = RING_MAX_R * (${EASE_JS[raw._ease]});
+  const w = Math.max(0.02, effectSpatialFreq);
+  const d = dist - radius;
+  const i = Math.exp(-(d * d) / (2 * w * w));
+  return [i * effectR, i * effectG, i * effectB];
+}`;
+    } else {
+      $("js-title").textContent = "public/app.js  ->  already shipped";
+      $("out-js").textContent =
+`// "${def.id}" already exists in shade(). Nothing to add here.
+//
+// The panel on the right is tuning DEFAULTS only, so the
+// operator opens the show with these values already dialled
+// in. Copy the effects.py block on the right.
+//
+// Live values still come from the payload at runtime:
+//   speed        -> effectSpeed
+//   spatial_freq -> effectSpatialFreq
+//   bpm          -> effectBpm
+//   angle        -> effectAngle
+//   split        -> effectSplit`;
+    }
+  }
+
+  // ---------------------------------------------------------------- //
+  // Wiring                                                           //
+  // ---------------------------------------------------------------- //
+
+  $("count").addEventListener("input", (e) => {
+    S.count = parseInt(e.target.value, 10);
+    $("v-count").textContent = S.count;
+    buildCrowd();
+    $("stamp").textContent = phones.length + " phones";
+  });
+
+  $("ratio").addEventListener("input", (e) => {
+    S.ratio = parseFloat(e.target.value);
+    $("v-ratio").textContent = S.ratio.toFixed(2);
+    wrap.style.setProperty("--room-ratio", String(S.ratio));
+    buildCrowd();
+    $("stamp").textContent = phones.length + " phones";
+    requestAnimationFrame(resize);
+    emit();
+  });
+
+  $("layout").addEventListener("change", (e) => {
+    S.layout = e.target.value;
+    buildCrowd();
+    $("stamp").textContent = phones.length + " phones";
+  });
+
+  $("reshuffle").addEventListener("click", () => {
+    S.seed = (S.seed + 1) % 1000;
+    buildCrowd();
+    $("stamp").textContent = phones.length + " phones";
+  });
+
+  $("reset").addEventListener("click", () => {
+    const def = BY_ID[S.effect];
+    for (const p of def.params) {
+      VALS[def.id][p.key] = Array.isArray(p.def) ? p.def.slice() : p.def;
+    }
+    if (def.palette) {
+      VALS[def.id].palette = GROUP_DEFAULTS.map((c) => c.slice());
+      assignGroups();
+    }
+    buildRail();
+  });
+
+  function setPlaying(on) {
+    S.playing = on;
+    const b = $("play");
+    b.textContent = on ? "pause" : "play";
+    b.setAttribute("aria-pressed", String(on));
+  }
+
+  $("play").addEventListener("click", () => setPlaying(!S.playing));
+
+  $("restart").addEventListener("click", () => {
+    S.time = 0;
+    S.rippleFiredAt = 0;
+    $("scrub").value = "0";
+  });
+
+  $("scrub").addEventListener("input", (e) => {
+    S.time = parseInt(e.target.value, 10) / 1000;
+    setPlaying(false);
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.code === "Space" && !/^(INPUT|SELECT|BUTTON|TEXTAREA)$/.test(e.target.tagName)) {
+      e.preventDefault();
+      setPlaying(!S.playing);
+    }
+  });
+
+  function canvasUV(ev) {
+    const rect = wrap.getBoundingClientRect();
+    const padX = rect.width * 0.055;
+    const padY = rect.height * 0.075;
+    const u = (ev.clientX - rect.left - padX) / (rect.width - padX * 2);
+    const v = (ev.clientY - rect.top - padY) / (rect.height - padY * 2);
+    return [clamp(u, 0, 1), clamp(v, 0, 1)];
+  }
+
+  wrap.addEventListener("mousemove", (ev) => {
+    if (BY_ID[S.effect].pointer !== "move") return;
+    const [u, v] = canvasUV(ev);
+    S.originU = u; S.originV = v;
+  });
+
+  wrap.addEventListener("click", (ev) => {
+    if (!BY_ID[S.effect].pointer) return;
+    const [u, v] = canvasUV(ev);
+    S.originU = u; S.originV = v;
+    S.rippleFiredAt = S.time;
+  });
+
+  function copyFrom(srcId, btnId) {
+    $(btnId).addEventListener("click", async () => {
+      const b = $(btnId);
+      try {
+        await navigator.clipboard.writeText($(srcId).textContent);
+        b.textContent = "copied";
+        setTimeout(() => { b.textContent = "copy"; }, 1400);
+      } catch (err) {
+        b.textContent = "select + copy";
+      }
+    });
+  }
+  copyFrom("out-js", "copy-js");
+  copyFrom("out-py", "copy-py");
+
+  // ---------------------------------------------------------------- //
+  // Go                                                               //
+  // ---------------------------------------------------------------- //
+
+  wrap.style.setProperty("--room-ratio", String(S.ratio));
+  $("v-count").textContent = S.count;
+  $("v-ratio").textContent = S.ratio.toFixed(2);
+  buildCrowd();
+  resize();
+  $("stamp").textContent = phones.length + " phones";
+  setPlaying(true);
+  buildRail();
+  new ResizeObserver(() => resize()).observe(wrap);
+  requestAnimationFrame(frame);
+})();
+</script>
