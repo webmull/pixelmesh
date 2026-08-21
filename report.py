@@ -47,7 +47,7 @@ def _build(*, detected_ids, detection_timings, detection_start,
 
     lines = [
         sep,
-        "   PIXELMESH — SHOW REPORT",
+        "   pixelmesh - show report",
         f"   {time.strftime('%d %b %Y, %H:%M')}",
         sep,
         "",

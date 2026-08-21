@@ -48,17 +48,21 @@ Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
 
 **Requirements**
 
-- Python 3.14 (Homebrew `python@3.14` · `run.sh` pins `python3.14` · deps live in its global
-  site-packages, no venv)
+- Python 3.14 (Homebrew `python@3.14`; `run.sh` pins `python3.14`; deps live in its global
+  site-packages, with no venv)
 - [ngrok](https://ngrok.com) account with the reserved domain `pixelmesh.show`, set up as a
   cloud endpoint (see [Show URL & offline page](#show-url--offline-page))
 - A wired USB webcam — the controller auto-selects an Elgato Facecam 4K if present
-- Elgato Camera Hub (manual-exposure control · `run.sh` launches and babysits it)
+- Elgato Camera Hub for manual-exposure control; `run.sh` launches and babysits it
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt --break-system-packages
 ./run.sh
 ```
+
+Homebrew's Python is marked externally-managed (PEP 668), so plain `pip install` refuses to
+run. Since there is no venv here by design, `--break-system-packages` is the flag that lets it
+write to the global site-packages the controller actually reads from.
 
 The controller must be started via `run.sh` — it will not launch directly. `run.sh` wraps itself
 in a `tmux` session named `pixelmesh`; re-running it reattaches if the session already exists.
@@ -303,9 +307,11 @@ effect on the next run.
 
 Click the sidebar buttons to fire effects. Each effect has its own parameter dialog (`...`
 button) — changing a value immediately re-fires with the new settings. Effects are blocked until
-at least one phone has been detected. The grid leads with the six pedal-friendly effects in the
+at least one phone has been detected. The grid leads with the seven pedal-friendly effects in the
 pedal's cycle order; the three that need the mouse (Ripple's click point, Spotlight's cursor,
 Groups' column colours) sit at the end.
+
+Listed in sidebar order:
 
 | Effect | Parameters |
 |--------|------------|
@@ -313,13 +319,19 @@ Groups' column colours) sit at the end.
 | Gradient | Colour, Speed, Direction |
 | Pulse | Colour, BPM |
 | Rainbow | Speed, Direction, Frequency |
-| Ripple | Speed — click-armed; the controller fires it from your click point on the camera preview |
-| Groups | Columns + a colour swatch per column (up to 16 stripes), Chase speed |
 | Sparkle | Colour A, Colour B, Rate, Density — soft tinkle bloom that picks colour per-cycle |
 | Sections | Colour A, Colour B, Speed, Columns, Rows |
+| Ring | Colour, Breath, Thickness — an outer ring that eases in to the centre and back out, one breath every 8.3 s by default |
+| Ripple | Speed — click-armed; the controller fires it from your click point on the camera preview |
+| Spotlight | Colour, Radius — follows the operator's cursor across the camera preview; the tightest radius picks out a single phone |
+| Groups | Columns + a colour swatch per column (up to 16 stripes), Chase speed |
 
 The active effect is highlighted in orange in the sidebar. An animated thumbnail above the effect
 list previews the selected effect in real time.
+
+Effects can be designed away from the venue in [`tools/effect_editor.html`](tools/effect_editor.html),
+a standalone page that runs the same shader math against a simulated crowd and generates the
+`EFFECT_PARAMS` block to paste back into `effects.py`. Ring was built in it.
 
 **Projection flip (`F`):** mirrors the camera feed + controller preview so the projector reads the
 right way round; the HUD redraws onto the flipped canvas so labels stay readable. **On by
@@ -365,7 +377,7 @@ saved silently to `debug/reports/`; detection-end runs (`D` off) open it in the 
 
 ```
 ══════════════════════════════════════════════
-   PIXELMESH — SHOW REPORT
+   pixelmesh - show report
    24 Apr 2026, 20:15
 ══════════════════════════════════════════════
 
@@ -399,7 +411,7 @@ A wireless three-switch pedal that runs the whole show hands-free:
 | Switch | Action |
 |---|---|
 | 1 | Fresh detection run: reset, then detect. Stomp again to stop |
-| 2 | Clears all camera overlays, then steps through the effects (wave, gradient, pulse, rainbow, sparkle, sections) |
+| 2 | Clears all camera overlays, then steps through the effects (wave, gradient, pulse, rainbow, sparkle, sections, ring) |
 | 3 | Toggle video recording |
 
 One-time setup: pair via Audio MIDI Setup → MIDI Studio → Bluetooth, then run
@@ -546,19 +558,28 @@ detector is busy the frame is dropped and the camera loop continues unblocked.
 The operator feed rides a side channel: a stream thread JPEG-encodes the newest display frame
 and pushes it over one persistent WebSocket to the server (per-frame HTTP POST as automatic
 fallback), and the server fans frames out to feed viewers over WebSocket with per-viewer
-stale-frame dropping · a slow viewer skips to the newest frame instead of building a queue.
+stale-frame dropping, so a slow viewer skips to the newest frame instead of building a queue.
 
-The GUI wears the brand: the camera preview fills the whole window and the sidebar floats over
-it on a semi-transparent scrim · `Tab` hides and shows it outright, the preview never moves.
-Black chrome (#020204, the site's background), the pixelmesh wordmark as the sidebar header,
-bold Verdana section headings with no separator lines, Verdana at an effective 16 px throughout
-(26 px tab labels), and the cube icon in the macOS Dock (set via AppKit at runtime - GLFW
-ignores viewport icons on Cocoa). HUD and ROI text is rasterised onto the canvas via PIL in the
-same Verdana: DPG overlay layers (viewport drawlists, autosized floating windows) do not render
-reliably on the macOS Metal backend, so anything that must always be visible stays on the
-canvas. The sidebar is three tabs: **SCENE** (camera hub: AE, ISO, projection flip; capture;
-frame ROI; the MIDI panel - opens by default), **RUN** (detection, overlays, effects, server
-controls), and **GAME** (avatar race, likes).
+**The GUI wears the brand.** The camera preview fills the whole window and the sidebar floats
+over it on a semi-transparent scrim. `Tab` hides and shows the sidebar outright; the preview
+never moves.
+
+- **Chrome** — black (#020204, the site's background), the pixelmesh wordmark as the sidebar
+  header, bold Verdana section headings with no separator lines.
+- **Type** — Verdana at an effective 16 px throughout, 26 px for tab labels.
+- **Dock icon** — the cube, set via AppKit at runtime, because GLFW ignores viewport icons on
+  Cocoa.
+- **HUD and ROI text** — rasterised onto the canvas with PIL in the same Verdana. DPG overlay
+  layers (viewport drawlists, autosized floating windows) do not render reliably on the macOS
+  Metal backend, so anything that must always be visible stays on the canvas.
+
+The sidebar is three tabs:
+
+| Tab | Contains |
+|-----|----------|
+| **SCENE** | Camera hub (AE, ISO, projection flip), capture, frame ROI, the MIDI panel. Opens by default |
+| **RUN** | Detection, overlays, effects, server controls |
+| **GAME** | Avatar race, likes |
 
 | File | Role |
 |------|------|
@@ -568,10 +589,12 @@ controls), and **GAME** (avatar race, likes).
 | `blink_encoder.py` | Manchester encoding / decoding |
 | `blink_detector.py` | Grid sampler, variance gate, per-point decode, thread pool |
 | `game.py` | Avatar race — server routes, tap handling, controller UI |
+| `midi.py` | Foot controller — pedal discovery, learned key map, effect cycling |
 | `public/stage.js` | Stage projection — avatar race rendering, confetti, winner overlay |
 | `report.py` | Post-show report generator — writes plain-text summary to `debug/reports/` |
 | `video_recorder.py` | Plain video recording via ffmpeg pipe |
-| `camera.py` | Gamma, contrast helpers |
+| `camera.py` | Gamma and contrast helpers, plus the rounded ID badge shared by the overlay and the detector |
+| `dashboard.html` | Admin dashboard page served at `/internal/dashboard` |
 | `network.py` | HTTP helpers + feed WebSocket client for controller → server calls |
 | `elgato.py` | Camera Hub watchdog — AE monitor, ISO control via local WebSocket API |
 | `state.py` | Shared state between threads |
@@ -581,7 +604,7 @@ controls), and **GAME** (avatar race, likes).
 | `ngrok.pixelmesh.yml` | Show tunnel — binds the internal endpoint behind the cloud endpoint |
 | `ngrok.cloud-policy.yml` | Traffic policy for `pixelmesh.show`, incl. the offline holding page |
 | `content/` | Posts, talk slides, and other written material |
-| `tools/` | Offline analysis: detector replay, signal heatmaps, GIF/still generators |
+| `tools/` | Offline work: the effect editor, detector replay, signal heatmaps, GIF/still generators |
 | `docs/` | Notes kept alongside the code — see below |
 | `artifacts/` | Local working files: sample clips and screenshots. Untracked |
 | `docs/testplan.md` | Field test checklist, incl. the must-pass list before Brighton |
@@ -775,7 +798,7 @@ fresh page always matches and connects once, while a stale parked page reloads e
 python3 -m pytest tests/ -q
 ```
 
-Five files, no network and no fixtures beyond a `conftest.py`:
+Eight files, no network and no fixtures beyond a `conftest.py`:
 
 | file | covers |
 |------|--------|
@@ -783,6 +806,9 @@ Five files, no network and no fixtures beyond a `conftest.py`:
 | `test_server_pool.py` | blink ID pool management and the `blink_assignments` / `blink_reverse` pair |
 | `test_show_stats.py` | the `/admin/show_stats` payload — shape, counts, show state, and that the keys the talk deck reads still exist |
 | `test_mode_api.py` | `/admin/mode` — sequence semantics, rejection of bad input, request vs actual, and the token/CORS/preflight behaviour |
+| `test_end_show.py` | `POST /admin/end` — that one call both stops effects and sends the closing card, in an order that cannot leave a phone dark-then-lit |
+| `test_effect_gate.py` | why an effect button could silently do nothing: phones dropping out of `/admin/blink_map` drained the controller's copy of the room, and `trigger_effect` gated on it |
+| `test_camera_pick.py` | camera selection — that only the Elgato is ever opened, including when it is absent, so no other camera is woken by probing |
 | `test_shutdown.py` | recordings survive a quit — real ffmpeg round-trips verified with `ffprobe`, `stop()` under a live capture thread, the SIGTERM handler in a real subprocess, and unique filenames |
 
 `test_shutdown.py` needs `ffmpeg`/`ffprobe`; those tests skip without them. It also asserts two
