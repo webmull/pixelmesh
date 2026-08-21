@@ -44,7 +44,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 
 from state import AppState, PREVIEW_WIDTH, PREVIEW_HEIGHT
-from camera import apply_gamma, apply_contrast
+from camera import apply_gamma, apply_contrast, rounded_box
 from blink_detector import BlinkDetector
 from debug_capture import DebugCapture
 from video_recorder import VideoRecorder
@@ -708,8 +708,12 @@ def draw_device_overlay(canvas: np.ndarray, flipped: bool = False):
         pad = 5
         x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
         x2, y2 = px + tw // 2 + pad, py + th // 2 + pad + 1
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), (20, 20, 20), -1)
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), (0, 220, 80), 2)
+        # Kept in step with _draw_id_box in blink_detector.draw_overlay - the
+        # detection labels and these badges are meant to look identical.
+        # No fill: the badge is a green outline over the live camera image, so
+        # the phone underneath stays visible through it.
+        rounded_box(canvas, (x1, y1), (x2, y2),
+                    border=(0, 220, 80), thickness=2)
         cv2.putText(canvas, label, (px - tw // 2, py + th // 2),
                     FONT, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
 
