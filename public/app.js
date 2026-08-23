@@ -962,19 +962,61 @@ function _drawEndMap() {
   const fs = Math.max(24, W / 24);
   x.font = "700 " + fs + "px -apple-system,system-ui,sans-serif";
   const pw = x.measureText("YOU").width + 26, ph = fs + 16;
-  // Flip to whichever side has room, or an edge-of-room phone points off-map.
-  const left = mx > W * 0.5;
-  const cx = left ? mx - R - 10 - pw : mx + R + 10;
+
+  // Four places the chip can sit, not two. Picking by which half of the map you
+  // are in ignores who is standing next to you, so on a busy map the chip laid
+  // straight over other people's dots - their pixel, covered by your label, in
+  // the picture they were about to share.
+  const GAP = 10, PAD = 3;
+  const others = [];
+  for (const [bid, pos] of Object.entries(knownPositions)) {
+    if (parseInt(bid) === myBlinkId) continue;
+    others.push([pos.u * W, pos.v * H]);
+  }
+  // Away from the nearer edge first, so with an empty map this still lands
+  // where it always did.
+  const order = mx > W * 0.5
+    ? ["left", "right", "above", "below"]
+    : ["right", "left", "above", "below"];
+  const rectFor = side =>
+    side === "right" ? { x: mx + R + GAP,          y: my - ph / 2 } :
+    side === "left"  ? { x: mx - R - GAP - pw,     y: my - ph / 2 } :
+    side === "below" ? { x: mx - pw / 2,           y: my + R + GAP } :
+                       { x: mx - pw / 2,           y: my - R - GAP - ph };
+
+  let best = null;
+  order.forEach((side, i) => {
+    const r0 = rectFor(side);
+    // How far it would hang off the map, and how many dots it would bury.
+    const off = Math.max(0, -r0.x) + Math.max(0, r0.x + pw - W)
+              + Math.max(0, -r0.y) + Math.max(0, r0.y + ph - H);
+    let covered = 0;
+    for (const [px, py] of others) {
+      if (px + r + PAD >= r0.x && px - r - PAD <= r0.x + pw &&
+          py + r + PAD >= r0.y && py - r - PAD <= r0.y + ph) covered++;
+    }
+    // Covering somebody costs more than hanging off the edge, which the caller
+    // never sees anyway once the chip is nudged back inside below.
+    const score = covered * 1000 + off * 10 + i;
+    if (!best || score < best.score) best = { side, ...r0, score, covered };
+  });
+  // Whichever won, keep it on the map.
+  const cx = Math.max(4, Math.min(W - pw - 4, best.x));
+  const cy = Math.max(4, Math.min(H - ph - 4, best.y));
+
   x.beginPath();
-  x.moveTo(left ? mx - R : mx + R, my);
-  x.lineTo(left ? cx + pw : cx, my);
+  if (best.side === "right")      { x.moveTo(mx + R, my); x.lineTo(cx, cy + ph / 2); }
+  else if (best.side === "left")  { x.moveTo(mx - R, my); x.lineTo(cx + pw, cy + ph / 2); }
+  else if (best.side === "below") { x.moveTo(mx, my + R); x.lineTo(cx + pw / 2, cy); }
+  else                            { x.moveTo(mx, my - R); x.lineTo(cx + pw / 2, cy + ph); }
   x.lineWidth = 2; x.strokeStyle = "rgba(0,230,118,0.8)"; x.stroke();
+
   x.beginPath();
-  if (x.roundRect) x.roundRect(cx, my - ph / 2, pw, ph, ph / 2);
-  else x.rect(cx, my - ph / 2, pw, ph);
+  if (x.roundRect) x.roundRect(cx, cy, pw, ph, ph / 2);
+  else x.rect(cx, cy, pw, ph);
   x.fillStyle = "#00e676"; x.fill();
   x.fillStyle = "#02140a"; x.textAlign = "center"; x.textBaseline = "middle";
-  x.fillText("YOU", cx + pw / 2, my + 1);
+  x.fillText("YOU", cx + pw / 2, cy + ph / 2 + 1);
 }
 
 // ------------------------------------------------------------------ //
