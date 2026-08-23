@@ -3,7 +3,7 @@
 pixelmesh — server
 
 Differences from V1:
-- Devices are assigned a small integer blink_id (0-511) instead of a tag image ID.
+- Devices are assigned a small integer blink_id (0-255) instead of a tag image ID.
 - Positions come from the controller's blink detection, not AprilTag calibration.
 - No tag-image or projection endpoints.
 - Adds /admin/positions  (controller posts detected blink_id → u,v)
@@ -28,6 +28,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 import game
+from blink_encoder import NUM_BITS
 
 _BASE_DIR = os.path.dirname(__file__)
 _PUBLIC_DIR = os.path.join(_BASE_DIR, "public")
@@ -286,7 +287,10 @@ positions:         dict[str, dict]      = {}   # device_uuid → {"u", "v"}
 last_seen:         dict[str, float]     = {}   # device_uuid → timestamp
 sync_stats:        dict[str, dict]      = {}   # device_uuid → {rtt_ms, offset_ms, samples, ts}
 
-available_blinks = list(range(512))           # pool of unassigned blink IDs
+# Derived from NUM_BITS, not written out: the encoder, the client renderer and
+# this pool must agree on how many IDs exist. A literal here silently outlives a
+# change to NUM_BITS and hands out ids the encoder cannot represent.
+available_blinks = list(range(2 ** NUM_BITS))  # pool of unassigned blink IDs
 
 HEARTBEAT_TIMEOUT = 90     # seconds of silence before the socket is closed
 IDENTITY_TIMEOUT  = 1800   # seconds of silence before blink_id + position are recycled

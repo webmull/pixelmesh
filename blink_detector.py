@@ -122,11 +122,11 @@ class _GridPoint:
             return
 
         # Gate 1b: history must span at least one full decode cycle.
-        # At 60fps, 159 samples = 2.65s — far short of the 13.2s cycle duration.
+        # At 60fps, 159 samples = 2.65s — far short of the 10.0s cycle duration.
         # The decoder finds a guard run but has no samples for the Manchester
         # bit windows that follow, producing empty_win / phase_ambig failures.
         # This check was present in an earlier version and removed inadvertently.
-        _MIN_HIST_SECS = CYCLE_LEN * PHASE_MS / 1000   # 13.2s for default config
+        _MIN_HIST_SECS = CYCLE_LEN * PHASE_MS / 1000   # 10.0s for default config
         if len(self.history) >= 2:
             span = self.history[-1][0] - self.history[0][0]
             if span < _MIN_HIST_SECS:
@@ -441,7 +441,7 @@ class BlinkDetector:
         # recovers because _ever_active only grows.
         #
         # Safe to evict: points that (a) have not been decoded, and (b) have been
-        # below gate for longer than one full decode cycle (13.2 s).  A phone that
+        # below gate for longer than one full decode cycle (10.0 s).  A phone that
         # was genuinely blinking will come back above gate within the next cycle and
         # re-enter _ever_active naturally.  Decoded points are never evicted.
         #
@@ -451,7 +451,7 @@ class BlinkDetector:
         _EVICT_INTERVAL = 3.0   # seconds between eviction sweeps (vs. 6 s before)
         if (ts - self._last_evict_ts) >= _EVICT_INTERVAL and len(self._ever_active) > 0:
             self._last_evict_ts = ts
-            _stale_full   = CYCLE_LEN * PHASE_MS / 1000   # 13.2 s — real phone in guard phase
+            _stale_full   = CYCLE_LEN * PHASE_MS / 1000   # 10.0 s — real phone in guard phase
             _stale_noise  = 5.0                            # repeated failures → noise, evict fast
             stale = {
                 i for i in self._ever_active
@@ -501,7 +501,7 @@ class BlinkDetector:
             # unaffected.  Real phones have 6–10× higher std than gate-floor noise
             # and are sorted first, so they always claim their slots before noise.
             # At 300 phones × ~1-2 pts each = ~600 real entries needed; at 30/sec
-            # those populate within ~20s — fine given the 13.2s warmup window.
+            # those populate within ~20s — fine given the 10.0s warmup window.
             # Noise (std 0.05-0.08) only enters after real phones are admitted and
             # is fast-evicted (5s) once it accumulates decode failures.
             _MAX_NEW_PER_SEC = 30
@@ -525,7 +525,7 @@ class BlinkDetector:
             # Record samples for points that have ever been above gate but are
             # currently quiet.  No time cutoff: once a phone has crossed the gate
             # it records for the rest of the session, giving the backward-scan
-            # decoder a full 13.2s window even for borderline-std distant phones.
+            # decoder a full 10.0s window even for borderline-std distant phones.
             # Decoded phones are skipped — their history is no longer consumed.
             for i in self._ever_active:
                 if computed_stds[i] < gate:
@@ -591,7 +591,7 @@ class BlinkDetector:
 
             # Guard-phase extension: also attempt decode on recently-active points
             # that are currently below gate.  A phone entering its 4-phase dark guard
-            # (~1.2s) goes quiet right when the warmup threshold may be crossing 13.2s,
+            # (~1.2s) goes quiet right when the warmup threshold may be crossing 10.0s,
             # meaning Gate 2 blocks every attempt during that window and an entire cycle
             # is lost.  Points in _ever_active have proven signal — if they went quiet
             # within the last 1.8s (1.5× guard duration) we bypass Gate 2 only.

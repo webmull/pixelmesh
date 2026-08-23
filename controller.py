@@ -75,7 +75,7 @@ FONT               = cv2.FONT_HERSHEY_SIMPLEX
 
 state    = AppState()
 detector = BlinkDetector()
-detector.cfg["history_seconds"] = 15.0   # decode needs 13.2s; 30s default wastes memory/trim cost
+detector.cfg["history_seconds"] = 15.0   # decode needs 10.0s; 30s default wastes memory/trim cost
 detector.cfg["recent_n"]        = 18     # smaller std window (1.2s @ 15fps) — still covers 6 blink cycles
 dbg_cap  = DebugCapture()
 
@@ -3278,12 +3278,12 @@ def _detection_worker():
         except Empty:
             continue
 
-        # Cap the detector at 20fps. It only needs ~10fps for clean
-        # 300ms-phase sampling but was running at whatever the camera
+        # Cap the detector at 20fps. It only needs ~12fps for clean
+        # 250ms-phase sampling but was running at whatever the camera
         # delivered (30-170fps at MaccTech), and its GIL-heavy decode
         # bursts starved the display thread: measured 240ms display
         # stalls during the decode window vs a flat 40ms otherwise.
-        # 20fps keeps 6 samples per phase (2x the minimum) and returns
+        # 20fps keeps 5 samples per phase (1.7x the minimum) and returns
         # the interpreter to the UI between frames. Decode cadence and
         # warmup are wall-clock based, so detection times are unchanged.
         _since = ts - _det_last_ts

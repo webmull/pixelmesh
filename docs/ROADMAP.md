@@ -24,24 +24,39 @@ rather than a scratch directory.
 
 Blocked on nothing. Deliberately not started until the card design settles.
 
-## Faster decode: PHASE_MS 300ms -> 250ms
+## Shipped: faster decode — PHASE_MS 300ms -> 250ms, NUM_BITS 9 -> 8
 
-Cuts the cycle 13.2s -> 11s (-17%) with the full 512-ID space intact - warmup floor, every
-decode retry, and the whole timeline shrink together. Preferred over narrowing NUM_BITS,
-which was analysed (Jul 2026) and rejected: 7 bits caps at 128 devices (below Brighton
-scale), and the sparse 512-ID space is what makes phantom rejection work - random misreads
-collide with an assigned ID only ~10% of the time at 50 phones, which the cluster-dedup
-valid-ID exemption depends on. Narrowing the space breaks that protection.
+Done Aug 2026. Cycle 13.2s -> 10.0s (-24%): 44 phases at 300ms became 40 phases at 250ms.
+Warmup floor, every decode retry and the whole timeline shrink together. Expected time to
+first find drops 15-20s to 11-15s.
 
-- Camera side has huge margin: detection ran 34-140fps at Birmingham; 250ms phases need
-  ~12fps for 3 samples/phase.
-- The risk is phone-side: browser timer jitter and screen latency eat a fixed number of ms
-  per phase, which is a larger fraction of a shorter phase. Validate with the shoulder-tight
-  multi-phone test before any show.
-- `PHASE_MS` is shared truth between `blink_encoder.py` and the client blink renderer - both
-  ends change together. **Frozen zone.**
-- Sequencing: only attempt after the cluster-dedup fix is field-validated; the Birmingham
-  data says retries from marginal signal dominate the median, not cycle length.
+This **overrode the earlier recommendation** in this entry, which took the 250ms change alone
+(-17%) and rejected narrowing NUM_BITS. That rejection still describes a real cost, and the
+cost was accepted rather than solved:
+
+- The sparse 512-ID space is what made phantom rejection cheap. A random misread collided
+  with an assigned ID only ~10% of the time at 50 phones; at 256 IDs that is ~20%. The
+  cluster-dedup valid-ID exemption keeps such a hit instead of deduplicating it, so a garbled
+  decode landing on an assigned ID now survives twice as often.
+- Capacity is 256 devices, down from 512. Above the largest show run to date (205 reports),
+  but no longer 2x headroom over it. 7 bits was never on the table — 128 is below Brighton
+  scale.
+- Sequencing was also overridden: this was meant to follow field validation of the
+  cluster-dedup fix. It did not. The Birmingham data says retries from marginal signal
+  dominate the median, not cycle length, so the real-world gain may be smaller than the 24%
+  arithmetic suggests.
+
+Camera side had the margin to absorb it: detection ran 34-140fps at Birmingham and the
+controller caps the detector at 20fps, which is still 5 samples per 250ms phase against a
+3-sample minimum. The remaining risk is phone-side — browser timer jitter and screen latency
+eat a fixed number of ms per phase, a larger fraction of a shorter phase. **Not yet validated
+with the shoulder-tight multi-phone test, and not yet run at a show.** Do that before relying
+on it.
+
+`PHASE_MS` and `NUM_BITS` are shared truth across `blink_encoder.py`, the client blink
+renderer (`public/app.js`) and the server's ID pool. The pool now derives from `NUM_BITS`
+rather than hardcoding 512; the encoder and renderer still have to be changed in step.
+**Frozen zone.**
 
 ## Found-state visibility during calibration
 
@@ -98,6 +113,10 @@ detection-thread time. Not a real perf problem; defer until a venue actually sho
 
 ## Spatial coherence check before decode
 
+**Raised priority.** This was the sequencing prerequisite for the decode speed-up above,
+which shipped without it. With the ID space halved, phantom hits that survive dedup are
+twice as likely, so the cheap pre-decode filter matters more than it did.
+
 A real phone covers ~3–15 px and triggers 2–6 adjacent grid points all blinking in sync; an
 isolated noise spike (sensor jitter, lone reflection, sub-pixel motion) only triggers one grid
 point. Before a candidate enters `_ever_active` (or before its first decode attempt), require at
@@ -134,26 +153,27 @@ ROI; also lets the operator paint *around* the audience rather than guess at per
 - **Frozen zone** (detector mask support) plus non-trivial UI in `controller.py`. Worth the
   effort once a venue's geometry is genuinely incompatible with edge cropping.
 
-## Souvenirs — personal post-show page per phone
+## Shipped: souvenirs — the closing card
 
-Every connected device gets a unique URL after the show with a recap of *their* pixel: when they
-joined, which effects they participated in, and a short GIF of just their pixel's colour over the
-duration of the show. Massive shareability (audience posts it, organic reach) and a reason to
-keep the tab open after the lights come up. Reuses existing infrastructure: `device_id` already
-identifies each phone, the broadcast loop already knows what each pixel was rendering at every
-frame, and `video_recorder.py` already captures grid state.
+Done. Delivered as the in-phone closing card (`#card-end`) rather than the post-show URL this
+entry originally sketched. On `show_end` each phone shows its own number, its own detection
+time from `found_ms`, the room total, and `_drawEndMap` paints where that phone sat with a
+"YOU" marker. Card carries "Screenshot this and share it." and `pixelmesh.live`.
 
-Implementation sketch: (a) during the show, record a per-`device_id` colour timeline at ~5 fps to
-memory (bounded ring buffer, drop oldest if RAM tight); (b) on show end (or on a sidebar "Freeze
-souvenirs" action), persist each timeline to disk keyed by `device_id`; (c) phones reconnect to
-`/souvenir/<device_id>` after the show and get a generated GIF + stats page; (d) device_id token
-is already in the phone's localStorage, so the URL can be auto-presented on the existing client
-without a manual code.
+Deliberately simpler than the sketch, and better for it:
 
-Open questions: retention window (24 h? until next show?), whether to include a panoramic
-crowd-cam frame for "where you were sitting" context, GDPR position on storing per-device
-timelines (likely fine — no PII, just anonymous colour traces). Doesn't touch the frozen
-detection files; lives entirely in `server.py` + a new `souvenir.py` module + a new template.
+- **No persistence, so no retention window and no GDPR question.** The card is rendered live on
+  the device while the tab is open. Nothing per-device is written to disk, which closed all
+  three open questions this entry used to carry.
+- **The card survives socket loss.** `view === "ended"` is exempt from both `goBlack()` on close
+  and the `shutdown` message, because phones drop constantly on the way out (screen lock, walk
+  to the exit, conference wifi) and blacking it out wiped the souvenir mid-screenshot.
+- **Missing values show an em dash, not a zero.** Some phones are never found, and the card says
+  so plainly rather than hiding it.
+
+Not built, and still available if ever wanted: the `/souvenir/<device_id>` post-show URL, the
+per-pixel colour GIF, and the "which effects you were part of" recap. Those need the per-device
+colour timeline and disk persistence described below, which the closing card avoids entirely.
 
 ## Effects editor in the browser — deferred, too risky for now
 

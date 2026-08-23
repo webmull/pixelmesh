@@ -20,9 +20,9 @@ Headed for Brighton Dome (MotoCon26, October 2026). The public site lives at
 1. **Connect.** The audience opens `pixelmesh.show`. Each phone gets an ID and a like button to
    keep it busy.
 2. **Blink.** The operator presses `D`. Every unfound phone flashes a Manchester-encoded ID,
-   white/black at 300 ms per phase.
+   white/black at 250 ms per phase.
 3. **Locate.** The camera decodes every blinking screen simultaneously and pins each phone to
-   its position in the frame. Typical time to first find: 15 to 20 s.
+   its position in the frame. Typical time to first find: 11 to 15 s.
 4. **Render.** Effects sequence across the crowd by real spatial position. Games, likes, and a
    post-show report round out the set.
 
@@ -232,7 +232,7 @@ flicker on the feed, and it cannot stop detection or recording.
 The camera **must be on manual exposure** before starting detection.
 
 **Why auto-exposure breaks things.** The blink signal is a screen switching between full-white
-and full-black at 300 ms per phase. Auto-exposure tracks and cancels the blink. The resulting
+and full-black at 250 ms per phase. Auto-exposure tracks and cancels the blink. The resulting
 signal has a brightness range of ~0.28 instead of ~0.99, producing `empty_win` failures on
 every decode attempt.
 
@@ -299,7 +299,7 @@ position in the room.
   every detection session, preventing fps degradation across multiple runs without an app
   restart
 
-Expect 15 to 20 s from a phone connecting to first detection at typical range. The bottom-right
+Expect 11 to 15 s from a phone connecting to first detection at typical range. The bottom-right
 HUD shows `camera fps / detection fps` (text goes green while detecting) plus a
 `found / connected` counter, amber while chasing and green once everyone is found. Both render
 in real Verdana rasterised onto the canvas, so they also appear in recordings and the stream. A
@@ -519,10 +519,10 @@ Each device blinks one full cycle continuously:
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `PHASE_MS` | 300 ms | Duration of each screen phase |
-| `NUM_BITS` | 9 | Supports IDs 0 to 511 |
+| `PHASE_MS` | 250 ms | Duration of each screen phase |
+| `NUM_BITS` | 8 | Supports IDs 0 to 255 |
 | `NUM_GUARD` | 4 | Dark guard phases before the Manchester data |
-| `CYCLE_LEN` | 44 phases | 13.2 s per full cycle |
+| `CYCLE_LEN` | 40 phases | 10.0 s per full cycle |
 
 - Manchester: bit `1` is `[bright, dark]`, bit `0` is `[dark, bright]`
 - The ID is transmitted twice per cycle, so up to 1 bit error is corrected via majority vote
@@ -531,11 +531,11 @@ Each device blinks one full cycle continuously:
 - The anchor is computed from the end of the guard run, so phones arriving mid-cycle still
   decode correctly
 
-**Warmup.** The decoder needs a brightness history spanning at least one full cycle (13.2 s)
-before attempting a decode. Expect 15 to 20 s from connection to first detection.
+**Warmup.** The decoder needs a brightness history spanning at least one full cycle (10.0 s)
+before attempting a decode. Expect 11 to 15 s from connection to first detection.
 
-**Minimum fps.** About 10 fps, to reliably sample 300 ms phases at three or more samples per
-phase.
+**Minimum fps.** About 12 fps, to reliably sample 250 ms phases at three or more samples per
+phase. The controller caps the detector at 20 fps, which leaves 5 samples per phase.
 
 ### Decode pipeline behaviours
 
@@ -549,11 +549,14 @@ phase.
   are exempt: at meetup density real neighbours sit 15 to 50 px apart in frame, and the 16 Jul
   demo showed a decoded, still-blinking phone (conf 0.87) silently discarded for a whole run
   because a found neighbour 40 px away outranked it. Only unassigned phantom IDs are dropped
-  now, and each exempted keep is logged once (`[blink] kept valid ID=...`).
+  now, and each exempted keep is logged once (`[blink] kept valid ID=...`). Note that the
+  256-ID space makes this exemption twice as likely to fire on a misread as the old 512-ID
+  space did: a garbled decode now has roughly a 1-in-5 chance of landing on an assigned ID
+  at 50 connected phones, up from 1-in-10, and such a hit is kept rather than deduplicated.
 - **Backward-scan decoder.** Phones that started blinking before detection began are decoded
   from pre-guard history, with confidence penalised 5% per assumed bit and a further 30% per
   copy error.
-- **Stale-entry eviction.** Entries below gate for more than 13.2 s are evicted every 3 seconds
+- **Stale-entry eviction.** Entries below gate for more than 10.0 s are evicted every 3 seconds
   of wall-clock time. Logged at DEBUG as
   `[blink] evicted N stale pts from _ever_active (remaining=M)`.
 - **Guard-phase extension.** After the main decode loop, points whose std has just dropped
@@ -681,12 +684,12 @@ Key parameters in `blink_detector.py`. The last two are overridden at startup in
 | `brightness_pct` | 10 | Percentile picked from the patch, paired with `sample_radius` so `k = int(flat_size × pct/100) = 1`, always the second-darkest pixel. At r=4 (64 px) p3 also gave k=1, but at r=2 (16 px) p10 is needed; p3 there gives k=0, which reads the absolute darkest pixel and is hypersensitive to sub-pixel noise |
 | `min_recent_std` | adaptive | Starts at 0.10, then auto-tuned to `EMA(p90(all stds)) × 3.5`, clamped to 0.05 and 0.15. Asymmetric EMA (α=0.4 up, α=0.05 down), so a brightness spike raises the gate within 2 to 3 frames |
 | `recent_n` | 18 | Samples in the recent window, about 1.2 s at 15 fps. Reduced from the 24 default for a ~25% cheaper `np.std` with no decode impact at typical frame rates |
-| `history_seconds` | 15.0 | Rolling brightness history per point. Reduced from the 30 s default, halving list size and `add_sample` trim cost while staying well above the 13.2 s minimum for a full decode cycle |
+| `history_seconds` | 15.0 | Rolling brightness history per point. Reduced from the 30 s default, halving list size and `add_sample` trim cost while staying well above the 10.0 s minimum for a full decode cycle |
 | `decode_interval` | 0.2 s | Time between decode attempts per point, for undiscovered phones only |
 | `roi_*_frac` | 0.0 | Fraction of the frame excluded from the detection grid on each edge. Controlled via the sidebar sliders |
 
 **Tested on Apple M1 Pro, 16 GB RAM.** The display thread runs at ~60 fps and the detection
-thread at ~50 fps. The bottleneck at 300+ phones is not compute. It is the 13.2 s warmup each
+thread at ~50 fps. The bottleneck at 200+ phones is not compute. It is the 10.0 s warmup each
 phone must complete before its first decode attempt.
 
 | Optimisation | Impact |
@@ -900,11 +903,9 @@ Three generations of one idea, a crowd's phones as pixels:
 
 Full design notes in [docs/ROADMAP.md](docs/ROADMAP.md). Headlines:
 
-- **Faster decode.** `PHASE_MS` 300 to 250 ms cuts every timeline 17% with the ID space intact
+- **Spatial coherence pre-filter.** Kill lone-pixel noise before it reaches the decode budget
 - **Found-state visibility.** Steady green on found, so raised phones show their status from
   behind
 - **Blackout command.** Instant all-phones-off for dramatic moments
 - **Photo-light warning.** Pre-show prompt and HUD alert when strobes degrade detection
-- **Spatial coherence pre-filter.** Kill lone-pixel noise before it reaches the decode budget
 - **Drawn ROI.** Free-hand polygon regions instead of edge percentages
-- **Souvenirs.** A personal post-show page per phone: their pixel's story, as a shareable GIF

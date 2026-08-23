@@ -13,7 +13,7 @@ Signal structure per cycle:
 
   Total phases = 6 + (1 + numBits + numBits + 1) × 2
                = 6 + (2 + numBits×2)×2
-  For numBits=9: 4 + 40 = 44 phases × 300ms each = 13.2s
+  For numBits=8: 4 + 36 = 40 phases × 250ms each = 10.0s
 
 Decoder is time-based: uses actual frame timestamps and PHASE_MS as the
 ground truth for phase boundaries, so it works correctly at any camera fps.
@@ -21,14 +21,14 @@ ground truth for phase boundaries, so it works correctly at any camera fps.
 
 import numpy as _np
 
-NUM_BITS  = 9        # supports IDs 0-511
-PHASE_MS  = 300      # milliseconds per screen phase
+NUM_BITS  = 8        # supports IDs 0-255
+PHASE_MS  = 250      # milliseconds per screen phase
 NUM_GUARD = 4        # dark guard frames before Manchester data
 
 # Total Manchester bits: start(1) + data(N) + data(N) + end(1) = 2+2N
-_MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 20  (for NUM_BITS=9)
+_MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 18  (for NUM_BITS=8)
 _MANCHESTER_PHASES = _MANCHESTER_BITS * 2      # = 40
-CYCLE_LEN = NUM_GUARD + _MANCHESTER_PHASES     # = 44
+CYCLE_LEN = NUM_GUARD + _MANCHESTER_PHASES     # = 40
 
 
 # ------------------------------------------------------------------ #
@@ -384,7 +384,7 @@ def decode_phases_verbose(
     # Using the recent-window max keeps `hi` calibrated to the phone's current
     # brightness.  Old bright values normalise to >1 (still ≥ 0.25) so the
     # binary sequence for older samples is unchanged.
-    _one_cycle_s = CYCLE_LEN * PHASE_MS / 1000  # 13.2 s
+    _one_cycle_s = CYCLE_LEN * PHASE_MS / 1000  # 10.0 s
     if len(times) > 1 and (times[-1] - times[0]) > _one_cycle_s:
         _cutoff     = times[-1] - _one_cycle_s
         _recent_hi  = max(b for t, b in ts_history if t >= _cutoff)
@@ -412,7 +412,7 @@ def decode_phases_verbose(
             # At good signal quality (ISO 624, fixed exposure) threshold 0.25
             # always yields conf ≥ 0.95.  Skipping the other 6 thresholds gives
             # ~7× speedup per call, critical when 300+ phones need simultaneous
-            # first-time decoding after the 13.2s warmup expires.
+            # first-time decoding after the 10.0s warmup expires.
             if best[1] >= 0.95:
                 break
         else:

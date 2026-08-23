@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 # Inlined to avoid numpy import. Mirrors blink_encoder.encode_id exactly.
-NUM_BITS = 9
+NUM_BITS = 8
 NUM_GUARD = 4
 
 
@@ -33,10 +33,10 @@ SCREEN_H = PHONE_H - BEZEL * 2
 FONT_PATH = "/System/Library/Fonts/HelveticaNeue.ttc"
 
 DEVICE_ID = 42
-PHASES = encode_id(DEVICE_ID)            # 44 phases (4 guard + 40 data)
+PHASES = encode_id(DEVICE_ID)            # 40 phases (4 guard + 36 data)
 FRAMES_PER_PHASE = 2                      # 100ms per phase in GIF time
 FRAME_MS = 50                             # 20fps
-FRAMES = len(PHASES) * FRAMES_PER_PHASE   # 88 frames, ~4.4s loop
+FRAMES = len(PHASES) * FRAMES_PER_PHASE   # 80 frames, ~4.0s loop
 
 
 def font(size, bold=False):
@@ -92,7 +92,7 @@ def draw_caption(draw, phase_idx: int):
               fill=(80, 140, 220), width=1)
 
     # Label below strip
-    sub = "Manchester  ·  300ms / phase  ·  9-bit ID × 2"
+    sub = "Manchester  ·  250ms / phase  ·  8-bit ID × 2"
     sfont = font(11)
     sw = draw.textbbox((0, 0), sub, font=sfont)[2]
     draw.text((W // 2 - sw // 2, strip_y + cell_h + 6), sub, font=sfont,

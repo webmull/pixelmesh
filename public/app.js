@@ -6,15 +6,15 @@
 // Blink encoding (mirrors blink_encoder.py)
 // ------------------------------------------------------------------ //
 
-const NUM_BITS  = 9;
-const PHASE_MS  = 300;
+const NUM_BITS  = 8;
+const PHASE_MS  = 250;
 const NUM_GUARD = 4;   // dark guard frames before Manchester data
 
 function encodeId(blinkId) {
   // Structure: [NUM_GUARD dark phases] + Manchester("1" + id_bits + id_bits + "0")
   // Manchester: '1'→[1,0], '0'→[0,1]
   const bits = blinkId.toString(2).padStart(NUM_BITS, '0');
-  const binaryStr = '1' + bits + bits + '0';   // 2 + NUM_BITS*2 = 20 bits
+  const binaryStr = '1' + bits + bits + '0';   // 2 + NUM_BITS*2 = 18 bits
 
   const phases = new Array(NUM_GUARD).fill(0);   // dark guard
   for (const ch of binaryStr) {
