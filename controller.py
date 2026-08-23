@@ -899,8 +899,17 @@ except ImportError:
     _hud_ttf_ok = False
 # 14 canvas px * the ~1.17x window stretch == the sidebar's effective
 # 16px Verdana, so HUD text and widget text read as the same size.
-_HUD_TTF_PX     = 14
+_HUD_TTF_PX     = 42   # 3x. Readable from the back of a room and in a
+                       # recording; _HUD_ROI_PX stays 14 deliberately.
 _HUD_ROI_PX     = 14
+# Hershey fallback, only used when Pillow/Verdana is missing. Derived from
+# _HUD_TTF_PX so the two paths stay the same size, with stroke weights scaled
+# to match: 3x text drawn with a 1px stroke reads as thin, not big.
+_HUD_CV_SCALE     = _HUD_TTF_PX * 0.55 / 14
+_HUD_CV_WEIGHT    = max(1, round(_HUD_TTF_PX / 14))
+_HUD_CV_SHADOW    = max(2, round(_HUD_TTF_PX * 2 / 14))
+_HUD_CV_SHADOW_DX = max(1, round(_HUD_TTF_PX / 14))
+_HUD_GAP          = max(18, round(_HUD_TTF_PX * 18 / 14))   # counter to fps text
 _hud_ttf_fonts  = {}
 _hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
 
@@ -924,7 +933,10 @@ def _ttf_text(text: str, px: int, color: tuple):
         font = _hud_ttf_fonts.get(px)
         if font is None:
             font = _hud_ttf_fonts[px] = _PILFont.truetype(_HUD_TTF, px * 2)
-        S = 3   # stroke width at 2x == ~1.5px on the canvas
+        # Tuned at px=14 as S=3 (~1.5px on canvas at 2x). Kept proportional so a
+        # larger HUD gets the same visual weight rather than a hairline outline,
+        # and so px=14 callers rasterise exactly as before.
+        S = max(3, round(px * 3 / 14))
         x0, y0, x1, y1 = _PILDraw.Draw(
             _PILImage.new("L", (1, 1))).textbbox((0, 0), text, font=font)
         img = _PILImage.new("RGBA",
@@ -978,11 +990,11 @@ def draw_hud(canvas: np.ndarray, fps: float):
         x = w - M - e1[2]
         _blit_ttf(canvas, e1, x, h - M - e1[3])
     else:
-        (tw, th), _ = cv2.getTextSize(label, FONT, 0.55, 1)
+        (tw, th), _ = cv2.getTextSize(label, FONT, _HUD_CV_SCALE, 1)
         x = w - M - tw
-        cv2.putText(canvas, label, (x + 1, h - M + 1), FONT, 0.55,
+        cv2.putText(canvas, label, (x + _HUD_CV_SHADOW_DX, h - M + _HUD_CV_SHADOW_DX), FONT, _HUD_CV_SCALE,
                     (12, 12, 12), 2, cv2.LINE_AA)
-        cv2.putText(canvas, label, (x, h - M), FONT, 0.55,
+        cv2.putText(canvas, label, (x, h - M), FONT, _HUD_CV_SCALE,
                     color, 1, cv2.LINE_AA)
 
     # detected / connected counter — left of the fps text while
@@ -994,13 +1006,13 @@ def draw_hud(canvas: np.ndarray, fps: float):
         ccol = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
         e2 = _ttf_text(count_label, _HUD_TTF_PX, ccol)
         if e2 is not None:
-            _blit_ttf(canvas, e2, x - 18 - e2[2], h - M - e2[3])
+            _blit_ttf(canvas, e2, x - _HUD_GAP - e2[2], h - M - e2[3])
         else:
-            (cw, _), _ = cv2.getTextSize(count_label, FONT, 0.55, 1)
-            cx = x - 18 - cw
-            cv2.putText(canvas, count_label, (cx + 1, h - M + 1), FONT,
-                        0.55, (12, 12, 12), 2, cv2.LINE_AA)
-            cv2.putText(canvas, count_label, (cx, h - M), FONT, 0.55,
+            (cw, _), _ = cv2.getTextSize(count_label, FONT, _HUD_CV_SCALE, 1)
+            cx = x - _HUD_GAP - cw
+            cv2.putText(canvas, count_label, (cx + _HUD_CV_SHADOW_DX, h - M + _HUD_CV_SHADOW_DX), FONT,
+                        _HUD_CV_SCALE, (12, 12, 12), _HUD_CV_SHADOW, cv2.LINE_AA)
+            cv2.putText(canvas, count_label, (cx, h - M), FONT, _HUD_CV_SCALE,
                         ccol, 1, cv2.LINE_AA)
 
 
