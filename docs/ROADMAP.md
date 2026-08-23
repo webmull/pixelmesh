@@ -48,10 +48,30 @@ cost was accepted rather than solved:
 
 Camera side had the margin to absorb it: detection ran 34-140fps at Birmingham and the
 controller caps the detector at 20fps, which is still 5 samples per 250ms phase against a
-3-sample minimum. The remaining risk is phone-side — browser timer jitter and screen latency
-eat a fixed number of ms per phase, a larger fraction of a shorter phase. **Not yet validated
-with the shoulder-tight multi-phone test, and not yet run at a show.** Do that before relying
-on it.
+3-sample minimum. The risk that mattered was phone-side: browser timer jitter and screen
+latency eat a fixed number of ms per phase, which is a larger fraction of a shorter phase, so
+the prediction was that decodes would still land but with degraded confidence.
+
+**Bench validated 23 Aug 2026. The phase-timing risk did not materialise.**
+
+    10:32:30   id 0   10.23s   conf 1.000
+    10:33:05   id 0   10.27s   conf 1.000
+
+Predicted floor was ~10.3s (the 10.0s cycle plus the ~0.3s overhead the old 13.2s cycle showed
+as a 13.5s fastest). Measured 10.23s and 10.27s, so the arithmetic holds and the floor moved
+13.5s -> 10.25s. Confidence was 1.000 on both, not merely acceptable: shorter phases cost
+nothing in read quality at bench range. One of the four runs that morning missed entirely
+(`20260823_103158`, 19.9s, `detected=0`), which is recorded here rather than averaged away,
+though two clean 1.000s afterwards suggest setup.
+
+Still open, and the reason this is not "validated" full stop:
+
+- **The NUM_BITS half is untested.** One phone on a bench cannot surface the phantom-collision
+  risk above, because that failure needs a room full of assigned IDs and a garbled decode
+  landing on one of them. It is structurally invisible at n=1, so the halved ID space carries
+  its full untested risk into the next show.
+- The shoulder-tight multi-phone test has not been run.
+- No show has run on this config.
 
 `PHASE_MS` and `NUM_BITS` are shared truth across `blink_encoder.py`, the client blink
 renderer (`public/app.js`) and the server's ID pool. The pool now derives from `NUM_BITS`
