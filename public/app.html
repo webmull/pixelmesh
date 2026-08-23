@@ -673,6 +673,22 @@ html, body {
   border-radius: 2px; flex: none; margin: 2.8svh 0 1.8svh; }
 #card-end .end-share { color: rgba(255,255,255,.78); line-height: 1.4; flex: none;
   font-size: clamp(13px,4vw,15.5px); }
+/* Hidden until the compose succeeds AND navigator.share exists, so a browser
+   without the API is never shown a button that would do nothing. The screenshot
+   line above is hidden at the same moment, which keeps the card's height about
+   what it was - it still has to fit a 320x480 screen without scrolling. */
+#card-end .end-sharebtn {
+  display: none; align-items: center; justify-content: center; gap: .55em;
+  flex: none; margin-top: 1.6svh; cursor: pointer;
+  font: 600 clamp(14px,4.2vw,16.5px)/1 -apple-system, system-ui, sans-serif;
+  color: #fff; background: transparent;
+  border: 2px solid rgba(255,255,255,.34); border-radius: 999px;
+  padding: .85em 1.5em; -webkit-tap-highlight-color: transparent;
+}
+#card-end .end-sharebtn.on { display: inline-flex; }
+#card-end .end-sharebtn svg { width: 1.15em; height: 1.15em; flex: none; }
+#card-end .end-sharebtn:active { background: rgba(255,255,255,.12); }
+
 /* Deliberately not an <a>: nobody should be able to tap out of this card. */
 #card-end .end-url { color: #35e0ff; font-weight: 600; flex: none;
   margin-top: 1.2svh; font-size: clamp(16px,5vw,19px); }
@@ -746,6 +762,10 @@ html, body {
   </div>
   <div class="end-rule"></div>
   <div class="end-share">Screenshot this and share it.</div>
+  <button id="endShareBtn" class="end-sharebtn" type="button">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M12 3l-4.2 4.2M12 3l4.2 4.2M5 14v5.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V14" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span>Share your pixel</span>
+  </button>
   <div class="end-url">pixelmesh.live</div>
 </div>
 

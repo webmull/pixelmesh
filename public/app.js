@@ -977,6 +977,193 @@ function _drawEndMap() {
   x.fillText("YOU", cx + pw / 2, my + 1);
 }
 
+// ------------------------------------------------------------------ //
+// Shareable souvenir image
+//
+// The card is re-composed onto a canvas rather than screenshotted. html2canvas
+// is a dependency this app does not have and does not need, a screenshot would
+// contain the share button itself, and composing lets the image be a fixed 3:4
+// social crop instead of whatever viewport the phone happens to have.
+//
+// The wordmark is drawn as vector paths lifted from the inline <svg>, not as an
+// <img> of a data URI: no async load to race, and no chance of tainting the
+// canvas and having toBlob() throw at the moment someone taps share.
+// ------------------------------------------------------------------ //
+
+let _shareFile = null;
+
+function _trackedText(x, text, cx, top, spacing) {
+  // Canvas letterSpacing is Chrome-only, and the stat labels are tracked to
+  // .14em. Measure the tracked width first so it can still be centred.
+  const chars = String(text).split("");
+  let w = 0;
+  for (const ch of chars) w += x.measureText(ch).width + spacing;
+  w -= spacing;
+  let px = cx - w / 2;
+  x.textAlign = "left";
+  for (const ch of chars) {
+    x.fillText(ch, px, top);
+    px += x.measureText(ch).width + spacing;
+  }
+  x.textAlign = "center";
+}
+
+function _drawWordmark(x, cx, top, w) {
+  const svg = document.querySelector("#card-end .end-logo");
+  if (!svg) return 0;
+  const [vx, vy, vw, vh] = (svg.getAttribute("viewBox") || "295 570 710 145")
+    .trim().split(/[\s,]+/).map(Number);
+  const sc = w / vw;
+  x.save();
+  x.translate(cx - w / 2, top);
+  x.scale(sc, sc);
+  x.translate(-vx, -vy);
+  x.fillStyle = "#fff";
+  svg.querySelectorAll("path").forEach(el => {
+    const d = el.getAttribute("d");
+    if (d && el.getAttribute("fill") !== "none") x.fill(new Path2D(d));
+  });
+  svg.querySelectorAll("polygon").forEach(el => {
+    if (el.getAttribute("fill") === "none") return;
+    const pts = (el.getAttribute("points") || "").trim().split(/[\s,]+/).map(Number);
+    if (pts.length < 6) return;
+    const pa = new Path2D();
+    for (let i = 0; i < pts.length; i += 2) {
+      i ? pa.lineTo(pts[i], pts[i + 1]) : pa.moveTo(pts[i], pts[i + 1]);
+    }
+    pa.closePath();
+    x.fill(pa);
+  });
+  x.restore();
+  return vh * sc;
+}
+
+function _roundRectPath(x, l, t, w, h, r) {
+  x.beginPath();
+  if (x.roundRect) x.roundRect(l, t, w, h, r);
+  else x.rect(l, t, w, h);
+}
+
+function _composeShareImage() {
+  const F = "-apple-system,system-ui,sans-serif";
+  const W = 1080, H = 1440;
+  const c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const x = c.getContext("2d");
+
+  x.fillStyle = "#000"; x.fillRect(0, 0, W, H);
+
+  const LOGO_W = 300, LOGO_H = Math.round(LOGO_W * 145 / 710);
+  const MAP_W = 920, MAP_H = Math.round(MAP_W * 0.5625);
+  const TH_FS = 46, TH_LH = Math.round(TH_FS * 1.28);
+  const NUM_FS = 84, LAB_FS = 24, URL_FS = 44;
+  const G1 = 74, G2 = 76, G3 = 92, G4 = 96, G5 = 62;
+
+  const totalH = LOGO_H + G1 + TH_LH * 2 + G2 + MAP_H + G3
+               + (NUM_FS + 20 + LAB_FS) + G4 + 3 + G5 + URL_FS;
+  let y = Math.round((H - totalH) / 2);
+  const cx = W / 2;
+
+  y += _drawWordmark(x, cx, y, LOGO_W) || LOGO_H;
+  y += G1;
+
+  x.textAlign = "center"; x.textBaseline = "top";
+  x.font = "700 " + TH_FS + "px " + F;
+  x.fillStyle = "#fff";
+  x.fillText("Thanks for being part of the show,", cx, y);
+  x.fillStyle = "rgba(255,255,255,0.5)";
+  x.fillText("and for being a pixel.", cx, y + TH_LH);
+  y += TH_LH * 2 + G2;
+
+  // The map is copied from the live #endMap canvas rather than redrawn, so the
+  // shared image can never disagree with what they are looking at.
+  const mx = (W - MAP_W) / 2;
+  const src = document.getElementById("endMap");
+  x.save();
+  _roundRectPath(x, mx, y, MAP_W, MAP_H, 26);
+  x.clip();
+  x.fillStyle = "#000"; x.fillRect(mx, y, MAP_W, MAP_H);
+  if (src) { try { x.drawImage(src, mx, y, MAP_W, MAP_H); } catch (_) {} }
+  x.restore();
+  _roundRectPath(x, mx, y, MAP_W, MAP_H, 26);
+  x.lineWidth = 3; x.strokeStyle = "rgba(255,255,255,0.34)"; x.stroke();
+  y += MAP_H + G3;
+
+  // Read the stats out of the DOM so there is one source of truth for them.
+  const val = id => (document.getElementById(id) || {}).textContent || "\u2014";
+  const cells = [[val("endPhone"), "YOUR PHONE"],
+                 [val("endFound"), "FOUND IN"],
+                 [val("endTotal"), "TOOK PART"]];
+  const colW = W / 3;
+  cells.forEach((cell, i) => {
+    const ccx = colW * i + colW / 2;
+    x.fillStyle = "#fff";
+    x.font = "700 " + NUM_FS + "px " + F;
+    x.textAlign = "center";
+    x.fillText(cell[0], ccx, y);
+    x.fillStyle = "rgba(255,255,255,0.44)";
+    x.font = "600 " + LAB_FS + "px " + F;
+    _trackedText(x, cell[1], ccx, y + NUM_FS + 20, LAB_FS * 0.14);
+  });
+  for (let i = 1; i < 3; i++) {
+    x.fillStyle = "rgba(255,255,255,0.14)";
+    x.fillRect(colW * i, y + 6, 1, NUM_FS + LAB_FS + 8);
+  }
+  y += NUM_FS + 20 + LAB_FS + G4;
+
+  x.fillStyle = "rgba(255,255,255,0.16)";
+  x.fillRect(cx - 46, y, 92, 3);
+  y += 3 + G5;
+
+  x.fillStyle = "#35e0ff";
+  x.font = "700 " + URL_FS + "px " + F;
+  x.textAlign = "center";
+  x.fillText("pixelmesh.live", cx, y);
+
+  return c;
+}
+
+function _prepareShare() {
+  _shareFile = null;
+  const btn = document.getElementById("endShareBtn");
+  if (!btn || !navigator.share) return;      // no API, card keeps its screenshot line
+  btn.onclick = _onShareTap;                 // assignment, so a re-show cannot stack handlers
+
+  let canvas;
+  try { canvas = _composeShareImage(); }
+  catch (e) { console.log("[share] compose failed", e); return; }
+
+  canvas.toBlob(blob => {
+    if (!blob) return;
+    try {
+      const f = new File([blob], "pixelmesh.png", { type: "image/png" });
+      // canShare is the only reliable test for file sharing; navigator.share
+      // existing says nothing about whether this platform accepts files.
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        _shareFile = f;
+      }
+    } catch (_) {}
+    // Text-only sharing is still worth a button, so it is shown either way.
+    btn.classList.add("on");
+    const line = document.querySelector("#card-end .end-share");
+    if (line) line.style.display = "none";
+  }, "image/png");
+}
+
+function _onShareTap() {
+  // navigator.share has to be called synchronously inside the tap on iOS, which
+  // is the whole reason the image is composed when the card appears rather than
+  // here: awaiting toBlob() first would spend the user gesture and throw.
+  const quiet = err => { if (err && err.name !== "AbortError") console.log("[share]", err); };
+  try {
+    if (_shareFile) {
+      navigator.share({ files: [_shareFile], text: "I was a pixel. pixelmesh.live" }).catch(quiet);
+    } else if (navigator.share) {
+      navigator.share({ title: "pixelmesh", text: "I was a pixel.", url: "https://pixelmesh.live" }).catch(quiet);
+    }
+  } catch (e) { quiet(e); }
+}
+
 function showEndCard(total) {
   const phone = document.getElementById("endPhone");
   const found = document.getElementById("endFound");
@@ -991,6 +1178,7 @@ function showEndCard(total) {
   currentEffect = null;          // nothing should still be painting behind it
   setView("ended");
   _drawEndMap();
+  _prepareShare();
 }
 
 // ------------------------------------------------------------------ //
