@@ -2089,6 +2089,30 @@ def _reset_roi():
     set_status("ROI reset to full frame")
 
 
+def _stop_detection() -> bool:
+    """End a detection run and do everything that has to follow it.
+
+    Deliberately does not go through toggle_detection: that function's
+    _ui_syncing guard exists to stop UI events from re-triggering the checkbox
+    callback, and it silently swallows a programmatic stop that happens to land
+    mid-UI-drain. A stop the show depends on cannot be dropped on a race.
+
+    Returns True if this call is the one that stopped it.
+    """
+    with state.lock:
+        was_on = state.detecting
+        state.detecting = False
+    if not was_on:
+        return False
+    _log_detection_summary()
+    _save_report()
+    post_json_async("/admin/detect", {"detecting": False})
+    _auto_enable_sync()
+    _apply_audience_iso()
+    set_status("Detection OFF")
+    return True
+
+
 def _save_report(auto_open: bool = False):
     """Generate and save a post-show report. Safe to call with no data.
     auto_open=True opens the file in the default text editor — only the
@@ -3088,6 +3112,18 @@ def main():
         toggle_detection()
 
     def _midi_fire_effect(name):
+        # An effect paints every audience screen, which overwrites the blink
+        # pattern mid-decode: any phone not already found is not going to be
+        # found now, and the detector would spend the rest of the run chewing
+        # on effect colour. Stomping an effect is the show leaving detection
+        # behind, so end the run properly here - that writes the report and
+        # restores audience ISO rather than leaving detection quietly running
+        # against garbage.
+        with state.lock:
+            detecting = state.detecting
+        if detecting:
+            log.info(f"[midi] effect '{name}' stomped during detection - stopping the run")
+            _stop_detection()
         # Showtime stomp: kill all camera overlays first (the H toggle,
         # forced off rather than flipped) so the projected feed is clean
         # the moment effects start.
@@ -3418,20 +3454,7 @@ def _detection_worker():
 
                 if _valid_blink_ids and _detected_ids >= _valid_blink_ids:
                     log.info("[detect] all clients found — auto-stopping detection")
-                    # Don't go through toggle_detection here: its _ui_syncing
-                    # guard exists to stop UI events from re-triggering the
-                    # checkbox callback, but it also silently swallows this
-                    # programmatic stop if it happens to land mid-UI-drain.
-                    with state.lock:
-                        was_on = state.detecting
-                        state.detecting = False
-                    if was_on:
-                        _log_detection_summary()
-                        _save_report()
-                        post_json_async("/admin/detect", {"detecting": False})
-                        _auto_enable_sync()
-                        _apply_audience_iso()
-                        set_status("Detection OFF")
+                    _stop_detection()
         finally:
             _detect_queue.task_done()
 
