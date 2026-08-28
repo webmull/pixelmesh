@@ -75,12 +75,15 @@ done
 
 # ── kill any running crowd ──────────────────────────────────
 stop_all() {
-  pkill -f "sim_cdp.py $PROFILES/" 2>/dev/null
-  pkill -f "user-data-dir=$PROFILES/" 2>/dev/null
+  # -i because macOS paths are case-insensitive but pkill matching is not:
+  # a crowd started from ~/desktop/... is invisible to a pattern built from
+  # ~/Desktop/..., and the windows outlive every attempt to kill them.
+  pkill -if "sim_cdp.py $PROFILES/" 2>/dev/null
+  pkill -if "user-data-dir=$PROFILES/" 2>/dev/null
 }
 
 if (( KILL )); then
-  if pgrep -f "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
+  if pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
     stop_all
     echo "${G}Sim phones stopped.${RESET}"
   else
@@ -100,12 +103,12 @@ if (( COUNT < 1 )); then
 fi
 
 # A previous crowd would fight this one for screen space.
-if pgrep -f "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
+if pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
   echo "${Y}Sim phones already running - replacing them.${RESET}"
   stop_all
   # Chrome needs a moment to release its profile locks.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
-    pgrep -f "user-data-dir=$PROFILES/" >/dev/null 2>&1 || break
+    pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1 || break
     /bin/sleep 0.2
   done
 fi
