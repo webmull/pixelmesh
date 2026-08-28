@@ -137,6 +137,7 @@ _render_order: dict[int, int] = {}              # blink_id → left-to-right ran
 _detection_timings: dict[int, tuple] = {}       # blink_id → (elapsed_s, confidence)
 _report_saved_path: str | None = None            # set after first save this session; cleared on detect-start
 _valid_blink_ids: set[int] = set()  # blink_ids assigned to connected clients (empty = not fetched yet)
+_run_connected_ids: set[int] = set()  # _valid_blink_ids frozen at the end of the last detection run
 _timing_log_paths: list[str] = []   # may be 1 or 2 paths (master + run)
 _timing_log_handles: list = []      # open file handles paired with _timing_log_paths
 
@@ -284,7 +285,14 @@ def _log_detection_summary():
     to find without needing to cross-reference /admin/blink_map snapshots."""
     if not _detection_start_time:
         return
+    global _run_connected_ids
     connected = set(_valid_blink_ids)
+    # The report is written moments later and must score against the same
+    # crowd this line does.  The server's total_connected counts every phone
+    # that ever joined since it booted, so a second detection run - or anyone
+    # who locked their screen and dropped off - would otherwise be counted as
+    # missed.
+    _run_connected_ids = set(connected)
     detected  = set(_detected_ids)
     missed    = sorted(connected - detected)
     summary = (f"[detect] end  connected={len(connected)}  "
@@ -2110,6 +2118,7 @@ def _save_report(auto_open: bool = False):
         detected_ids      = set(_detected_ids),
         detection_timings = dict(_detection_timings),
         detection_start   = _detection_start_time,
+        run_connected     = len(_run_connected_ids),
     )
 
     def _work():
@@ -2121,7 +2130,10 @@ def _save_report(auto_open: bool = False):
                 detection_timings = snap["detection_timings"],
                 detection_start   = snap["detection_start"],
                 like_count        = stats.get("like_count", 0),
-                total_connected   = stats.get("total_connected", len(snap["detected_ids"])),
+                total_connected   = (snap["run_connected"]
+                                     or stats.get("total_connected",
+                                                  len(snap["detected_ids"]))),
+                session_total     = stats.get("total_connected", 0),
             )
             _report_saved_path = path
             if auto_open:

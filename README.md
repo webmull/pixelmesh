@@ -406,6 +406,7 @@ AUDIENCE
   Connected:        47 phones
   Detected:         43  (91%)
   Missed:            4
+  Joined overall:   52  (5 left before the run)
 
 DETECTION
   Started:        20:15:04
@@ -419,6 +420,13 @@ ENGAGEMENT
 
 ══════════════════════════════════════════════
 ```
+
+`Connected` is the crowd that was actually connected when detection ran, which is the same
+population the `[detect] end` line in the calibration log scores against. The server's own
+`total_connected` counts every phone that ever joined since it booted, so scoring against that
+would count anyone who locked their screen or walked out as missed, and would mark every
+detection run after the first as a failure. That figure still appears as `Joined overall`, but
+only when it differs, so the drop-off stays visible without distorting the hit rate.
 
 Sections are omitted if they didn't happen, and reports are kept indefinitely. Combined with
 the per-run calibration logs and debug captures, every show leaves a full paper trail:
@@ -806,6 +814,51 @@ reports percentiles with pass/fail verdicts. Locally: `python3 tools/load_test.p
 Through the real edge, add `--host pixelmesh.show --wss`. Baselines (Jul 2026, M1 Pro):
 500/500 clients, zero drops, RTT p50 4 ms local and 55 ms through the EU edge, server at 12%
 CPU.
+
+### Simulating a crowd
+
+`./sim.sh` spawns fake audience phones as real browsers, which is the difference between it and
+`tools/load_test.py`: load_test speaks the protocol, sim runs the actual client. Each phone is
+its own Chrome instance with its own `--user-data-dir`, so it gets its own localStorage
+`device_id` and the server counts it as a genuinely distinct client rather than another tab.
+Windows open in app mode (no tab strip, no URL bar) and tile across every display, using
+`NSScreen.visibleFrame` so nothing hides under the menu bar or the Dock.
+
+```
+./sim.sh                # 2 phones against pixelmesh.show
+./sim.sh 20             # 20 phones
+./sim.sh 6 --local      # against http://127.0.0.1:8000
+./sim.sh --kill         # stop the crowd
+./sim.sh 40 --fill      # tile edge to edge: load and UI work only, not detection
+```
+
+Ctrl-C tears the crowd down. Profiles persist under `.sim-profiles/`, so a sim phone keeps its
+`device_id` and blink id between runs, and `--fresh` wipes them for a new crowd.
+
+**Total phone coverage is capped at 8% of screen area, and that cap is the whole trick.** The
+detector's noise gate is 3.5x the 90th percentile of grid-point variance, capped at 0.15, and
+that percentile is meant to be measuring the dark room behind the audience. Tile the windows
+edge to edge and the phones become most of the camera frame, so the gate starts measuring
+phones instead, climbs to its ceiling, and locks out every phone that cannot clear it. The
+crowd raises the bar against itself. Measured on 28 Aug 2026: 50 tiled phones detected 20, with
+the gate pinned at its 0.150 ceiling for 37% of frames. The same machine with the coverage cap
+detected 20 of 20 in 28.9 seconds, median 12.2 s, gate at its ceiling for 10% of frames.
+
+This is a property of screen area, not phone count. A real audience of 54 phones detected 44,
+with the gate at its 0.050 floor, because real phones are small bright rectangles separated by
+people. Two 1080p displays can hold about 21 phones inside the cap, and sim.sh says so rather
+than silently producing an invalid test:
+
+```
+too crowded for a detection run: 50 phones need 56px windows but Chrome will not go below
+86px, so the crowd covers too much of the frame and the noise gate will hide the weaker
+phones. Max for a clean detection run here is 21.
+```
+
+Above that, use `--fill` and treat the run as load and UI testing only. The same reasoning
+applies to the ROI: the sampling grid is built inside it, so cropping tight around a dense
+block of phones shrinks the denominator and walks toward the same saturation. Leaving some dark
+room inside the ROI is what keeps the gate at its floor.
 
 ### Performance sentinel
 

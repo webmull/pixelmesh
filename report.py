@@ -19,7 +19,8 @@ def generate(
     detection_timings: dict,   # blink_id → (elapsed_s, confidence)
     detection_start:   float,  # epoch; 0 = detection never ran this session
     like_count:        int,
-    total_connected:   int,    # phones that received a blink_id this session
+    total_connected:   int,    # phones connected when detection ran - what we score against
+    session_total:     int = 0,  # phones that ever joined since the server booted
 ) -> str:
     """Write report to debug/reports/ and return the file path."""
     os.makedirs(_REPORT_DIR, exist_ok=True)
@@ -31,6 +32,7 @@ def generate(
         detection_start   = detection_start,
         like_count        = like_count,
         total_connected   = total_connected,
+        session_total     = session_total,
     )
     with open(path, "w") as f:
         f.write(text)
@@ -40,7 +42,7 @@ def generate(
 # ------------------------------------------------------------------ #
 
 def _build(*, detected_ids, detection_timings, detection_start,
-           like_count, total_connected) -> str:
+           like_count, total_connected, session_total=0) -> str:
 
     W   = 46
     sep = "═" * W
@@ -63,8 +65,15 @@ def _build(*, detected_ids, detection_timings, detection_start,
         f"  Connected:      {total_connected:>4} phones",
         f"  Detected:       {n_detected:>4}  ({pct})",
         f"  Missed:         {n_missed:>4}",
-        "",
     ]
+    # Phones come and go across a show: someone locks their screen, walks out,
+    # or a second detection run starts with a different crowd.  Scoring is
+    # against the crowd that was actually connected for the run, so the
+    # session figure only appears when it tells a different story.
+    if session_total > total_connected:
+        lines.append(f"  Joined overall: {session_total:>4}  "
+                     f"({session_total - total_connected} left before the run)")
+    lines.append("")
 
     # ---- Detection ----
     if detection_start and detection_timings:
