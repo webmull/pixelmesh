@@ -3130,6 +3130,13 @@ def main():
         with state.lock:
             if state.show_overlays:
                 state.show_overlays = False
+        # Stomping the pedal is the moment the show starts, so it is also the
+        # moment worth filming. set_recording is idempotent and refuses without
+        # a camera, so later stomps neither restart the file nor error.
+        try:
+            set_recording(True)
+        except Exception as e:
+            log.warning(f"[rec] pedal could not start recording: {e}")
         # Fire straight from the MIDI thread, exactly as detection does.
         # This used to go through ui_queue because trigger_effect read slider
         # values via dpg.get_value; it reads effects' parameter mirror now, so

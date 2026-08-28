@@ -85,7 +85,8 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
 # this machine. Overlays are cosmetic - the worst this allows is markers
 # flickering on the feed. Detection and recording stay behind the token,
 # because those can stop a show.
-_ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays", "/admin/end"}
+_ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays", "/admin/end",
+                 "/admin/recording", "/admin/recording/latest"}
 
 # Admin routes a browser on another origin may call.  Being in here only makes
 # the browser willing to send the request and read the reply; it does NOT
@@ -973,6 +974,83 @@ async def set_overlays(request: Request):
     return _mode_snapshot()
 
 
+_REC_DIR = os.path.join(_BASE_DIR, "debug", "recordings")
+
+
+@app.post("/admin/recording")
+async def set_recording_request(request: Request):
+    """Start or stop the recording. Token-free, but LOCAL ONLY.
+
+        curl -X POST http://localhost:8000/admin/recording \\
+             -H 'Content-Type: application/json' -d '{"enabled": true}'
+
+    Same compromise, and the same shape, as /admin/overlays: the recorder lives
+    in controller.py, so this only *requests* a state and the controller applies
+    it on its next poll through the seq machinery. That is what stops this and
+    /admin/mode disagreeing about ordering.
+
+    Body is read raw rather than declared as `payload: dict`, so no JSON
+    content type is demanded and no CORS preflight is triggered - see the long
+    note on /admin/overlays for why that matters from a file:// page.
+
+    Idempotent at the far end: asking for a state it is already in does
+    nothing, so this will not restart a recording and orphan the file being
+    written.
+    """
+    if not _is_local_request(request):
+        raise HTTPException(403, "this route is only served to local clients")
+
+    try:
+        payload = json.loads(await request.body() or b"")
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(400, 'body must be JSON: {"enabled": true}')
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("enabled"), bool):
+        raise HTTPException(400, 'body must be {"enabled": true} or {"enabled": false}')
+
+    want = payload["enabled"]
+    entry = mode_requests["recording"]
+    entry["enabled"] = want
+    entry["seq"] += 1
+    print(f"[mode] request recording={want} (seq {entry['seq']}) via /admin/recording",
+          flush=True)
+    return _mode_snapshot()
+
+
+@app.get("/admin/recording/latest")
+async def latest_recording(request: Request):
+    """The most recent finished recording, for the talk deck to play back.
+
+    Token-free but LOCAL ONLY, and the locality check matters more here than
+    on the others: this is footage of a room full of people, not a counter.
+    Nothing about it should be reachable through the tunnel.
+
+    Skips zero-byte files. ffmpeg opens its output lazily on the first frame,
+    so a recording started and stopped without one leaves an empty file that
+    would otherwise win on mtime and hand the deck a video that never plays.
+
+    FileResponse rather than reading it in: it sets Content-Length and honours
+    Range, so the browser can start playing before the whole file has arrived
+    and can loop without re-downloading.
+    """
+    if not _is_local_request(request):
+        raise HTTPException(403, "this route is only served to local clients")
+
+    try:
+        files = [os.path.join(_REC_DIR, f) for f in os.listdir(_REC_DIR)
+                 if f.endswith(".mp4")]
+    except FileNotFoundError:
+        raise HTTPException(404, "no recordings directory")
+
+    files = [f for f in files if os.path.getsize(f) > 0]
+    if not files:
+        raise HTTPException(404, "no recordings yet")
+
+    newest = max(files, key=os.path.getmtime)
+    return FileResponse(newest, media_type="video/mp4",
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.post("/admin/mode/ack")
 async def ack_mode(payload: dict):
     """Controller reports what is actually true after applying a request.
@@ -1078,6 +1156,19 @@ async def end_show(request: Request):
     current_effect_state = None
     await set_mode(MODE_ENDED)
     await broadcast({"type": "effect_stop"})
+
+    # The closing card is the end of the thing worth filming, so stop the
+    # recording with it. Requested rather than done: the recorder lives in
+    # controller.py, a separate process, and this is the same seq machinery
+    # /admin/mode uses, so the controller applies it on its next poll and the
+    # two cannot disagree about ordering. Harmless when nothing is recording -
+    # set_recording is idempotent at the other end.
+    entry = mode_requests["recording"]
+    if entry["enabled"]:
+        entry["enabled"] = False
+        entry["seq"] += 1
+        print(f"[mode] request recording=False (seq {entry['seq']}) via /admin/end",
+              flush=True)
 
     # Per connection, not a broadcast. found_ms is per device, and a broadcast
     # would hand every phone somebody else's time - the same reason the rest of

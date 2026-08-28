@@ -103,6 +103,11 @@ class VideoRecorder:
                     "-use_wallclock_as_timestamps", "1",
                     "-i", "pipe:0",
                     "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                    # Without this libx264 keeps the full chroma from bgr24 and
+                    # writes yuv444p, which no browser will decode - Chrome and
+                    # Safari both need 4:2:0. Every recording made before this
+                    # plays in VLC and shows a black frame on a web page.
+                    "-pix_fmt", "yuv420p",
                     "-movflags", "+faststart",
                     self._path,
                 ],
