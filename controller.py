@@ -2065,6 +2065,22 @@ def _set_roi():
             state.show_overlays = True
 
 
+def _reset_roi():
+    """Drop all four ROI trims back to 0 (full frame).  Locked out during
+    detection for the same reason the sliders are: cfg changes race with
+    draw_overlay.  Overlays are left alone - _set_roi only force-enables
+    them, so a full-frame reset never yanks the preview out from under
+    someone mid-tune."""
+    with state.lock:
+        if state.detecting:
+            return
+    for item in ("sld_roi_top", "sld_roi_bottom",
+                 "sld_roi_left", "sld_roi_right"):
+        dpg.set_value(item, 0)
+    _set_roi()
+    set_status("ROI reset to full frame")
+
+
 def _save_report(auto_open: bool = False):
     """Generate and save a post-show report. Safe to call with no data.
     auto_open=True opens the file in the default text editor — only the
@@ -2571,6 +2587,10 @@ def setup_ui(holder: dict):
                                 dpg.add_slider_int(label="##roi_right", tag="sld_roi_right",
                                                    default_value=0, min_value=0, max_value=60,
                                                    callback=_set_roi, width=-1)
+                        dpg.add_spacer(height=2)
+                        dpg.add_button(label="Reset ROI", tag="btn_roi_reset",
+                                       callback=_reset_roi,
+                                       indent=_PAD, width=-(_PAD + 1))
 
                         dpg.add_spacer(height=8)
                         _heading("CAPTURE")
@@ -3213,7 +3233,8 @@ def main():
                         continue
                     if tag == "_roi_enabled":
                         for item in ("sld_roi_top", "sld_roi_bottom",
-                                     "sld_roi_left", "sld_roi_right"):
+                                     "sld_roi_left", "sld_roi_right",
+                                     "btn_roi_reset"):
                             dpg.enable_item(item) if value else dpg.disable_item(item)
                         continue
                     if tag == "_elgato_enabled":
