@@ -9,3 +9,6 @@ Screenshot *.png
 .DS_Store
 __pycache__/
 midi_map.json
+
+# Sim client browser profiles
+.sim-profiles/
