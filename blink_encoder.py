@@ -30,6 +30,11 @@ _MANCHESTER_BITS   = 2 + NUM_BITS * 2          # = 18  (for NUM_BITS=8)
 _MANCHESTER_PHASES = _MANCHESTER_BITS * 2      # = 40
 CYCLE_LEN = NUM_GUARD + _MANCHESTER_PHASES     # = 40
 
+# Every window edge in a Manchester frame sits at t_manchester + k*phase, for
+# k = 0 .. 2*_MANCHESTER_BITS. Precomputed so each candidate offset needs one
+# searchsorted call for all 37 boundaries instead of two per bit.
+_EDGE_K = _np.arange(2 * _MANCHESTER_BITS + 1, dtype=_np.float64)
+
 
 # ------------------------------------------------------------------ #
 # Encoding
@@ -83,6 +88,7 @@ def _try_decode_at_threshold(
     threshold: float,
     times_np = None,   # pre-converted numpy arrays (passed from decode_phases_verbose)
     norm_np  = None,   # to avoid 7× redundant conversion per decode call
+    cs_np    = None,   # prefix sums of norm, so a window mean is one subtraction
 ) -> tuple[int, float, str] | tuple[None, None, str]:
     """
     Time-based Manchester decode at one brightness threshold.
@@ -106,6 +112,26 @@ def _try_decode_at_threshold(
         times_np = _np.array(times, dtype=_np.float64)
     if norm_np is None:
         norm_np  = _np.array(norm,  dtype=_np.float32)
+    if cs_np is None:
+        cs_np = _np.concatenate(([0.0], _np.cumsum(norm_np, dtype=_np.float64)))
+
+    def _phase_windows(t_m, lo_bound, hi_bound):
+        """Sums and counts for every half-phase window of one Manchester frame.
+
+        Replaces two boolean-mask selections and two .mean() calls per bit. The
+        masks scanned the whole array twice per window and .mean() cost more in
+        numpy dispatch than in arithmetic - profiling a failed decode showed
+        5,106 mean() calls, with _mean/_count_reduce_items/issubclass dominating
+        the actual reduce. Prefix sums make each window one subtraction, and
+        because the edges are evenly spaced they resolve in a single
+        searchsorted rather than one per boundary.
+
+        lo_bound/hi_bound reproduce the old array slicing exactly: the forward
+        scan only saw times_np[run_end:], the backward scan times_np[:run_start].
+        """
+        idx = _np.searchsorted(times_np, t_m + _EDGE_K * phase_secs, side="left")
+        _np.clip(idx, lo_bound, hi_bound, out=idx)
+        return cs_np[idx[1:]] - cs_np[idx[:-1]], idx[1:] - idx[:-1]
 
     # Walk runs, tracking the frame index where each run starts
     frame_pos = 0
@@ -132,10 +158,6 @@ def _try_decode_at_threshold(
 
         best_fail = "guard_ok_no_bits"
 
-        # Slice the tail once per guard candidate (reused across all t_offsets).
-        t_tail = times_np[run_end:]
-        n_tail = norm_np[run_end:]
-
         # Estimate when the Manchester data starts.
         # Anchor from the END of the dark run (times[run_end-1]) rather than
         # the start: phones arrive mid-cycle so we often only see the TAIL of
@@ -149,22 +171,18 @@ def _try_decode_at_threshold(
             bits  = []
             valid = True
             fail  = ""
+            w_sums, w_counts = _phase_windows(t_manchester, run_end, len(times_np))
             for bit_i in range(_MANCHESTER_BITS):
-                p1_t0 = t_manchester + bit_i * 2 * phase_secs
-                p1_t1 = p1_t0 + phase_secs
-                p2_t0 = p1_t1
-                p2_t1 = p2_t0 + phase_secs
+                c1 = w_counts[bit_i * 2]
+                c2 = w_counts[bit_i * 2 + 1]
 
-                win1 = n_tail[(t_tail >= p1_t0) & (t_tail < p1_t1)]
-                win2 = n_tail[(t_tail >= p2_t0) & (t_tail < p2_t1)]
-
-                if len(win1) == 0 or len(win2) == 0:
+                if c1 == 0 or c2 == 0:
                     fail  = f"empty_win bit={bit_i}"
                     valid = False
                     break
 
-                p1 = 1 if float(win1.mean()) >= 0.5 else 0
-                p2 = 1 if float(win2.mean()) >= 0.5 else 0
+                p1 = 1 if w_sums[bit_i * 2]     / c1 >= 0.5 else 0
+                p2 = 1 if w_sums[bit_i * 2 + 1] / c2 >= 0.5 else 0
 
                 if   p1 == 1 and p2 == 0:
                     bits.append(1)
@@ -235,9 +253,6 @@ def _try_decode_at_threshold(
         if (fwd_secs < _manchester_secs * 0.5
                 and pre_guard_secs > _manchester_secs * 0.55
                 and guard_secs >= expected_guard_secs * 0.75):
-            t_head = times_np[:run_start]
-            n_head = norm_np[:run_start]
-
             for t_offset in (-0.75, -0.625, -0.5, -0.375, -0.25, -0.125,
                              0.0,
                              0.125, 0.25, 0.375, 0.5, 0.625, 0.75):
@@ -251,16 +266,12 @@ def _try_decode_at_threshold(
                 valid_b   = True
                 fail_b    = ""
 
+                b_sums, b_counts = _phase_windows(t_manchester_b, 0, run_start)
                 for bit_i in range(_MANCHESTER_BITS):
-                    p1_t0 = t_manchester_b + bit_i * 2 * phase_secs
-                    p1_t1 = p1_t0 + phase_secs
-                    p2_t0 = p1_t1
-                    p2_t1 = p2_t0 + phase_secs
+                    c1 = b_counts[bit_i * 2]
+                    c2 = b_counts[bit_i * 2 + 1]
 
-                    w1 = n_head[(t_head >= p1_t0) & (t_head < p1_t1)]
-                    w2 = n_head[(t_head >= p2_t0) & (t_head < p2_t1)]
-
-                    if len(w1) == 0 or len(w2) == 0:
+                    if c1 == 0 or c2 == 0:
                         # Window falls before history — use protocol knowledge.
                         if bit_i == 0:
                             bits_b.append(1)   # start marker is always 1
@@ -276,8 +287,8 @@ def _try_decode_at_threshold(
                         valid_b = False
                         break
 
-                    p1_b = 1 if float(w1.mean()) >= 0.5 else 0
-                    p2_b = 1 if float(w2.mean()) >= 0.5 else 0
+                    p1_b = 1 if b_sums[bit_i * 2]     / c1 >= 0.5 else 0
+                    p2_b = 1 if b_sums[bit_i * 2 + 1] / c2 >= 0.5 else 0
 
                     if   p1_b == 1 and p2_b == 0: bits_b.append(1)
                     elif p1_b == 0 and p2_b == 1: bits_b.append(0)
@@ -400,11 +411,14 @@ def decode_phases_verbose(
     # Pre-convert once; _try_decode_at_threshold uses these for numpy window scans.
     times_np = _np.array(times, dtype=_np.float64)
     norm_np  = _np.array(norm,  dtype=_np.float32)
+    # Once per decode, not once per threshold: the window means below are all
+    # differences of these prefix sums.
+    cs_np    = _np.concatenate(([0.0], _np.cumsum(norm_np, dtype=_np.float64)))
 
     for threshold in (0.25, 0.35, 0.40, 0.50, 0.60, 0.65, 0.75):
         dev_id, conf, reason = _try_decode_at_threshold(times, norm, threshold,
                                                         times_np=times_np,
-                                                        norm_np=norm_np)
+                                                        norm_np=norm_np, cs_np=cs_np)
         if dev_id is not None:
             if best is None or conf > best[1]:
                 best = (dev_id, conf)
