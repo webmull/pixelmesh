@@ -15,6 +15,7 @@
 #    ./sim.sh 6 --local    # against http://127.0.0.1:8000
 #    ./sim.sh 6 --url http://192.168.1.20:8000
 #    ./sim.sh --kill       # stop every sim phone
+#    ./sim.sh 40 --fill    # tile edge to edge (load/UI work, not detection)
 #
 #  Ctrl-C tears the whole crowd down. Profiles persist between
 #  runs so each sim phone keeps its device_id (and its blink id);
@@ -31,6 +32,7 @@ GAP=10
 FRESH=0
 DETACH=0
 KILL=0
+FILL=0
 
 C=$'\e[0;36m'; G=$'\e[0;32m'; Y=$'\e[0;33m'; R=$'\e[0;31m'
 DIM=$'\e[2m'; BOLD=$'\e[1m'; RESET=$'\e[0m'
@@ -46,12 +48,14 @@ while (( $# )); do
         --fresh)   FRESH=1; shift ;;
         --detach)  DETACH=1; shift ;;
         --kill)    KILL=1; shift ;;
+        --fill)    FILL=1; shift ;;
+        --)        shift ;;
         -h|--help)
           sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
           exit 0 ;;
         *)
           echo "${R}Unknown option: $1${RESET}" >&2
-          echo "Usage: ./sim.sh [N] [--url URL | --local] [--gap PX] [--fresh] [--detach] [--kill]" >&2
+          echo "Usage: ./sim.sh [N] [--url URL | --local] [--gap PX] [--fill] [--fresh] [--detach] [--kill]" >&2
           exit 1 ;;
       esac ;;
     *) COUNT="$1"; shift ;;
@@ -100,7 +104,7 @@ fi
 mkdir -p "$PROFILES"
 
 # ── work out where each window goes ─────────────────────────
-LAYOUT=$(python3 - "$COUNT" "$GAP" <<'PY'
+LAYOUT=$(python3 - "$COUNT" "$GAP" "$FILL" <<'PY'
 """Tile N phone-shaped windows across every display, no overlap.
 
 Prints one "x y w h" line per window in Chrome's screen coordinates
@@ -113,11 +117,20 @@ import sys
 
 from AppKit import NSScreen
 
-want, gap = int(sys.argv[1]), int(sys.argv[2])
+want, gap, fill = int(sys.argv[1]), int(sys.argv[2]), int(sys.argv[3])
 
 PHONE_AR = 0.50    # w/h - roughly a modern handset
 MAX_W    = 560     # stay under the app's 620px desktop breakpoint
-MIN_W    = 300     # below this Chrome starts clamping and windows collide
+CHROME_MIN_W = 86  # measured: Chrome refuses to make a window narrower
+
+# The detector's noise gate is 3.5x the 90th percentile of grid-point
+# variance, capped at 0.15.  That percentile is meant to measure the dark
+# room behind the phones.  Tile windows edge to edge and the phones become
+# most of the frame, so the gate starts measuring phones instead, climbs to
+# its ceiling and locks out every phone that does not clear it - the crowd
+# raises the bar against itself.  A real audience is small bright rectangles
+# in a lot of darkness, so phone coverage is capped here to match.
+MAX_COVERAGE = 0.08
 
 screens = list(NSScreen.screens())
 primary = next((s for s in screens
@@ -134,6 +147,11 @@ for s in screens:
         "h": int(round(v.size.height)),
     })
 displays.sort(key=lambda d: d["x"])
+
+total_area = sum(d["w"] * d["h"] for d in displays) or 1
+# w * (w / PHONE_AR) is one phone's area, so w = sqrt(share * PHONE_AR).
+cov_w = int(math.sqrt(MAX_COVERAGE * total_area / want * PHONE_AR))
+valid_max = int(MAX_COVERAGE * total_area * PHONE_AR / (CHROME_MIN_W ** 2))
 
 # Share the crowd out by screen area, largest remainder first.
 areas = [d["w"] * d["h"] for d in displays]
@@ -157,7 +175,7 @@ def best_grid(d, n):
         ch = (d["h"] - gap * (rows + 1)) / rows
         if cw <= 0 or ch <= 0:
             continue
-        ww = min(cw, MAX_W)
+        ww = min(cw, MAX_W) if fill else min(cw, MAX_W, cov_w)
         wh = min(ch, ww / PHONE_AR)
         ww = min(ww, wh * PHONE_AR)
         score = ww * wh
@@ -179,8 +197,15 @@ for d, n in zip(displays, counts):
         cy = d["y"] + gap + r * (ch + gap)
         out.append((int(cx + (cw - ww) / 2), int(cy + (ch - wh) / 2), ww, wh))
 
-if smallest is not None and smallest < MIN_W:
-    print(f"crowded: {smallest}px wide windows may overlap - try fewer phones",
+if fill:
+    print("fill mode: phones tile edge to edge, which saturates the detector's "
+          "noise gate - fine for load and UI work, not for detection runs",
+          file=sys.stderr)
+elif smallest is not None and smallest < CHROME_MIN_W:
+    print(f"too crowded for a detection run: {want} phones need {smallest}px "
+          f"windows but Chrome will not go below {CHROME_MIN_W}px, so the crowd "
+          f"covers too much of the frame and the noise gate will hide the "
+          f"weaker phones. Max for a clean detection run here is {valid_max}.",
           file=sys.stderr)
 
 for x, y, w, h in out:
