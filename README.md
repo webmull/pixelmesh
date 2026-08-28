@@ -839,7 +839,7 @@ pixel grid is a best case the real show never gets, and it leaves the diff-based
 and the centroid tracking untested. Default drift is 8px, which is about 3 camera px at typical
 framing, roughly a held phone's tremor. Movement goes over the Chrome DevTools protocol rather
 than System Events, so it needs no Accessibility permission: each phone gets a debugging port
-and `tools/sim_jitter.py` drives `Browser.setWindowBounds` on it. Drift is clamped to the slack
+and `tools/sim_cdp.py` drives `Browser.setWindowBounds` on it. Drift is clamped to the slack
 each window has inside its own layout cell, so a wobbling phone can never wander into its
 neighbour. Ports are only opened when the flag is passed.
 
@@ -857,19 +857,28 @@ detected 20 of 20 in 28.9 seconds, median 12.2 s, gate at its ceiling for 10% of
 
 This is a property of screen area, not phone count. A real audience of 54 phones detected 44,
 with the gate at its 0.050 floor, because real phones are small bright rectangles separated by
-people. Two 1080p displays can hold about 21 phones inside the cap, and sim.sh says so rather
-than silently producing an invalid test:
+people.
+
+Chrome will not make a window narrower than about 86px, so past roughly 20 phones the windows
+cannot shrink far enough to stay inside the budget on their own. The lit area has no such floor:
+`#card-blink` is its own fixed-position element, so the window sits at Chrome's minimum while
+the blinking patch inside it is inset to whatever the budget allows, black all around. That is
+also closer to the real thing. sim.sh says when it kicks in:
 
 ```
-too crowded for a detection run: 50 phones need 56px windows but Chrome will not go below
-86px, so the crowd covers too much of the frame and the noise gate will hide the weaker
-phones. Max for a clean detection run here is 21.
+note: 40 phones need 63px of lit area but Chrome will not make a window under 86px, so the
+blink patch is inset to 73% inside a black window to stay within the coverage budget
 ```
 
-Above that, use `--fill` and treat the run as load and UI testing only. The same reasoning
-applies to the ROI: the sampling grid is built inside it, so cropping tight around a dense
-block of phones shrinks the denominator and walks toward the same saturation. Leaving some dark
-room inside the ROI is what keeps the gate at its floor.
+Measured at 40 phones on two 1080p displays: 86x140 windows with a 64x104 lit patch, 6.4% lit
+coverage against 11.6% if the windows had been left alone. The ceiling on this machine is 276
+phones, at which point the patch drops below the 24px the camera can usefully resolve and
+sim.sh refuses rather than producing an invalid test. `--fill` still tiles edge to edge for
+load and UI work.
+
+The same reasoning applies to the ROI: the sampling grid is built inside it, so cropping tight
+around a dense block of phones shrinks the denominator and walks toward the same saturation.
+Leaving some dark room inside the ROI is what keeps the gate at its floor.
 
 ### Performance sentinel
 

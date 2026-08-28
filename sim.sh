@@ -75,7 +75,7 @@ done
 
 # ── kill any running crowd ──────────────────────────────────
 stop_all() {
-  pkill -f "sim_jitter.py $PROFILES/" 2>/dev/null
+  pkill -f "sim_cdp.py $PROFILES/" 2>/dev/null
   pkill -f "user-data-dir=$PROFILES/" 2>/dev/null
 }
 
@@ -146,6 +146,7 @@ CHROME_MIN_W = 86  # measured: Chrome refuses to make a window narrower
 # raises the bar against itself.  A real audience is small bright rectangles
 # in a lot of darkness, so phone coverage is capped here to match.
 MAX_COVERAGE = 0.08
+MIN_LIT_W    = 24  # px: below this the lit patch stops being worth detecting
 
 screens = list(NSScreen.screens())
 primary = next((s for s in screens
@@ -166,7 +167,16 @@ displays.sort(key=lambda d: d["x"])
 total_area = sum(d["w"] * d["h"] for d in displays) or 1
 # w * (w / PHONE_AR) is one phone's area, so w = sqrt(share * PHONE_AR).
 cov_w = int(math.sqrt(MAX_COVERAGE * total_area / want * PHONE_AR))
-valid_max = int(MAX_COVERAGE * total_area * PHONE_AR / (CHROME_MIN_W ** 2))
+
+# Chrome will not make a window narrower than CHROME_MIN_W, so past a certain
+# crowd size the windows cannot shrink far enough to stay inside the coverage
+# budget.  The lit area does not have that limit: #card-blink is its own
+# fixed-position element, so the window can sit at Chrome's floor while the
+# blinking patch inside it shrinks freely, with black around it.  That is also
+# closer to the real thing - a phone in a dark auditorium is a small bright
+# rectangle, not a wall-to-wall glow.
+win_w = max(cov_w, CHROME_MIN_W)
+lit_frac = min(1.0, cov_w / win_w) if win_w else 1.0
 
 # Share the crowd out by screen area, largest remainder first.
 areas = [d["w"] * d["h"] for d in displays]
@@ -190,7 +200,7 @@ def best_grid(d, n):
         ch = (d["h"] - gap * (rows + 1)) / rows
         if cw <= 0 or ch <= 0:
             continue
-        ww = min(cw, MAX_W) if fill else min(cw, MAX_W, cov_w)
+        ww = min(cw, MAX_W) if fill else min(cw, MAX_W, win_w)
         wh = min(ch, ww / PHONE_AR)
         ww = min(ww, wh * PHONE_AR)
         score = ww * wh
@@ -210,22 +220,30 @@ for d, n in zip(displays, counts):
         r, c = divmod(i, cols)
         cx = d["x"] + gap + c * (cw + gap)
         cy = d["y"] + gap + r * (ch + gap)
+        # Percentage inset applied to #card-blink so the lit area lands on the
+        # coverage budget regardless of how big Chrome insisted the window be.
+        inset = 0 if fill else int(round((1.0 - lit_frac) / 2 * 100))
         out.append((int(cx + (cw - ww) / 2), int(cy + (ch - wh) / 2), ww, wh,
-                    int((cw - ww) / 2), int((ch - wh) / 2)))
+                    int((cw - ww) / 2), int((ch - wh) / 2), inset))
 
 if fill:
     print("fill mode: phones tile edge to edge, which saturates the detector's "
           "noise gate - fine for load and UI work, not for detection runs",
           file=sys.stderr)
-elif smallest is not None and smallest < CHROME_MIN_W:
-    print(f"too crowded for a detection run: {want} phones need {smallest}px "
-          f"windows but Chrome will not go below {CHROME_MIN_W}px, so the crowd "
-          f"covers too much of the frame and the noise gate will hide the "
-          f"weaker phones. Max for a clean detection run here is {valid_max}.",
+elif cov_w < MIN_LIT_W:
+    print(f"too crowded even with shrinking: {want} phones would need a {cov_w}px "
+          f"lit patch, below the {MIN_LIT_W}px the camera can usefully resolve. "
+          f"Max for a clean detection run here is "
+          f"{int(MAX_COVERAGE * total_area * PHONE_AR / (MIN_LIT_W ** 2))}.",
           file=sys.stderr)
+elif lit_frac < 1.0:
+    print(f"note: {want} phones need {cov_w}px of lit area but Chrome will not "
+          f"make a window under {CHROME_MIN_W}px, so the blink patch is inset to "
+          f"{int(lit_frac * 100)}% inside a black window to stay within the "
+          f"coverage budget", file=sys.stderr)
 
-for x, y, w, h, sx, sy in out:
-    print(x, y, w, h, sx, sy)
+for x, y, w, h, sx, sy, inset in out:
+    print(x, y, w, h, sx, sy, inset)
 PY
 )
 
@@ -243,7 +261,7 @@ JSTATE="$PROFILES/jitter.state"
 : > "$JSTATE"
 
 i=0
-while IFS=' ' read -r X Y W H SX SY; do
+while IFS=' ' read -r X Y W H SX SY INSET; do
   [[ -z "$X" ]] && continue
   i=$(( i + 1 ))
   DIR="$PROFILES/phone-$i"
@@ -271,13 +289,13 @@ with open(path, "w") as fh:
 PY
   fi
 
-  # Jitter moves windows over the DevTools protocol, which needs a port per
-  # instance. Only opened when asked for, so the default run stays plain.
+  # The DevTools port carries both the lit-area shrink and --jitter, so it is
+  # opened whenever either is in play and left shut otherwise.
   CDP=()
-  if (( JITTER )); then
+  if (( JITTER )) || (( INSET > 0 )); then
     PORT=$(( CDP_PORT_BASE + i ))
     CDP=(--remote-debugging-port="$PORT")
-    echo "$PORT $X $Y $W $H $SX $SY" >> "$JSTATE"
+    echo "$PORT $X $Y $W $H $SX $SY $INSET" >> "$JSTATE"
   fi
 
   "$CHROME" \
@@ -300,15 +318,17 @@ PY
   printf "  ${G}phone %-3s${RESET} ${DIM}%4sx%-4s at %5s,%-5s${RESET}\n" "$i" "$W" "$H" "$X" "$Y"
 done <<< "$LAYOUT"
 
-if (( JITTER )); then
+if [[ -s "$JSTATE" ]]; then
   # Chrome needs to be listening before the driver can attach.
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
     curl -s --max-time 1 "http://127.0.0.1:$(( CDP_PORT_BASE + 1 ))/json/version" \
       >/dev/null 2>&1 && break
     /bin/sleep 0.5
   done
-  python3 "$PWD/tools/sim_jitter.py" "$JSTATE" "$JITTER_PX" >/dev/null 2>&1 &
-  echo "  ${DIM}jitter on: +/-${JITTER_PX}px drift per phone${RESET}"
+  python3 "$PWD/tools/sim_cdp.py" "$JSTATE" "$(( JITTER ? JITTER_PX : 0 ))" \
+    >/dev/null 2>&1 &
+  (( JITTER )) && echo "  ${DIM}jitter on: +/-${JITTER_PX}px drift per phone${RESET}"
+  (( INSET > 0 )) && echo "  ${DIM}blink patch inset ${INSET}% to hold the coverage budget${RESET}"
 fi
 
 echo ""
