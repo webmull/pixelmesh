@@ -16,6 +16,8 @@
 #    ./sim.sh 6 --url http://192.168.1.20:8000
 #    ./sim.sh --kill       # stop every sim phone
 #    ./sim.sh 40 --fill    # tile edge to edge (load/UI work, not detection)
+#    ./sim.sh 20 --jitter  # phones drift a few px, like hands that aren't still
+#    ./sim.sh 20 --jitter 14   # ...with a wider wobble
 #
 #  Ctrl-C tears the whole crowd down. Profiles persist between
 #  runs so each sim phone keeps its device_id (and its blink id);
@@ -33,6 +35,9 @@ FRESH=0
 DETACH=0
 KILL=0
 FILL=0
+JITTER=0
+JITTER_PX=8
+CDP_PORT_BASE=9400
 
 C=$'\e[0;36m'; G=$'\e[0;32m'; Y=$'\e[0;33m'; R=$'\e[0;31m'
 DIM=$'\e[2m'; BOLD=$'\e[1m'; RESET=$'\e[0m'
@@ -49,13 +54,19 @@ while (( $# )); do
         --detach)  DETACH=1; shift ;;
         --kill)    KILL=1; shift ;;
         --fill)    FILL=1; shift ;;
+        --jitter)
+          JITTER=1; shift
+          # Optional pixel amount: ./sim.sh 20 --jitter   or   --jitter 14
+          if [[ -n "$1" && "$1" != -* && "$1" == ${~:-<->} ]]; then
+            JITTER_PX="$1"; shift
+          fi ;;
         --)        shift ;;
         -h|--help)
           sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
           exit 0 ;;
         *)
           echo "${R}Unknown option: $1${RESET}" >&2
-          echo "Usage: ./sim.sh [N] [--url URL | --local] [--gap PX] [--fill] [--fresh] [--detach] [--kill]" >&2
+          echo "Usage: ./sim.sh [N] [--url URL | --local] [--gap PX] [--fill] [--jitter [PX]] [--fresh] [--detach] [--kill]" >&2
           exit 1 ;;
       esac ;;
     *) COUNT="$1"; shift ;;
@@ -64,6 +75,7 @@ done
 
 # ── kill any running crowd ──────────────────────────────────
 stop_all() {
+  pkill -f "sim_jitter.py $PROFILES/" 2>/dev/null
   pkill -f "user-data-dir=$PROFILES/" 2>/dev/null
 }
 
@@ -107,7 +119,10 @@ mkdir -p "$PROFILES"
 LAYOUT=$(python3 - "$COUNT" "$GAP" "$FILL" <<'PY'
 """Tile N phone-shaped windows across every display, no overlap.
 
-Prints one "x y w h" line per window in Chrome's screen coordinates
+Prints one "x y w h slack_x slack_y" line per window in Chrome's screen
+coordinates.  The slack is the empty space each window has inside its own
+layout cell; --jitter uses it as a movement bound so a wobbling phone can
+never wander into its neighbour.  Coordinates are given
 (origin at the top-left of the primary display, y growing downward).
 NSScreen's visibleFrame already excludes the menu bar and the Dock;
 it uses a bottom-left origin, so y is flipped on the way out.
@@ -190,12 +205,13 @@ for d, n in zip(displays, counts):
     if n <= 0:
         continue
     _, cols, rows, cw, ch, ww, wh = best_grid(d, n)
-    smallest = ww if smallest is None else min(smallest, ww)
+    smallest = ww if smallest is None else min(smallest, ww)  # noqa: E501
     for i in range(n):
         r, c = divmod(i, cols)
         cx = d["x"] + gap + c * (cw + gap)
         cy = d["y"] + gap + r * (ch + gap)
-        out.append((int(cx + (cw - ww) / 2), int(cy + (ch - wh) / 2), ww, wh))
+        out.append((int(cx + (cw - ww) / 2), int(cy + (ch - wh) / 2), ww, wh,
+                    int((cw - ww) / 2), int((ch - wh) / 2)))
 
 if fill:
     print("fill mode: phones tile edge to edge, which saturates the detector's "
@@ -208,8 +224,8 @@ elif smallest is not None and smallest < CHROME_MIN_W:
           f"weaker phones. Max for a clean detection run here is {valid_max}.",
           file=sys.stderr)
 
-for x, y, w, h in out:
-    print(x, y, w, h)
+for x, y, w, h, sx, sy in out:
+    print(x, y, w, h, sx, sy)
 PY
 )
 
@@ -223,8 +239,11 @@ echo ""
 echo "${C}${BOLD}pixelmesh sim${RESET} ${DIM}- $COUNT phone(s) -> $URL${RESET}"
 echo ""
 
+JSTATE="$PROFILES/jitter.state"
+: > "$JSTATE"
+
 i=0
-while IFS=' ' read -r X Y W H; do
+while IFS=' ' read -r X Y W H SX SY; do
   [[ -z "$X" ]] && continue
   i=$(( i + 1 ))
   DIR="$PROFILES/phone-$i"
@@ -252,11 +271,21 @@ with open(path, "w") as fh:
 PY
   fi
 
+  # Jitter moves windows over the DevTools protocol, which needs a port per
+  # instance. Only opened when asked for, so the default run stays plain.
+  CDP=()
+  if (( JITTER )); then
+    PORT=$(( CDP_PORT_BASE + i ))
+    CDP=(--remote-debugging-port="$PORT")
+    echo "$PORT $X $Y $W $H $SX $SY" >> "$JSTATE"
+  fi
+
   "$CHROME" \
     --user-data-dir="$DIR" \
     --app="$URL" \
     --window-position="$X,$Y" \
     --window-size="$W,$H" \
+    "${CDP[@]}" \
     --no-first-run \
     --no-default-browser-check \
     --disable-session-crashed-bubble \
@@ -270,6 +299,17 @@ PY
 
   printf "  ${G}phone %-3s${RESET} ${DIM}%4sx%-4s at %5s,%-5s${RESET}\n" "$i" "$W" "$H" "$X" "$Y"
 done <<< "$LAYOUT"
+
+if (( JITTER )); then
+  # Chrome needs to be listening before the driver can attach.
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    curl -s --max-time 1 "http://127.0.0.1:$(( CDP_PORT_BASE + 1 ))/json/version" \
+      >/dev/null 2>&1 && break
+    /bin/sleep 0.5
+  done
+  python3 "$PWD/tools/sim_jitter.py" "$JSTATE" "$JITTER_PX" >/dev/null 2>&1 &
+  echo "  ${DIM}jitter on: +/-${JITTER_PX}px drift per phone${RESET}"
+fi
 
 echo ""
 

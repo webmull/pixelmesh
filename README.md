@@ -830,7 +830,18 @@ Windows open in app mode (no tab strip, no URL bar) and tile across every displa
 ./sim.sh 6 --local      # against http://127.0.0.1:8000
 ./sim.sh --kill         # stop the crowd
 ./sim.sh 40 --fill      # tile edge to edge: load and UI work only, not detection
+./sim.sh 20 --jitter    # phones drift a few px, like hands that are not still
+./sim.sh 20 --jitter 14 # ...with a wider wobble
 ```
+
+`--jitter` random-walks each window around its home position, because a crowd nailed to the
+pixel grid is a best case the real show never gets, and it leaves the diff-based phone finder
+and the centroid tracking untested. Default drift is 8px, which is about 3 camera px at typical
+framing, roughly a held phone's tremor. Movement goes over the Chrome DevTools protocol rather
+than System Events, so it needs no Accessibility permission: each phone gets a debugging port
+and `tools/sim_jitter.py` drives `Browser.setWindowBounds` on it. Drift is clamped to the slack
+each window has inside its own layout cell, so a wobbling phone can never wander into its
+neighbour. Ports are only opened when the flag is passed.
 
 Ctrl-C tears the crowd down. Profiles persist under `.sim-profiles/`, so a sim phone keeps its
 `device_id` and blink id between runs, and `--fresh` wipes them for a new crowd.
