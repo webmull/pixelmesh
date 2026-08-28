@@ -1017,6 +1017,30 @@ async def set_recording_request(request: Request):
     return _mode_snapshot()
 
 
+def _is_finalised(path: str, window: int = 262_144) -> bool:
+    """True when an mp4 has been closed properly and can actually be played.
+
+    Cheap and structural rather than shelling out to ffprobe per candidate:
+    look for the moov atom, which only exists once ffmpeg has written the
+    index. With +faststart it ends up near the front, so the head is checked
+    first; the tail is checked too so a file written without faststart still
+    counts. Reads at most 512KB regardless of how big the recording is.
+    """
+    try:
+        size = os.path.getsize(path)
+        if size == 0:
+            return False
+        with open(path, "rb") as fh:
+            if b"moov" in fh.read(window):
+                return True
+            if size > window:
+                fh.seek(-window, os.SEEK_END)
+                return b"moov" in fh.read()
+    except OSError:
+        return False
+    return False
+
+
 @app.get("/admin/recording/latest")
 async def latest_recording(request: Request):
     """The most recent finished recording, for the talk deck to play back.
@@ -1025,9 +1049,17 @@ async def latest_recording(request: Request):
     on the others: this is footage of a room full of people, not a counter.
     Nothing about it should be reachable through the tunnel.
 
-    Skips zero-byte files. ffmpeg opens its output lazily on the first frame,
-    so a recording started and stopped without one leaves an empty file that
-    would otherwise win on mtime and hand the deck a video that never plays.
+    The latest FINISHED one, which is not the same as the latest. An mp4 being
+    written has no moov atom yet - ffmpeg writes the index when it closes, and
+    +faststart then moves it to the front - so the file that is growing right
+    now is 65MB of frames that nothing can play. Serving it was the whole
+    reason this slide came up black: the endpoint was answering 200 with a
+    video the browser silently refused.
+
+    So candidates are walked newest first and the first finalised one wins.
+    Size alone is not the test - an in-progress recording is the biggest file
+    in the directory - and neither is age, because the show being played back
+    finished seconds ago.
 
     FileResponse rather than reading it in: it sets Content-Length and honours
     Range, so the browser can start playing before the whole file has arrived
@@ -1042,13 +1074,11 @@ async def latest_recording(request: Request):
     except FileNotFoundError:
         raise HTTPException(404, "no recordings directory")
 
-    files = [f for f in files if os.path.getsize(f) > 0]
-    if not files:
-        raise HTTPException(404, "no recordings yet")
-
-    newest = max(files, key=os.path.getmtime)
-    return FileResponse(newest, media_type="video/mp4",
-                        headers={"Cache-Control": "no-store"})
+    for path in sorted(files, key=os.path.getmtime, reverse=True):
+        if _is_finalised(path):
+            return FileResponse(path, media_type="video/mp4",
+                                headers={"Cache-Control": "no-store"})
+    raise HTTPException(404, "no finished recordings yet")
 
 
 @app.post("/admin/mode/ack")
@@ -1163,12 +1193,18 @@ async def end_show(request: Request):
     # /admin/mode uses, so the controller applies it on its next poll and the
     # two cannot disagree about ordering. Harmless when nothing is recording -
     # set_recording is idempotent at the other end.
+    # Unconditionally, and that matters. mode_requests only records what has
+    # been asked for through the mode API; the pedal starts recording by
+    # calling set_recording directly in the controller and never touches it.
+    # Guarding on entry["enabled"] therefore skipped the stop for every
+    # recording the show actually started - which is all of them. The two are
+    # kept separate precisely because they disagree, so this asks every time
+    # and lets the far end, which is idempotent, decide there is nothing to do.
     entry = mode_requests["recording"]
-    if entry["enabled"]:
-        entry["enabled"] = False
-        entry["seq"] += 1
-        print(f"[mode] request recording=False (seq {entry['seq']}) via /admin/end",
-              flush=True)
+    entry["enabled"] = False
+    entry["seq"] += 1
+    print(f"[mode] request recording=False (seq {entry['seq']}) via /admin/end",
+          flush=True)
 
     # Per connection, not a broadcast. found_ms is per device, and a broadcast
     # would hand every phone somebody else's time - the same reason the rest of
