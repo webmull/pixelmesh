@@ -42,6 +42,7 @@ class TestShape:
             "like_count", "total_connected", "detected",
             "connected_now", "spectators",
             "detecting", "effect", "effect_started",
+            "found_fastest_ms", "found_median_ms", "found_slowest_ms",
             "server_stale",
         }
 
@@ -63,6 +64,11 @@ class TestShape:
         assert s["detecting"] is False
         assert s["effect"] is None
         assert s["effect_started"] is None
+        # None rather than 0: nobody has been found, which is not the same as
+        # everybody being found instantly.
+        assert s["found_fastest_ms"] is None
+        assert s["found_median_ms"] is None
+        assert s["found_slowest_ms"] is None
 
     def test_exposes_no_device_identifiers(self):
         """Public route: counts and effect names only, never a device_uuid."""
@@ -238,3 +244,30 @@ class TestBackwardsCompatibility:
         s = stats(fresh_server())
         for k in ("like_count", "total_connected", "detected"):
             assert k in s
+
+
+# ------------------------------------------------------------------ #
+# Detection timings
+# ------------------------------------------------------------------ #
+
+class TestFoundTimings:
+    def test_derived_from_found_ms(self):
+        srv = fresh_server()
+        srv.found_ms.update({"a": 14_800, "b": 10_300, "c": 47_000})
+        s = stats(srv)
+        assert s["found_fastest_ms"] == 10_300
+        assert s["found_slowest_ms"] == 47_000
+        assert s["found_median_ms"] == 14_800
+
+    def test_single_phone_is_all_three(self):
+        srv = fresh_server()
+        srv.found_ms.update({"only": 10_250})
+        s = stats(srv)
+        assert (s["found_fastest_ms"], s["found_median_ms"],
+                s["found_slowest_ms"]) == (10_250, 10_250, 10_250)
+
+    def test_names_no_device(self):
+        """Same guarantee as the rest of this route: counts, never identities."""
+        srv = fresh_server()
+        srv.found_ms.update({"device-uuid-aaaa": 10_300})
+        assert "device-uuid-aaaa" not in repr(stats(srv))

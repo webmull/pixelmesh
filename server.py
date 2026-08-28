@@ -831,7 +831,12 @@ async def show_stats():
 
     Keys are additive. total_connected/detected/like_count predate the rest
     and are consumed elsewhere, so nothing here is renamed or removed.
+
+    No longer strictly "no iteration": the timings below sort found_ms. That is
+    at most a few hundred small ints and this is polled every 3s, so it stays
+    cheap, but the claim above was worth correcting rather than leaving to rot.
     """
+    _t = sorted(found_ms.values())
     return {
         # Session totals. Cumulative - these only ever go up within a run.
         "like_count":       like_count,
@@ -849,6 +854,18 @@ async def show_stats():
         "detecting":        detection_active,
         "effect":           (current_effect_state or {}).get("effect"),
         "effect_started":   (current_effect_state or {}).get("start_time"),
+
+        # Detection timings, milliseconds from the start of the run to each
+        # phone being placed. Derived from found_ms, which is already kept per
+        # device for the closing card, so nothing new is stored and nothing
+        # identifying is exposed - three numbers, no device ever named.
+        #
+        # The spread is the interesting part and the reason all three are here:
+        # fastest is the protocol floor and lands in the same place every show,
+        # while slowest is whatever the room did that night.
+        "found_fastest_ms": _t[0]              if _t else None,
+        "found_median_ms":  _t[len(_t) // 2]   if _t else None,
+        "found_slowest_ms": _t[-1]             if _t else None,
 
         # True when server.py has been edited since this process started, so
         # whatever is running is not what is on disk. Cheap: one stat().
