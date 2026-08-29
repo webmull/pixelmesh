@@ -132,7 +132,7 @@ sign-off. `file:line` are from the review; re-check before editing.
 - [ ] Fix the 2 failing tests (`tests/test_server_pool.py`) — **test bug**: they write
   `blink_assignments` directly and bypass the `blink_reverse` index from `a57aa02`. Write both
   dicts (or a helper). Also: file `sys.exit`s at import without `PIXELMESH_ADMIN_TOKEN`.
-- [ ] `"PixelMesh V2"` in `dashboard.html:6,68` violates the lowercase brand rule.
+- [x] `"PixelMesh V2"` casing fixed everywhere (the line-6 title was already lowercase; the h1 and five source headers were not).
 - [ ] `state.*` reads outside `state.lock` (GIL-atomic, benign) — tidy for discipline.
   (`controller.py:945-948,981,1262,1390,1496,2413,2742`)
 - [ ] `draw_device_overlay` reads `_valid_blink_ids` twice unguarded → possible KeyError → app

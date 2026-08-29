@@ -1,5 +1,5 @@
 // (c) Adam Davis - adamdavis.co.uk
-// PixelMesh V2 — Stage page renderer
+// pixelmesh V2 — stage page renderer
 //
 // Standalone full-screen projected display.  Subscribes to /ws as a
 // spectator and renders the Avatar Race — one procedurally-generated

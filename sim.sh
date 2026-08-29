@@ -1,4 +1,5 @@
 #!/bin/zsh
+# (c) Adam Davis - adamdavis.co.uk
 # ─────────────────────────────────────────────────────────────
 #  pixelmesh audience sim
 #

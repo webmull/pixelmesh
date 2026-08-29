@@ -1,3 +1,4 @@
+# (c) Adam Davis - adamdavis.co.uk
 """Sample brightness over time at one location with different grid/patch
 configurations and report how strong each one's signal is. Mirrors the
 detector's percentile sampling so the numbers compare directly with what

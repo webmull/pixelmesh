@@ -37,3 +37,9 @@ on the HUD has the same limitation.
 Any string that reaches the UI (`set_status`, `_set_status`, `dpg.add_text`,
 labels, `_iso_hint`, HUD text) must use plain ASCII: `-` not `—`, `->` not
 `→`, `...` not `…`, `~` not `≈`. Log messages and code comments are exempt.
+
+## Commit authorship
+
+Commits are authored by Adam Davis alone. Never add Co-Authored-By trailers,
+Claude-Session links, or any other AI attribution to commit messages, in this
+repo or any of its history.

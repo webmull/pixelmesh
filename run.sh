@@ -1,5 +1,6 @@
 #!/bin/zsh
-# PixelMesh V2 — interactive launcher
+# (c) Adam Davis - adamdavis.co.uk
+# pixelmesh V2 — interactive launcher
 
 cd "$(dirname "$0")"
 

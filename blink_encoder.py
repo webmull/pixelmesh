@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Blink Encoding / Decoding
+pixelmesh V2 — blink encoding / decoding
 Closely follows the PixelPhones approach (Seb Lee-Delisle).
 
 Signal structure per cycle:

@@ -1,3 +1,4 @@
+# (c) Adam Davis - adamdavis.co.uk
 """Load-test harness: can this machine hold a Brighton-sized crowd?
 
 Simulates N audience phones against a running pixelmesh server: each

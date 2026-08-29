@@ -1,6 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 """
-PixelMesh V2 — Blink Detector (grid-sampler, variance-gated)
+pixelmesh V2 — blink detector (grid-sampler, variance-gated)
 
 Samples raw brightness at every grid_step pixels.  The key discriminant is
 *recent standard deviation* over ~1.5 seconds, not max-min over 15 seconds.
