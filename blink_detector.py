@@ -860,6 +860,21 @@ class BlinkDetector:
 
         return frame
 
+    def get_active_blobs(self, min_std: float):
+        """Decoded points plus anything above min_std, walked via _ever_active.
+
+        For the debug capture: the equivalent list comprehension over
+        get_blobs() scanned all ~25,920 grid points on the capture thread,
+        ~10 times a second. _ever_active already contains every decoded point
+        and every current candidate, so this is O(active) for the same answer.
+        """
+        out = []
+        for i in self._ever_active:
+            pt = self._points[i]
+            if pt.decoded_id is not None or pt.recent_std >= min_std:
+                out.append(pt)
+        return out
+
     def get_blobs(self):
         return self._points
 

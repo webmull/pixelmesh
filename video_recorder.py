@@ -1,5 +1,6 @@
 # (c) Adam Davis - adamdavis.co.uk
 import os
+import queue
 import shutil
 import subprocess
 import threading
@@ -49,6 +50,18 @@ class VideoRecorder:
         self._size   = None   # (w, h) set on first frame
         self._lock   = threading.Lock()
         self._issued = set()  # paths handed out this session - see start()
+        # Frames are handed to a writer thread rather than written by the
+        # caller. The caller is the capture thread, and ffmpeg's stdin only
+        # drains as fast as libx264 encodes: the moment the encoder fell
+        # behind, write() blocked with the lock held and the entire capture
+        # thread stalled - detection, the feed and the texture all froze at
+        # once, during a recording, which is exactly when a show is live.
+        # debug_capture.py has used this writer-thread shape for the same
+        # reason since the 50-100ms save_frame stalls were measured.
+        # maxsize=2, drop-oldest: a slow encoder loses frames, never the show.
+        self._queue: queue.Queue = queue.Queue(maxsize=2)
+        self._writer_started = False
+        self._writing = False   # writer mid-frame; read by stop()'s drain
 
     def start(self) -> str:
         os.makedirs(_REC_DIR, exist_ok=True)
@@ -79,8 +92,40 @@ class VideoRecorder:
         return path
 
     def record(self, canvas: np.ndarray):
-        with self._lock:
-            self._record_locked(canvas)
+        # Non-blocking hand-off; the writer thread does the pipe write. The
+        # canvas is fresh-allocated per frame by the capture path, so keeping
+        # a reference here needs no copy.
+        if not self.active:
+            return
+        if not self._writer_started:
+            self._writer_started = True
+            threading.Thread(target=self._writer_loop, daemon=True,
+                             name="rec-writer").start()
+        try:
+            self._queue.put_nowait(canvas)
+        except queue.Full:
+            try:
+                self._queue.get_nowait()   # drop the oldest, keep the newest
+            except queue.Empty:
+                pass
+            try:
+                self._queue.put_nowait(canvas)
+            except queue.Full:
+                pass
+
+    def _writer_loop(self):
+        # One persistent daemon thread for the process lifetime. After stop()
+        # any frames still queued hit active=False inside _record_locked and
+        # fall through harmlessly, so no sentinel or join dance is needed and
+        # stop()'s take-ownership-under-the-lock protocol is unchanged.
+        while True:
+            canvas = self._queue.get()
+            self._writing = True
+            try:
+                with self._lock:
+                    self._record_locked(canvas)
+            finally:
+                self._writing = False
 
     def _record_locked(self, canvas: np.ndarray):
         if not self.active:
@@ -119,13 +164,28 @@ class VideoRecorder:
         if canvas.shape[:2] != (self._size[1], self._size[0]):
             return   # size changed mid-recording — skip frame
         try:
-            self._proc.stdin.write(canvas.tobytes())
+            # The array is already C-contiguous bytes in bgr24 layout; writing
+            # it directly avoids tobytes() copying 6.2MB per frame.
+            buf = canvas if canvas.flags["C_CONTIGUOUS"] else np.ascontiguousarray(canvas)
+            self._proc.stdin.write(buf)
         except BrokenPipeError:
             log.warning("[rec] ffmpeg pipe broken")
             self._proc = None
             self.active = False
 
     def stop(self) -> str:
+        # Give the writer a bounded moment to flush what is queued. The old
+        # synchronous record() guaranteed a frame had reached ffmpeg by the
+        # time it returned; with the writer thread, a record() immediately
+        # followed by stop() would otherwise take the pipe away before the
+        # frame was ever written - the shutdown tests catch exactly that.
+        # Bounded, never join(): if ffmpeg is wedged mid-write we drop the
+        # queued frames and proceed, because a hung stop() is the precise
+        # failure this file's callers spent a watchdog eliminating.
+        deadline = time.time() + 2.0
+        while (self._writing or not self._queue.empty()) and time.time() < deadline:
+            time.sleep(0.01)
+
         # Take ownership of the handle under the lock so no other thread can
         # be mid-write, then release it before draining ffmpeg.
         with self._lock:

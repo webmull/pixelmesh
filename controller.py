@@ -618,10 +618,16 @@ _tex_f32: np.ndarray | None = None   # float32 RGBA output buffer
 TEXTURE_WIDTH, TEXTURE_HEIGHT = 1280, 720
 
 _tex_small = None
+_tex_f32_pair = [None, None]   # double buffer: capture writes one while the
+                               # render thread uploads the other, so set_value
+                               # can never catch a half-written frame
+_tex_seq = 0                   # bumped per converted frame; the render loop
+                               # skips the 14.7MB float32 upload when unchanged
+                               # (camera runs 14-60fps against a 60fps render)
 
 
 def frame_to_texture(bgr: np.ndarray) -> np.ndarray:
-    global _tex_u8, _tex_f32, _tex_small
+    global _tex_u8, _tex_small, _tex_seq
     if bgr.shape[1] != TEXTURE_WIDTH or bgr.shape[0] != TEXTURE_HEIGHT:
         if _tex_small is None or _tex_small.shape[:2] != (TEXTURE_HEIGHT, TEXTURE_WIDTH):
             _tex_small = np.empty((TEXTURE_HEIGHT, TEXTURE_WIDTH, 3), dtype=np.uint8)
@@ -629,12 +635,15 @@ def frame_to_texture(bgr: np.ndarray) -> np.ndarray:
                    interpolation=cv2.INTER_LINEAR)
         bgr = _tex_small
     h, w = bgr.shape[:2]
-    if _tex_f32 is None or _tex_f32.shape != (h, w, 4):
-        _tex_u8  = np.zeros((h, w, 4), dtype=np.uint8)
-        _tex_f32 = np.empty((h, w, 4), dtype=np.float32)
+    slot = (_tex_seq + 1) % 2
+    if _tex_f32_pair[slot] is None or _tex_f32_pair[slot].shape != (h, w, 4):
+        _tex_f32_pair[slot] = np.empty((h, w, 4), dtype=np.float32)
+    if _tex_u8 is None or _tex_u8.shape != (h, w, 4):
+        _tex_u8 = np.zeros((h, w, 4), dtype=np.uint8)
     cv2.cvtColor(bgr, cv2.COLOR_BGR2RGBA, dst=_tex_u8)
-    np.multiply(_tex_u8, 1.0 / 255.0, out=_tex_f32)
-    return _tex_f32.ravel()
+    np.multiply(_tex_u8, 1.0 / 255.0, out=_tex_f32_pair[slot])
+    _tex_seq += 1
+    return _tex_f32_pair[slot].ravel()
 
 
 # ------------------------------------------------------------------ #
@@ -645,11 +654,17 @@ def build_canvas(frame: np.ndarray) -> np.ndarray:
     h, w = frame.shape[:2]
     scale = max(PREVIEW_WIDTH / w, PREVIEW_HEIGHT / h)
     nw, nh = int(w * scale), int(h * scale)
-    resized = cv2.resize(frame, (nw, nh))
 
-    cx = max((nw - PREVIEW_WIDTH) // 2, 0)
-    cy = max((nh - PREVIEW_HEIGHT) // 2, 0)
-    canvas = resized[cy:cy + PREVIEW_HEIGHT, cx:cx + PREVIEW_WIDTH].copy()
+    # Camera and preview are both 1920x1080 in the current setup, which made
+    # cv2.resize a same-size copy followed by another full copy from the slice
+    # below - two 6.2MB writes per frame to produce what one copy gives.
+    if nw == PREVIEW_WIDTH and nh == PREVIEW_HEIGHT and (h, w) == (nh, nw):
+        canvas = frame.copy()
+    else:
+        resized = cv2.resize(frame, (nw, nh))
+        cx = max((nw - PREVIEW_WIDTH) // 2, 0)
+        cy = max((nh - PREVIEW_HEIGHT) // 2, 0)
+        canvas = resized[cy:cy + PREVIEW_HEIGHT, cx:cx + PREVIEW_WIDTH].copy()
 
     with state.lock:
         state.cam_offset      = (0, 0)
@@ -768,6 +783,9 @@ def draw_roi_overlay(canvas: np.ndarray, flipped: bool = False):
     x1, y1, x2, y2 = rect
     h, w = canvas.shape[:2]
     color = (80, 160, 255)
+    # Reviewed for a cv2.LUT swap and deliberately left alone: on Apple
+    # Silicon NumPy's in-place uint8 //= is SIMD-vectorised and measured 3x
+    # FASTER than cv2.LUT on these bands (0.10ms vs 0.37ms for a 400px band).
     if y1 > 0:
         canvas[:y1, :] //= 3
         cv2.line(canvas, (0, y1), (w - 1, y1), color, 1)
@@ -1280,7 +1298,21 @@ def _stream_worker():
         # thread isn't competing for the interpreter during decode bursts.
         with state.lock:
             detecting = state.detecting
-        interval = (2.0 if detecting else 1.0) / _STREAM_FPS
+        if _feed_viewer_count == 0:
+            # Nobody is watching. This loop used to encode and ship 60fps
+            # unconditionally - ~34% of a core and 13MB/s over loopback for an
+            # audience of zero, which is most of a show. A 2fps keepalive
+            # keeps the served frame current enough that a viewer connecting
+            # sees the room immediately; the 0.6s mode poll restores full rate
+            # within a tick of them arriving.
+            interval = 0.5
+        elif ws is None:
+            # Degraded to per-frame HTTP POSTs: don't match 60fps over HTTP for
+            # up to 5s per outage - the feed staying alive is the requirement,
+            # not its frame rate.
+            interval = 1.0 / 10
+        else:
+            interval = (2.0 if detecting else 1.0) / _STREAM_FPS
         frame = _stream_latest
         if frame is not None and frame is not last:
             last = frame
@@ -1289,7 +1321,10 @@ def _stream_worker():
             except Exception:
                 ok = False
             if ok:
-                data = buf.tobytes()
+                # Buffer-protocol view, not tobytes(): both websockets'
+                # sync send and requests accept it, and the copy was
+                # 13MB/s at full rate for nothing.
+                data = memoryview(buf.reshape(-1))
                 if ws is None and t0 >= next_ws_retry:
                     try:
                         ws = feed_ws_connect()
@@ -1360,11 +1395,21 @@ _CTRL_MTIME_AT_IMPORT = _os.path.getmtime(__file__) if _os.path.exists(__file__)
 _stale_warned = False
 
 
+_last_stale_check = 0.0
+
 def _check_stale():
     """Warn once if either process is behind its source. Two stat()s a second."""
     global _stale_warned
     if _stale_warned:
         return
+    # Its own 30s cadence. This rides the 0.6s mode poll, and the docstring's
+    # "two stat()s a second" was wrong - it is a full extra HTTP GET per tick,
+    # 1.7 req/s forever, to power a banner that in a healthy run never shows.
+    global _last_stale_check
+    _now = time.time()
+    if _now - _last_stale_check < 30.0:
+        return
+    _last_stale_check = _now
     behind = []
     try:
         if _os.path.getmtime(__file__) > _CTRL_MTIME_AT_IMPORT + 0.5:
@@ -2869,6 +2914,7 @@ def _capture_worker(holder):
     """
     global _camera_fps, _stream_latest, _latest_texture, _dbg_counter
     global _detected_ids, _detection_start_time
+    _last_det_enq = 0.0   # producer-side 20fps gate for the detect queue
 
     _read_failing_since = 0.0   # wall clock of the first of a failing run of reads
 
@@ -2941,11 +2987,19 @@ def _capture_worker(holder):
                 # on the next read); when not detecting we skip the ~6 MB/frame
                 # copy entirely.  (state.latest_frame was write-only dead state.)
                 if detecting:
-                    raw_copy = raw.copy()
-                    try:
-                        _detect_queue.put_nowait((raw_copy, time.time()))
-                    except Full:
-                        pass
+                    # Gate at the producer, not just the consumer. The detector
+                    # takes at most 20fps, but this thread was copying 6.2MB at
+                    # full camera rate (up to 60fps) and letting the far side
+                    # throw two thirds of them away - ~250MB/s of allocate+copy
+                    # on the thread whose headroom feeds everything else.
+                    _enq_now = time.time()
+                    if _enq_now - _last_det_enq >= 0.05:
+                        raw_copy = raw.copy()
+                        try:
+                            _detect_queue.put_nowait((raw_copy, _enq_now))
+                            _last_det_enq = _enq_now
+                        except Full:
+                            pass
 
                 # Downscale first, then apply gamma/contrast on the 720p canvas
                 # in-place — 6.7× less pixel work and no ~6 MB/frame allocation
@@ -2988,18 +3042,21 @@ def _capture_worker(holder):
                                 # Only pass active/decoded points — passing all 25,920
                                 # causes save_frame to iterate 600K+ Python objects
                                 # per call, stalling the capture thread for 50-100ms.
+                                # get_active_blobs walks _ever_active (a few
+                                # hundred entries) instead of all 25,920 points;
+                                # the old filter fixed the callee but left this
+                                # caller scanning the full grid 10x/s. And no
+                                # canvas.copy(): the capture loop allocates a
+                                # fresh canvas every frame and the saver thread
+                                # only reads, so there is nothing to protect.
                                 gate = detector.cfg["min_recent_std"]
-                                active_blobs = [
-                                    pt for pt in detector.get_blobs()
-                                    if pt.decoded_id is not None
-                                    or pt.recent_std >= gate * 0.5
-                                ]
+                                active_blobs = detector.get_active_blobs(gate * 0.5)
                                 dbg_cap.save_frame(
                                     raw=raw,
                                     gray=di.gray,
                                     thresh=di.contrast if di.contrast is not None
                                            else np.zeros_like(di.gray),
-                                    overlay=canvas.copy(),
+                                    overlay=canvas,
                                     blobs=active_blobs,
                                     detections=results_snap,
                                 )
@@ -3164,6 +3221,7 @@ def main():
 
     global _latest_texture, _spotlight_radius_u, _spotlight_cursor_xy
     _latest_texture = frame_to_texture(no_camera_canvas())
+    _tex_seq_uploaded = -1   # force the first upload
 
     _capture_stop.clear()
     capture_thread = threading.Thread(target=_capture_worker, args=(holder,),
@@ -3193,8 +3251,13 @@ def main():
 
             texture_data = _latest_texture
 
-            # Update texture
-            dpg.set_value("camera_texture", texture_data)
+            # Upload only when the capture thread produced a new frame. The
+            # camera runs 14-60fps against a 60fps render loop, so without the
+            # seq check most of the ~885MB/s of float32 texture traffic was
+            # re-uploading pixels the GPU already had.
+            if texture_data is not None and _tex_seq != _tex_seq_uploaded:
+                _tex_seq_uploaded = _tex_seq
+                dpg.set_value("camera_texture", texture_data)
 
             _fit_sidebar_height()
             _tick_sidebar_fade()
@@ -3535,8 +3598,15 @@ def _mode_worker():
     global _mode_seq_seen
     while state.running:
         try:
-            data = fetch_json("/admin/mode")
+            # 0.3s timeout against a 0.6s interval: a localhost admin GET
+            # that takes longer than that is not going to succeed, and the
+            # default 0.5s left ticks running back to back when it did.
+            data = fetch_json("/admin/mode", timeout=0.3)
             if data:
+                # Piggybacked viewer count - costs no extra request. The stream
+                # worker reads it to stop encoding 60fps for nobody.
+                global _feed_viewer_count
+                _feed_viewer_count = int(data.get("feed_viewers") or 0)
                 modes = data.get("modes") or {}
                 priming = not _mode_seq_seen
 
@@ -3592,9 +3662,26 @@ def _forget_positions():
         state.calibrated_positions.clear()
 
 
+_feed_viewer_count = 1   # optimistic until the first mode poll answers
+
+_last_valid_refresh = 0.0
+
 def _refresh_valid_blink_ids():
-    """Fetch the current blink map and update _valid_blink_ids immediately."""
-    global _valid_blink_ids
+    """Fetch the current blink map and update _valid_blink_ids immediately.
+
+    Rate-limited to one fetch per 1.5s regardless of caller. The detection
+    worker calls this for every result whose id is not in the valid set - and
+    a noise point that repeatedly decodes an unassigned id was triggering a
+    synchronous 0.5s-timeout HTTP GET per detect frame. With a slow or wedged
+    server that took detection from 20fps to ~2fps, below the ~12fps floor
+    the 250ms phases need. The 1s poll loop refreshes the set anyway, so a
+    suppressed call here is stale for at most a moment.
+    """
+    global _valid_blink_ids, _last_valid_refresh
+    now = time.time()
+    if now - _last_valid_refresh < 1.5:
+        return
+    _last_valid_refresh = now
     data = fetch_json("/admin/blink_map")
     if data is None:
         return

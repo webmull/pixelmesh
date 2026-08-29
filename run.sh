@@ -237,7 +237,18 @@ start_all() {
   fi
 
   echo "${Y}→ Starting server...${RESET}"
+  # --ws-per-message-deflate false: uvicorn's default keeps ~163KB of zlib
+  #   state per connection (~41MB at 250 phones) and per-connection deflate on
+  #   every broadcast costs the same order as the dumps-once optimisation
+  #   saves. Show messages are small JSON; the feed socket carries JPEGs that
+  #   do not compress at all.
+  # --ws-max-size 1MB: phone messages are tiny, but the feed ingest socket
+  #   receives ~220KB JPEG frames, so it cannot go lower than that. The 16MB
+  #   default was just an oversized buffering ceiling per socket.
+  # --no-access-log: the controller polls admin routes ~5 req/s all show;
+  #   each poll was a synchronous log write on the event loop.
   $PYTHON -m uvicorn server:app --host 0.0.0.0 --port 8000 \
+    --ws-per-message-deflate false --ws-max-size 1048576 --no-access-log \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
   echo "${Y}→ Starting ngrok (audience tunnel)...${RESET}"
