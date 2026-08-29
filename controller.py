@@ -3462,7 +3462,7 @@ def _detection_worker():
                     if det.blink_id not in _valid_blink_ids:
                         # Phone may have connected since the last poll — refresh immediately
                         # before discarding the decode result.
-                        _refresh_valid_blink_ids()
+                        _refresh_valid_blink_ids(reactive=True)
                     if det.blink_id not in _valid_blink_ids:
                         log.warning(f"[detect] rejected blink_id={det.blink_id} conf={det.confidence:.2f} valid={sorted(_valid_blink_ids)}")
                         detector.clear_id(det.blink_id)
@@ -3666,20 +3666,23 @@ _feed_viewer_count = 1   # optimistic until the first mode poll answers
 
 _last_valid_refresh = 0.0
 
-def _refresh_valid_blink_ids():
+def _refresh_valid_blink_ids(reactive: bool = False):
     """Fetch the current blink map and update _valid_blink_ids immediately.
 
-    Rate-limited to one fetch per 1.5s regardless of caller. The detection
-    worker calls this for every result whose id is not in the valid set - and
-    a noise point that repeatedly decodes an unassigned id was triggering a
-    synchronous 0.5s-timeout HTTP GET per detect frame. With a slow or wedged
-    server that took detection from 20fps to ~2fps, below the ~12fps floor
-    the 250ms phases need. The 1s poll loop refreshes the set anyway, so a
-    suppressed call here is stale for at most a moment.
+    reactive=True is the detection worker's path, and it is rate-limited to
+    one fetch per 1.5s: that caller fires for every result whose id is not in
+    the valid set, so a noise point repeatedly decoding an unassigned id was
+    triggering a synchronous 0.5s-timeout HTTP GET per detect frame - with a
+    slow or wedged server that took detection from 20fps to ~2fps, below the
+    ~12fps floor the 250ms phases need.
+
+    The 1s poll loop calls this un-limited, deliberately: the absence-grace
+    machinery below measures time between consecutive refreshes, and its
+    semantics (and tests) assume the poll cadence is honoured.
     """
     global _valid_blink_ids, _last_valid_refresh
     now = time.time()
-    if now - _last_valid_refresh < 1.5:
+    if reactive and now - _last_valid_refresh < 1.5:
         return
     _last_valid_refresh = now
     data = fetch_json("/admin/blink_map")
