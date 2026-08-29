@@ -81,11 +81,32 @@ stop_all() {
   # ~/Desktop/..., and the windows outlive every attempt to kill them.
   pkill -if "sim_cdp.py $PROFILES/" 2>/dev/null
   pkill -if "user-data-dir=$PROFILES/" 2>/dev/null
+  # pkill's default signal is TERM, which Chrome treats as "shut down
+  # nicely" - and a wedged instance (GPU hang, beachball) ignores it
+  # forever, which is how phones survived a kill that claimed success.
+  # Give the polite signal two seconds to work, then force the rest.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1 || break
+    /bin/sleep 0.2
+  done
+  if pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
+    pkill -9 -if "user-data-dir=$PROFILES/" 2>/dev/null
+    pkill -9 -if "sim_cdp.py $PROFILES/"    2>/dev/null
+    /bin/sleep 0.3
+  fi
 }
 
 if (( KILL )); then
   if pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
     stop_all
+    # Say what actually happened, not what was attempted. The old message
+    # printed "stopped" on the strength of having found something to signal.
+    if pgrep -if "user-data-dir=$PROFILES/" >/dev/null 2>&1; then
+      echo "${R}Some sim phones survived even SIGKILL:${RESET}"
+      pgrep -ifl "user-data-dir=$PROFILES/"
+      echo "${DIM}(a process unkillable by -9 is usually stuck in the kernel; check Activity Monitor)${RESET}"
+      exit 1
+    fi
     echo "${G}Sim phones stopped.${RESET}"
   else
     echo "${DIM}No sim phones running.${RESET}"
