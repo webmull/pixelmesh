@@ -274,5 +274,5 @@ A personal project, built for live events and run at real ones. It is shared bec
 detection approach is worth reading, not because it is a product: no support, no stability
 promise, and opinionated hardware assumptions.
 
-**No licence is set.** Without one, default copyright applies and nobody else may legally use,
-copy or modify this. A licence file needs adding before the repo means anything as open source.
+Licensed under the [MIT Licence](LICENSE) — use it, change it, ship it, just keep the
+copyright notice.
