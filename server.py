@@ -249,6 +249,24 @@ sync_active = False
 detection_started_at: float | None = None
 found_ms: dict[str, int] = {}
 
+# Taken when /admin/end fires, and the reason both exist:
+#
+#   show_roster - who was actually in the show. The closing card is a souvenir
+#     of something you were part of, and the connect handler cannot tell a
+#     returning participant from a stranger who opened the link afterwards
+#     without it. Membership, not found_ms: a phone that was in the room and
+#     never detected has no found_ms either, and those people are precisely who
+#     the em dash on the card was written for.
+#
+#   show_totals - the numbers as they stood at the end. total_connected is
+#     len(blink_assignments), which keeps growing as latecomers connect and are
+#     assigned ids, so the talk deck's closing slide would count upward while it
+#     was on screen. Frozen here, it cannot.
+#
+# Both are cleared when a new run starts, so a second show is a clean slate.
+show_roster: set[str] = set()
+show_totals: dict[str, int | None] = {}
+
 
 # ------------------------------------------------------------------ #
 # Mode control (POST /admin/mode)                                      #
@@ -580,14 +598,22 @@ async def websocket_endpoint(ws: WebSocket):
                         # Detection ended while this phone was disconnected —
                         # send detection_ended so it exits PS.BLINKING cleanly.
                         await ws.send_json({"type": "detection_ended"})
-                elif mode == MODE_ENDED:
-                    # The show is over. show_end is a one-shot broadcast, so a
-                    # phone that dropped and came back - or one that joined
-                    # late - would otherwise sit on a blank idle screen for the
-                    # rest of the night instead of the closing card.
+                elif mode == MODE_ENDED and device_id in show_roster:
+                    # The show is over and this phone was in it. show_end is a
+                    # one-shot broadcast, so a participant that dropped and came
+                    # back would otherwise sit on the waiting screen for the rest
+                    # of the night instead of their closing card.
+                    #
+                    # Gated on the roster, because a stranger opening the link
+                    # afterwards was getting the same card: congratulated for a
+                    # show they were not at, given a phone number they never used
+                    # and an em dash where their time should be. They fall through
+                    # to "Get ready" instead, which is already true for them and
+                    # already correct if the demo runs again.
                     await ws.send_json({
                         "type":            "show_end",
-                        "total_connected": len(blink_assignments),
+                        "total_connected": show_totals.get("total_connected",
+                                                           len(blink_assignments)),
                         "found_ms":        found_ms.get(device_id),
                     })
                 # MODE_WAITING: no message needed — client stays on idle screen
@@ -703,6 +729,11 @@ async def detect(payload: dict):
         # detection again.
         detection_started_at = time.time()
         found_ms.clear()
+        # A second run is a new show: drop the frozen snapshot with the times,
+        # or show_stats would keep serving the previous show's totals and the
+        # closing card would go to the previous show's roster.
+        show_roster.clear()
+        show_totals.clear()
         await set_mode(MODE_DETECTION)
         # Only tell clients who don't yet have a known position to blink;
         # already-found clients get their position re-confirmed (they may have
@@ -836,6 +867,18 @@ async def show_stats():
     at most a few hundred small ints and this is polled every 3s, so it stays
     cheap, but the claim above was worth correcting rather than leaving to rot.
     """
+    # Once the show has ended these are settled facts, and the deck's closing
+    # slide reads them while it is on screen. Serving them live would let a
+    # latecomer's connection tick the count up under an audience.
+    if show_totals:
+        return {**show_totals,
+                "connected_now": len(connections),
+                "spectators":    len(spectators),
+                "detecting":     detection_active,
+                "effect":        (current_effect_state or {}).get("effect"),
+                "effect_started": (current_effect_state or {}).get("start_time"),
+                "server_stale":  server_is_stale()}
+
     _t = sorted(found_ms.values())
     return {
         # Session totals. Cumulative - these only ever go up within a run.
@@ -1121,6 +1164,8 @@ async def reset():
     sync_stats.clear()
     positions.clear()
     found_ms.clear()
+    show_roster.clear()
+    show_totals.clear()
     # Deliberately does NOT clear mode_requests.  Those seq counters are the
     # controller's "have I applied this yet?" cursor, and it holds its own copy
     # in memory.  Zeroing them here would leave the controller's cursor ahead
@@ -1227,6 +1272,21 @@ async def end_show(request: Request):
     # would hand every phone somebody else's time - the same reason the rest of
     # this payload carries no identifiers.
     total = len(blink_assignments)
+
+    # Freeze before the broadcast, so anyone connecting mid-fan-out is already
+    # measured against the finished show rather than a moving one.
+    global show_roster, show_totals
+    show_roster = set(blink_assignments)
+    _t = sorted(found_ms.values())
+    show_totals = {
+        "like_count":       like_count,
+        "total_connected":  total,
+        "detected":         len(positions),
+        "found_fastest_ms": _t[0]            if _t else None,
+        "found_median_ms":  _t[len(_t) // 2] if _t else None,
+        "found_slowest_ms": _t[-1]           if _t else None,
+    }
+
     for device_id, ws in list(connections.items()):
         await _timed_send_json(ws, {
             "type":            "show_end",

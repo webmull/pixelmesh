@@ -282,7 +282,7 @@ class TestReconnect:
         import inspect
         srv = fresh_server()
         src = inspect.getsource(srv)
-        block = src[src.index("elif mode == MODE_ENDED:"):]
+        block = src[src.index("elif mode == MODE_ENDED"):]
         block = block[:block.index("MODE_WAITING")]
         assert "total_connected" in block
 
@@ -340,3 +340,55 @@ class TestAccess:
             end(srv, Tunnelled())
         assert srv.current_effect_state is not None
         assert srv.mode != srv.MODE_ENDED
+
+
+# ------------------------------------------------------------------ #
+# Who the closing card belongs to
+# ------------------------------------------------------------------ #
+
+class TestRoster:
+    """The card is a souvenir of something you were part of. Somebody opening
+    the link after the show was getting congratulated for it, handed a phone
+    number they never used, and counted into the room total - which the deck's
+    closing slide reads while it is on screen."""
+
+    def test_the_ended_branch_is_gated_on_the_roster(self):
+        import inspect
+        srv = fresh_server()
+        block = inspect.getsource(srv)
+        block = block[block.index("Sync current mode / effect"):]
+        block = block[:block.index("MODE_WAITING")]
+        assert "show_roster" in block, "a stranger still gets the closing card"
+
+    def test_ending_the_show_freezes_the_roster_and_the_totals(self):
+        srv = fresh_server()
+        srv.blink_assignments.update({"was-there": 1, "also-there": 2})
+        srv.found_ms.update({"was-there": 10_300, "also-there": 47_000})
+        srv.positions.update({"was-there": {"u": .1, "v": .2}})
+        asyncio.run(srv.end_show(_LocalReq()))
+        assert srv.show_roster == {"was-there", "also-there"}
+        assert srv.show_totals["total_connected"] == 2
+        assert srv.show_totals["found_fastest_ms"] == 10_300
+        assert srv.show_totals["found_slowest_ms"] == 47_000
+
+    def test_a_latecomer_cannot_move_the_numbers(self):
+        """The failure this exists to stop: the closing slide counting upward
+        under an audience as people wander in afterwards."""
+        srv = fresh_server()
+        srv.blink_assignments.update({"was-there": 1})
+        srv.found_ms.update({"was-there": 10_300})
+        asyncio.run(srv.end_show(_LocalReq()))
+        before = asyncio.run(srv.show_stats())["total_connected"]
+        srv.blink_assignments["turned-up-late"] = 2      # what a fresh hello does
+        after = asyncio.run(srv.show_stats())["total_connected"]
+        assert before == after == 1
+        assert "turned-up-late" not in srv.show_roster
+
+    def test_a_new_run_clears_the_snapshot(self):
+        srv = fresh_server()
+        srv.blink_assignments.update({"first-show": 1})
+        asyncio.run(srv.end_show(_LocalReq()))
+        assert srv.show_totals
+        asyncio.run(srv.reset())
+        assert srv.show_roster == set() and srv.show_totals == {}
+        assert asyncio.run(srv.show_stats())["total_connected"] == 1
