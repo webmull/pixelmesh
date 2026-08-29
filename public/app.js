@@ -40,7 +40,12 @@ const knownPositions = {};   // blink_id → {u, v}
 
 const _THUMBS_PATH = "M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z";
 
+let _liveFlyLikes = 0;
 function _spawnFlyLikes() {
+  // Cap the particle population: each tap creates 6 animated nodes, and a
+  // three-finger drum roll was minting hundreds of live animations at once.
+  if (_liveFlyLikes > 12) return;
+  _liveFlyLikes += 6;
   const rect = likeBtn.getBoundingClientRect();
   const cx   = rect.left + rect.width  / 2;
   const cy   = rect.top  + rect.height / 2;
@@ -63,7 +68,7 @@ function _spawnFlyLikes() {
   svg.appendChild(path);
   wrap.appendChild(svg);
   document.body.appendChild(wrap);
-  wrap.addEventListener("animationend", () => wrap.remove());
+  wrap.addEventListener("animationend", () => { wrap.remove(); _liveFlyLikes--; });
 
   // ...escorted by a burst of pixels (the brand's square-dot motif)
   for (let i = 0; i < 5; i++) {
@@ -77,14 +82,25 @@ function _spawnFlyLikes() {
     px.style.setProperty("--dy", (-(70 + Math.random() * 90)) + "px");
     px.style.animationDelay = (Math.random() * 90) + "ms";
     document.body.appendChild(px);
-    px.addEventListener("animationend", () => px.remove());
+    px.addEventListener("animationend", () => { px.remove(); _liveFlyLikes--; });
   }
 }
 
-likeBtn.addEventListener("pointerdown", (e) => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "like_tap" }));
+/* Taps accumulate locally and flush as {"n": count} at 4Hz. One WS message
+   per pointerdown times 250 enthusiastic phones was ~2,000 msg/s through the
+   tunnel during the like moment, all of it to do like_count += 1. Pending taps
+   survive a brief socket blip and go out on the next flush. */
+let _pendingLikes = 0;
+let _lastLikePopTs = 0;
+setInterval(() => {
+  if (_pendingLikes > 0 && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "like_tap", n: Math.min(_pendingLikes, 50) }));
+    _pendingLikes = 0;
   }
+}, 250);
+
+likeBtn.addEventListener("pointerdown", (e) => {
+  _pendingLikes++;
   likeBtn.classList.remove("popped");
   void likeBtn.offsetWidth;
   likeBtn.classList.add("popped");
@@ -170,6 +186,10 @@ function card(name) { return CARDS[name] || _CARD_STUB; }
 
 function setView(name) {
   view = name;
+  if (name === "effects") {
+    projCanvas.style.display = "none";   // was rewritten 60x/s inside the loop
+    _lastEffectBg = "";                  // force first paint on re-entry
+  }
   const active = VIEW_CARD[name];
   for (const [k, el] of Object.entries(CARDS)) {
     // Skip a card the page does not have. app.html is cached separately from
@@ -182,6 +202,13 @@ function setView(name) {
     if (!el) continue;
     el.style.display = k === active ? CARD_DISPLAY[k] : "none";
   }
+  // Views without a render loop still need their card left in a known state:
+  // the blink card holds black (the loop used to repaint this every frame).
+  if (active === "blink" && !RAF_VIEWS.has(name)) {
+    const bc = card("blink");
+    if (bc) bc.style.background = "#000";
+  }
+  ensureRenderLoop();
   // Connection chrome only where it can't pollute the show. Before the
   // first-ever connect the idle card also carries it, so a fresh load
   // reads as "connecting" rather than a blank screen.
@@ -446,20 +473,27 @@ let preSyncOffset = (_deviceSeed(deviceId) / 0xffffffff) * DESYNC_RANGE_MS;
 let synced = false;   // true once we have at least one good clock sample
 
 // ---- Adaptive clock sync ----
-const SYNC_INTERVAL_MS  = 5000;   // ping every 5s while sync is active
+const SYNC_INTERVAL_MS      = 5000;   // fast ramp while converging
+const SYNC_INTERVAL_SLOW_MS = 30000;  // steady state after convergence
 const SYNC_BUFFER_SIZE  = 8;      // keep last N samples
 const SYNC_EMA_ALPHA    = 0.25;   // smoothing factor toward new best estimate
 let syncTimer           = null;
+let syncSlow            = false;
+let syncPongCount       = 0;
+let lastSyncPingTs      = 0;
 let syncSamples         = [];     // [{rtt, offset}, ...]
 
 function startSync() {
   if (syncTimer) return;
+  syncSlow = false;
+  syncPongCount = 0;
   _sendSyncPing();
   syncTimer = setInterval(_sendSyncPing, SYNC_INTERVAL_MS);
 }
 
 function stopSync() {
   if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  syncSlow      = false;
   syncSamples   = [];
   clockOffset   = 0;
   synced        = false;
@@ -467,6 +501,7 @@ function stopSync() {
 }
 
 function _sendSyncPing() {
+  lastSyncPingTs = Date.now();
   if (ws && ws.readyState === WebSocket.OPEN)
     ws.send(JSON.stringify({ type: "sync_ping", client_time: Date.now() }));
 }
@@ -475,8 +510,10 @@ function _sendSyncPing() {
 // Wake lock
 // ------------------------------------------------------------------ //
 
+let showOver = false;
 async function requestWakeLock() {
   try {
+    if (showOver) return;   // closing card: let the screen sleep on its own
     if ("wakeLock" in navigator && (!wakeLock || wakeLock.released)) {
       wakeLock = await navigator.wakeLock.request("screen");
     }
@@ -517,6 +554,10 @@ function serverNow() {
 function startHeartbeat() {
   if (heartbeatTimer) clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
+    // sync_ping already refreshes last_seen server-side, and the reaper
+    // threshold is 90s - a separate ping while sync is active is pure
+    // duplicate traffic.
+    if (syncTimer && Date.now() - lastSyncPingTs < 60000) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "ping" }));
     }
@@ -533,10 +574,14 @@ function startHeartbeat() {
    independent chains all reconnecting on their own backoff. */
 function scheduleReconnect() {
   if (reconnectTimer) return;
+  // Jittered: a venue wifi blip disconnects every phone in the same few ms,
+  // and without the random factor all 250 retried in lockstep waves - 250
+  // simultaneous TLS handshakes per wave through one tunnel, each wave likely
+  // to fail and re-synchronise the next.
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
     connect();
-  }, reconnectDelay);
+  }, reconnectDelay * (0.5 + Math.random()));
   reconnectDelay = Math.min(reconnectDelay * 1.5, 5000);
 }
 
@@ -637,13 +682,18 @@ function connect() {
       // its probe rejoins automatically and identity survives in
       // localStorage, so an early handover costs nothing. A timer
       // (not an onclose check) so backoff gaps can't stretch the wait.
+      // 8-15s, jittered. At a fixed 8s every phone in the room reloaded
+      // within the same ~50ms of an outage: 250 TLS handshakes plus 250
+      // no-store HTML fetches (~9MB) in one burst, against a server that had
+      // just come back. The spread costs any one phone at most 7 extra
+      // seconds on a holding page that auto-rejoins.
       reloadTimer = setTimeout(() => {
         // CONNECTING is a live handshake (watchdog-bounded), not stuck;
         // the liveness interval backstops if it dies.
         if (ws && (ws.readyState === WebSocket.OPEN ||
                    ws.readyState === WebSocket.CONNECTING)) return;
-        commitReload("8s handover deadline");
-      }, 8000);
+        commitReload("handover deadline");
+      }, 8000 + Math.random() * 7000);
     }
     scheduleReconnect();
   };
@@ -663,7 +713,21 @@ function goBlack() {
 function handleMessage(msg) {
   if (msg.type === "show_end") {
     foundMs = (typeof msg.found_ms === "number") ? msg.found_ms : null;
+    // The crowd map now arrives here instead of on every hello - the end
+    // card's room map is its only reader.
+    if (msg.positions) {
+      for (const [bid, pos] of Object.entries(msg.positions)) {
+        knownPositions[parseInt(bid, 10)] = { u: pos.u, v: pos.v };
+      }
+    }
     showEndCard(msg.total_connected || 0);
+    // The show is over: stop the clock sync and the heartbeat, and let the
+    // wake lock lapse shortly. 250 phones carried to the bar on the closing
+    // card were still pinging the server and holding their screens awake.
+    stopSync();
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    showOver = true;
+    setTimeout(() => { try { wakeLock && wakeLock.release(); } catch {} }, 120000);
     return;
   }
 
@@ -730,8 +794,22 @@ function handleMessage(msg) {
     const best = syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
     clockOffset = clockOffset * (1 - SYNC_EMA_ALPHA) + best.offset * SYNC_EMA_ALPHA;
     synced = true;
-    // Report stats back so the controller can display them
-    if (ws && ws.readyState === WebSocket.OPEN) {
+    syncPongCount++;
+    // Back off once converged. The EMA is stable after ~6 samples and phone
+    // clocks drift on the order of ms/minute; pinging every 5s for the whole
+    // show kept 250 LTE radios out of idle for nothing. The fast ramp restarts
+    // with the next sync_start.
+    if (!syncSlow && syncPongCount >= 6 && syncTimer) {
+      clearInterval(syncTimer);
+      syncTimer = setInterval(_sendSyncPing, SYNC_INTERVAL_SLOW_MS);
+      syncSlow  = true;
+    }
+    // Report stats back so the controller can display them - but sampled.
+    // This is pure operator telemetry (it feeds a dashboard table and nothing
+    // in the show), and it was a third of all steady-state traffic: every ping
+    // from every phone earned a report. Send during the ramp, then every 6th.
+    if ((syncPongCount <= SYNC_BUFFER_SIZE || syncPongCount % 6 === 0) &&
+        ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type:    "sync_report",
         rtt:     Math.round(best.rtt),
@@ -835,9 +913,17 @@ function handleMessage(msg) {
 
   if (msg.type === "like_count") {
     likeCount.textContent = msg.count === 1 ? "1 like" : `${msg.count} likes`;
-    likeCount.classList.remove("count-pop");
-    void likeCount.offsetWidth;
-    likeCount.classList.add("count-pop");
+    // The pop restart needs a forced reflow (void offsetWidth), which lands on
+    // top of a full-screen effect repainting - and the server coalesces this
+    // message to 3.3/s, so during a like storm the bounce retriggered before
+    // it finished anyway. Update the number every time, bounce at most ~2/s.
+    const now = Date.now();
+    if (now - _lastLikePopTs > 400) {
+      _lastLikePopTs = now;
+      likeCount.classList.remove("count-pop");
+      void likeCount.offsetWidth;
+      likeCount.classList.add("count-pop");
+    }
     return;
   }
 
@@ -871,14 +957,26 @@ function handleMessage(msg) {
 
   if (msg.type === "race_progress") {
     if (!raceActive) return;
-    const positions = msg.positions || {};
-    const mine = positions[String(myBlinkId)] ?? 0;
-    let leader = 0;
-    let rank   = 1;
-    for (const [bid, v] of Object.entries(positions)) {
-      if (v > leader) leader = v;
-      // Strict greater-than for rank so ties share the same place.
-      if (parseInt(bid, 10) !== myBlinkId && v > mine) rank++;
+    let mine, leader, rank;
+    if (typeof msg.mine === "number") {
+      // Slim per-phone form: the server sends exactly the three numbers this
+      // card renders, instead of the whole roster (3KB at 250 runners, 10Hz).
+      mine   = msg.mine;
+      leader = msg.leader ?? mine;
+      rank   = msg.rank ?? 1;
+      if (typeof msg.n === "number" && msg.n > 0) raceRosterSize = msg.n;
+    } else {
+      // Legacy full-roster form, kept so a cached client and an old server
+      // stay mutually intelligible.
+      const positions = msg.positions || {};
+      mine = positions[String(myBlinkId)] ?? 0;
+      leader = 0;
+      rank   = 1;
+      for (const [bid, v] of Object.entries(positions)) {
+        if (v > leader) leader = v;
+        // Strict greater-than for rank so ties share the same place.
+        if (parseInt(bid, 10) !== myBlinkId && v > mine) rank++;
+      }
     }
     if (raceBarMine)   raceBarMine.style.width   = (mine   * 100).toFixed(1) + "%";
     if (raceBarLeader) raceBarLeader.style.width = (leader * 100).toFixed(1) + "%";
@@ -1220,7 +1318,12 @@ function showEndCard(total) {
   currentEffect = null;          // nothing should still be painting behind it
   setView("ended");
   _drawEndMap();
-  _prepareShare();
+  // Deferred a beat: composing the 1080x1440 share PNG is ~40 canvas ops plus
+  // a toBlob encode, and one broadcast triggers it on every phone in the same
+  // frame as the card's entrance animation. No share tap can land this fast -
+  // the iOS gesture rule only needs the file ready BEFORE the tap, not
+  // synchronously with the card.
+  setTimeout(_prepareShare, 400);
 }
 
 // ------------------------------------------------------------------ //
@@ -1588,20 +1691,46 @@ function hslToRgb(h, s, l) {
 // Render loop
 // ------------------------------------------------------------------ //
 
+/* The loop only runs while a view actually needs per-frame painting. It used
+   to re-arm unconditionally: 60 wakeups/s on every phone for the whole show,
+   including phones sitting on the waiting card or the closing card, purely to
+   repaint the same black. setView() re-arms it on entry to a live view, and it
+   parks itself the frame after the view stops needing it. */
+const RAF_VIEWS = new Set(["blinking", "missed", "effects"]);
+let rafActive = false;
+let _lastEffectBg = "";
+
+function ensureRenderLoop() {
+  if (rafActive) return;
+  rafActive = true;
+  requestAnimationFrame(renderLoop);
+}
+
 function renderLoop() {
+  if (!RAF_VIEWS.has(view)) {
+    rafActive = false;   // parked; setView paints the static card and re-arms
+    return;
+  }
   updateBlink();
 
   if (view === "effects") {
-    projCanvas.style.display = "none";
+    let bg;
     if (!currentEffect || !calibrated) {
       // No active effect (e.g. operator armed ripple → effect_stop) or
       // pre-calibration: hold black so the previous frame's colour
       // doesn't linger on screen.
-      card("effects").style.background = "#000";
+      bg = "#000";
     } else {
       const t = (serverNow() - effectStartTime) / 1000;
       const [r, g, b] = shade(myU, myV, t);
-      card("effects").style.background = `rgb(${r},${g},${b})`;
+      // Rounded, then compared to the last frame: unrounded floats made every
+      // frame's rgb() string unique, forcing a full-viewport repaint at 60fps
+      // even when the effect was visually static.
+      bg = `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+    }
+    if (bg !== _lastEffectBg) {
+      card("effects").style.background = bg;
+      _lastEffectBg = bg;
     }
   }
 
@@ -1612,13 +1741,20 @@ function renderLoop() {
 // Resize
 // ------------------------------------------------------------------ //
 
+let _lastW = 0, _lastH = 0;
 function resize() {
   const w = window.innerWidth;
   const h = window.innerHeight;
-  projCanvas.width    = w;
-  projCanvas.height   = h;
-  effectCanvas.width  = w;
-  effectCanvas.height = h;
+  // Setting a canvas's width/height reallocates and clears its backing store
+  // even when the value is unchanged - and iOS fires resize continuously as
+  // the URL bar collapses. Skip the no-ops.
+  if (w !== _lastW || h !== _lastH) {
+    _lastW = w; _lastH = h;
+    projCanvas.width    = w;
+    projCanvas.height   = h;
+    effectCanvas.width  = w;
+    effectCanvas.height = h;
+  }
   const vh = h * 0.01;
   document.documentElement.style.setProperty("--vh", `${vh}px`);
 }
@@ -1633,5 +1769,5 @@ resize();
 
 setView("idle");
 connect();
-renderLoop();
+ensureRenderLoop();
 requestWakeLock();

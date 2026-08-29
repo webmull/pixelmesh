@@ -47,6 +47,8 @@ _connections       = None
 _positions         = None
 _blink_assignments = None
 _broadcast         = None
+_broadcast_spectators = None
+_send_safe            = None
 _enable_sync       = None
 _stop_effects      = None
 _start_effect      = None
@@ -60,9 +62,13 @@ _ui_queue         = None    # controller's DPG queue — poll worker routes UI o
 
 
 def server_init(blink_to_device, connections, positions, blink_assignments,
-                broadcast, enable_sync, stop_effects, start_effect=None):
+                broadcast, enable_sync, stop_effects, start_effect=None,
+                broadcast_spectators=None, send_safe=None):
     global _blink_to_device, _connections, _positions, _blink_assignments
     global _broadcast, _enable_sync, _stop_effects, _start_effect
+    global _broadcast_spectators, _send_safe
+    _broadcast_spectators = broadcast_spectators
+    _send_safe            = send_safe
     _blink_to_device   = blink_to_device
     _connections       = connections
     _positions         = positions
@@ -226,12 +232,43 @@ async def _race_progress_loop():
             if _broadcast:
                 positions = {str(b): round(p, 4) for b, p in race_positions.items()}
                 # Skip fan-out to every phone when nothing moved this tick.
-                # (Serialization is already done once per broadcast, not per
-                # client, in server.broadcast.)
                 if positions == last_sent:
                     continue
                 last_sent = positions
-                await _broadcast({"type": "race_progress", "positions": positions})
+                if _broadcast_spectators is None or _send_safe is None:
+                    # Legacy path: full roster to everyone.
+                    await _broadcast({"type": "race_progress", "positions": positions})
+                    continue
+                # The stage renders every runner, so it gets the roster. A phone
+                # renders exactly three numbers — its bar, the leader's bar and
+                # its rank — so it gets exactly three numbers. At 250 runners the
+                # old full-roster broadcast was 3KB × 250 phones × 10Hz, about
+                # 60Mbit/s through one tunnel; the slim form is ~50B per phone
+                # regardless of roster size.
+                await _broadcast_spectators(
+                    {"type": "race_progress", "positions": positions})
+                vals = sorted(race_positions.values(), reverse=True)
+                leader = round(vals[0], 4) if vals else 0.0
+                # Rank with ties sharing a place: 1 + how many are strictly ahead.
+                # Matches the arithmetic the client used to do over the roster.
+                rank_of: dict[float, int] = {}
+                for i, v in enumerate(vals):
+                    rank_of.setdefault(v, i + 1)
+                n_r = len(race_positions)
+                sends = []
+                for bid, prog in race_positions.items():
+                    dev = _blink_to_device(bid)
+                    ws = _connections.get(dev) if dev else None
+                    if ws:
+                        sends.append(_send_safe(ws, {
+                            "type":   "race_progress",
+                            "mine":   round(prog, 4),
+                            "leader": leader,
+                            "rank":   rank_of[prog],
+                            "n":      n_r,
+                        }))
+                if sends:
+                    await asyncio.gather(*sends)
     except asyncio.CancelledError:
         pass
 

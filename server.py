@@ -395,6 +395,21 @@ async def broadcast(message: dict):
             asyncio.create_task(_close_quietly(ws))
 
 
+async def broadcast_spectators(message: dict):
+    """Fan out to spectators only (the stage page). The race loop uses this for
+    the full-roster leaderboard, which only the stage actually renders — phones
+    get a three-number unicast instead of 3KB of everyone else's progress."""
+    text = json.dumps(message, separators=(",", ":"))
+    specs = list(spectators.items())
+    if not specs:
+        return
+    sent_ok = await asyncio.gather(*(_timed_send(ws, text) for _, ws in specs))
+    for (sid, ws), ok in zip(specs, sent_ok):
+        if not ok:
+            spectators.pop(sid, None)
+            asyncio.create_task(_close_quietly(ws))
+
+
 async def set_mode(new_mode: str):
     global mode
     mode = new_mode
@@ -417,6 +432,8 @@ async def _stop_effects():
 
 game.server_init(
     blink_to_device   = lambda bid: blink_reverse.get(bid),
+    broadcast_spectators = broadcast_spectators,
+    send_safe            = _timed_send_json,
     connections       = connections,
     positions         = positions,
     blink_assignments = blink_assignments,
