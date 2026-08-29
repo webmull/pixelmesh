@@ -15,15 +15,26 @@ const spectatorId = "stage-" + Math.random().toString(36).slice(2, 10);
 let ws = null;
 const connBadge = document.getElementById("conn");
 
+let _retryDelay = 1500;
+let _retryTimer = null;
+function _scheduleConnect() {
+  // Single timer so onerror→onclose can't stack two chains; backoff to 10s
+  // with jitter so a stuck server sees a slow trickle, not a metronome.
+  if (_retryTimer) return;
+  _retryTimer = setTimeout(() => { _retryTimer = null; connect(); },
+                           _retryDelay * (0.5 + Math.random()));
+  _retryDelay = Math.min(_retryDelay * 1.5, 10000);
+}
 function connect() {
   try { ws = new WebSocket(wsUrl); }
-  catch (e) { setTimeout(connect, 1500); return; }
+  catch (e) { _scheduleConnect(); return; }
   ws.onopen    = () => {
+    _retryDelay = 1500;
     connBadge.classList.remove("show");
     ws.send(JSON.stringify({ type: "hello", role: "spectator", device_id: spectatorId }));
   };
   ws.onmessage = ev => { try { handleMessage(JSON.parse(ev.data)); } catch (e) {} };
-  ws.onclose   = () => { connBadge.classList.add("show"); setTimeout(connect, 1500); };
+  ws.onclose   = () => { connBadge.classList.add("show"); _scheduleConnect(); };
   ws.onerror   = () => { try { ws.close(); } catch (e) {} };
 }
 connect();
@@ -71,8 +82,8 @@ function handleMessage(msg) {
   }
   if (msg.type === "race_start") {
     game.active  = true;
-    game.race.runners = (msg.blink_ids || []).map(bid => ({
-      blink_id: bid, pos: 0, draw: 0,
+    game.race.runners = (msg.blink_ids || []).map((bid, i) => ({
+      blink_id: bid, pos: 0, draw: 0, lane: i,
     }));
     game.race.winner   = null;
     game.race.winnerAt = 0;
@@ -139,16 +150,22 @@ function ss(v) { return v * drawScale; }
 // Background
 // ------------------------------------------------------------------ //
 
+let _bgGrad = null, _bgGradKey = "";
 function drawBackground(t) {
   // Letterbox black borders
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  // Scene gradient sky
-  const grad = ctx.createLinearGradient(0, offY, 0, offY + drawH);
-  grad.addColorStop(0,    "#0a0e18");
-  grad.addColorStop(0.55, "#101626");
-  grad.addColorStop(1,    "#1a1310");
-  ctx.fillStyle = grad;
+  // Scene gradient sky - cached per layout; a fresh createLinearGradient
+  // every frame was a needless allocation 60 times a second, all day.
+  const gradKey = offY + "|" + drawH;
+  if (_bgGradKey !== gradKey) {
+    _bgGrad = ctx.createLinearGradient(0, offY, 0, offY + drawH);
+    _bgGrad.addColorStop(0,    "#0a0e18");
+    _bgGrad.addColorStop(0.55, "#101626");
+    _bgGrad.addColorStop(1,    "#1a1310");
+    _bgGradKey = gradKey;
+  }
+  ctx.fillStyle = _bgGrad;
   ctx.fillRect(offX, offY, drawW, drawH);
   // Subtle starfield twinkle — fixed positions, alpha oscillates
   ctx.fillStyle = "rgba(255,255,255,0.7)";
@@ -245,22 +262,38 @@ function _maybeEmitConfetti(dt) {
 }
 
 function updateConfetti(dt) {
-  for (const p of game.confetti) {
+  // Compact in place with a write index - .filter() allocated a fresh array
+  // of up to 1200 entries every frame for the lifetime of the burst.
+  const arr = game.confetti;
+  let w = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const p = arr[i];
     p.life += dt;
+    if (p.life >= p.maxLife) continue;
     p.vx += p.ax * dt;
     p.vy += p.ay * dt;
     p.x  += p.vx * dt;
     p.y  += p.vy * dt;
+    arr[w++] = p;
   }
-  game.confetti = game.confetti.filter(p => p.life < p.maxLife);
+  arr.length = w;
 }
 
 function drawConfetti() {
+  // Bucketed by colour so fillStyle - a parse + state change - is set once
+  // per colour instead of once per particle (up to 1200/frame).
+  const buckets = new Map();
   for (const p of game.confetti) {
-    const lifeFrac = p.life / p.maxLife;
-    ctx.globalAlpha = Math.max(0, 1 - lifeFrac);
-    ctx.fillStyle = p.color;
-    ctx.fillRect(sx(p.x), sy(p.y), ss(p.size), ss(p.size));
+    let b = buckets.get(p.color);
+    if (!b) { b = []; buckets.set(p.color, b); }
+    b.push(p);
+  }
+  for (const [color, ps] of buckets) {
+    ctx.fillStyle = color;
+    for (const p of ps) {
+      ctx.globalAlpha = Math.max(0, 1 - p.life / p.maxLife);
+      ctx.fillRect(sx(p.x), sy(p.y), ss(p.size), ss(p.size));
+    }
   }
   ctx.globalAlpha = 1;
 }
@@ -399,8 +432,9 @@ function drawRaceTrack(t) {
   const sorted = [...game.race.runners].sort((a, b) => a.draw - b.draw);
   for (let i = 0; i < sorted.length; i++) {
     const r = sorted[i];
-    const lane = game.race.runners.findIndex(rr => rr.blink_id === r.blink_id);
-    const laneY = trackY0 + (lane + 0.5) * laneH;
+    // Lane is fixed at roster build. The findIndex that used to live here was
+    // O(N) per runner per frame - 3.75M comparisons/s at 250 runners, 60fps.
+    const laneY = trackY0 + (r.lane + 0.5) * laneH;
     const xScene = trackX0 + r.draw * trackW;
     const cx = sx(xScene);
     const cy = sy(laneY);
@@ -496,6 +530,13 @@ function frame(now) {
   drawRaceWinnerBanner(now);
   if (game.confetti.length) drawConfetti();
 
-  requestAnimationFrame(frame);
+  // Idle throttle: with no race, no confetti and no winner banner the scene is
+  // a waiting card plus a slow starfield twinkle. Redrawing the full 8Mpx
+  // canvas at 60fps for that was ~1Gpx/s of fill, all day; 10fps keeps the
+  // twinkle alive at a sixth of the cost, and the next race_start message
+  // lands mid-tick and is picked up within 100ms.
+  const idle = !game.active && !game.confetti.length && game.race.winner == null;
+  if (idle) setTimeout(() => requestAnimationFrame(frame), 100);
+  else      requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
