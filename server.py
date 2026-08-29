@@ -24,6 +24,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
@@ -170,7 +171,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(GZipMiddleware, minimum_size=500)
+# compresslevel 6, not the default 9: measured on app.js, level 9 costs 3.10ms
+# against 1.81ms for a 0.2% smaller payload. During a 250-phone join stampede
+# that difference is ~0.5s of event-loop blocking for nothing.
+app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
 app.add_middleware(AdminTokenMiddleware)
 app.add_middleware(BlockBotsMiddleware)
 app.mount("/public", NoCacheStaticFiles(directory=_PUBLIC_DIR), name="public")
@@ -231,7 +235,6 @@ current_effect_state: dict | None = None
 like_count: int    = 0
 like_enabled: bool = True
 _heart_dirty: bool  = False   # pending broadcast from tap accumulation
-_count_dirty: bool  = False   # pending crowd_count broadcast (debounced join/leave)
 
 
 # Whether the controller has actively started detection (distinct from mode).
@@ -329,7 +332,6 @@ def blink_to_device(blink_id: int) -> str | None:
     return blink_reverse.get(blink_id)
 
 
-_broadcasting_count = False
 
 
 async def _close_quietly(ws):
@@ -356,7 +358,6 @@ async def _timed_send_json(ws, obj: dict) -> bool:
 
 
 async def broadcast(message: dict):
-    global _broadcasting_count
     # Serialize once, not once per client.  send_json re-ran json.dumps for every
     # socket (~16 ms/broadcast at 300 phones); send_text reuses the same bytes.
     text = json.dumps(message, separators=(",", ":"))
@@ -374,31 +375,24 @@ async def broadcast(message: dict):
     # TCP-wise, so close it in the background: the phone's onclose fires and
     # it reconnects, instead of listening forever on a socket the server no
     # longer tracks.
+    # One gather for phones AND spectators. Two sequential gathers made the
+    # stage projector wait for the slowest of 250 phones (or its 1s timeout)
+    # before the frame it renders was even sent — a visible stutter on the one
+    # screen the whole room is looking at, ten times a second during a race.
     conns = list(connections.items())
-    sent_ok = await asyncio.gather(*(_timed_send(ws, text) for _, ws in conns))
-    dead = []
-    for (device_id, ws), ok in zip(conns, sent_ok):
+    specs = list(spectators.items())
+    results = await asyncio.gather(
+        *(_timed_send(ws, text) for _, ws in conns),
+        *(_timed_send(ws, text) for _, ws in specs),
+    )
+    for (device_id, ws), ok in zip(conns, results[:len(conns)]):
         if not ok:
-            dead.append(device_id)
             _drop_connection(device_id)
             asyncio.create_task(_close_quietly(ws))
-    # Same payload goes to spectators (stage page, future read-only viewers).
-    # Failures just drop them — they reconnect on their own.
-    specs = list(spectators.items())
-    spec_ok = await asyncio.gather(*(_timed_send(ws, text) for _, ws in specs))
-    for (sid, ws), ok in zip(specs, spec_ok):
+    for (sid, ws), ok in zip(specs, results[len(conns):]):
         if not ok:
             spectators.pop(sid, None)
             asyncio.create_task(_close_quietly(ws))
-    # Guard against re-entry: broadcast_count → broadcast → broadcast_count
-    # loops once if more sockets die mid-flight.  The flag lets a single
-    # follow-up pass clean up, then bails so we never recurse indefinitely.
-    if dead and not _broadcasting_count:
-        _broadcasting_count = True
-        try:
-            await broadcast_count()
-        finally:
-            _broadcasting_count = False
 
 
 async def set_mode(new_mode: str):
@@ -407,8 +401,7 @@ async def set_mode(new_mode: str):
     await broadcast({"type": "mode", "mode": mode})
 
 
-async def broadcast_count():
-    await broadcast({"type": "crowd_count", "count": len(connections)})
+
 
 
 async def _enable_sync():
@@ -449,21 +442,19 @@ def _drop_connection(device_id: str):
 
 async def cleanup_device(device_id: str):
     """Full teardown — used by the reaper for permanently gone devices."""
-    global _count_dirty
     ws = connections.pop(device_id, None)
     last_seen.pop(device_id, None)
     bid = blink_assignments.pop(device_id, None)
     if bid is not None:
         blink_reverse.pop(bid, None)
         bisect.insort(available_blinks, bid)
-    _count_dirty = True   # debounced — reaper can drop many at once
     positions.pop(device_id, None)
     sync_stats.pop(device_id, None)
     if ws:
-        try:
-            await ws.close()
-        except Exception:
-            pass
+        # create_task(_close_quietly), never a bare await: a half-open socket
+        # can block close() indefinitely, and this runs inside the reaper's
+        # sweep loop — one wedged phone would stall reaping for the whole show.
+        asyncio.create_task(_close_quietly(ws))
 
 
 # ------------------------------------------------------------------ #
@@ -474,22 +465,18 @@ async def heart_broadcast_loop():
     """Batch heart + crowd-count broadcasts — a few per second regardless of tap
     or join/leave rate.  The try/except means a stray broadcast error (e.g. a
     socket dying mid-send) can never terminate this long-lived task."""
-    global _heart_dirty, _count_dirty
+    global _heart_dirty
     while True:
         await asyncio.sleep(0.3)
         try:
             if _heart_dirty:
                 _heart_dirty = False
                 await broadcast({"type": "like_count", "count": like_count})
-            if _count_dirty:
-                _count_dirty = False
-                await broadcast_count()
         except Exception as e:
             print(f"[heart] broadcast loop error: {e}")
 
 
 async def reap_dead_clients():
-    global _count_dirty
     while True:
         await asyncio.sleep(5)
         try:
@@ -507,7 +494,6 @@ async def reap_dead_clients():
                     # black pixel even though the person hadn't moved seats.
                     print(f"[reaper] closing stale socket {device_id[:8]} (identity kept)")
                     ws = connections.pop(device_id)
-                    _count_dirty = True
                     asyncio.create_task(_close_quietly(ws))
         except Exception as e:
             print(f"[reaper] loop error: {e}")
@@ -519,7 +505,7 @@ async def reap_dead_clients():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
-    global like_count, _heart_dirty, _count_dirty
+    global like_count, _heart_dirty
     await ws.accept()
     device_id = None
     is_spectator = False
@@ -577,8 +563,6 @@ async def websocket_endpoint(ws: WebSocket):
                     "calibrated": known_pos is not None,
                 })
 
-                _count_dirty = True   # debounced fan-out; new client sees it below
-                await ws.send_json({"type": "crowd_count", "count": len(connections)})
                 await ws.send_json({"type": "like_count", "count": like_count})
 
                 # Sync current mode / effect so reconnecting clients aren't lost
@@ -615,20 +599,15 @@ async def websocket_endpoint(ws: WebSocket):
                         "total_connected": show_totals.get("total_connected",
                                                            len(blink_assignments)),
                         "found_ms":        found_ms.get(device_id),
+                        "positions":       {blink_assignments[dev]: pos
+                                            for dev, pos in positions.items()
+                                            if dev in blink_assignments},
                     })
                 # MODE_WAITING: no message needed — client stays on idle screen
 
                 if sync_active:
                     await ws.send_json({"type": "sync_start"})
 
-                # Send current crowd map so late-joining phones see existing positions
-                crowd_map = {
-                    blink_assignments[dev]: {"u": p["u"], "v": p["v"]}
-                    for dev, p in positions.items()
-                    if dev in blink_assignments
-                }
-                if crowd_map:
-                    await ws.send_json({"type": "crowd_map", "positions": crowd_map})
 
             elif data.get("type") == "sync_ping":
                 if device_id:
@@ -652,7 +631,15 @@ async def websocket_endpoint(ws: WebSocket):
                 if device_id:
                     last_seen[device_id] = time.time()
                 if like_enabled:
-                    like_count += 1
+                    # The client batches taps into {"n": count} flushed at 4Hz,
+                    # which turned ~2,000 msg/s of pointerdown spam at 250
+                    # enthusiastic phones into ~1,000 msg over the whole like
+                    # moment. n is clamped so a modified client cannot mint
+                    # thousands of likes in one frame.
+                    n_taps = data.get("n", 1)
+                    if not isinstance(n_taps, int) or n_taps < 1:
+                        n_taps = 1
+                    like_count += min(n_taps, 50)
                     _heart_dirty = True
 
             elif data.get("type") == "game_tap":
@@ -681,7 +668,6 @@ async def websocket_endpoint(ws: WebSocket):
         elif device_id:
             if connections.get(device_id) is ws:
                 _drop_connection(device_id)
-                _count_dirty = True
 
 
 # ------------------------------------------------------------------ #
@@ -755,7 +741,20 @@ async def detect(payload: dict):
              else {"type": "detection_ended"})
             for device_id, ws in list(connections.items())
         ]
-    sent_ok = await asyncio.gather(*(_timed_send_json(ws, m) for _, ws, m in sends))
+    # Serialise each payload once, sharing the constant shapes. Most of these
+    # are the byte-identical detection_started / detection_ended; only
+    # update_position varies per phone.
+    _started = json.dumps({"type": "detection_started"}, separators=(",", ":"))
+    _ended   = json.dumps({"type": "detection_ended"},   separators=(",", ":"))
+    def _text_for(m: dict) -> str:
+        t = m["type"]
+        if t == "detection_started":
+            return _started
+        if t == "detection_ended":
+            return _ended
+        return json.dumps(m, separators=(",", ":"))
+    sent_ok = await asyncio.gather(
+        *(_timed_send(ws, _text_for(m)) for _, ws, m in sends))
     for (device_id, ws, _), ok in zip(sends, sent_ok):
         if not ok:
             _drop_connection(device_id)
@@ -779,6 +778,7 @@ async def update_positions(payload: dict):
     # crowd-map fanout used to broadcast once per phone, which made N×M sends
     # for big audiences. Collect and broadcast once at the end instead.
     located_batch: dict[str, dict] = {}
+    unicasts: list = []   # (device_id, ws, msg) — gathered after the loop
 
     for bid_str, pos in incoming.items():
         blink_id = int(bid_str)
@@ -792,21 +792,34 @@ async def update_positions(payload: dict):
         if device_id not in found_ms and detection_started_at is not None:
             found_ms[device_id] = max(0, int((time.time() - detection_started_at) * 1000))
 
-        positions[device_id] = {"u": pos["u"], "v": pos["v"]}
+        # Rounded at the ingest point so every consumer shrinks at once. u/v are
+        # normalised 0-1; four decimal places is sub-pixel out to 10,000px, and
+        # full float precision made phones_located a 13.6KB message — a 3.4MB
+        # broadcast burst at 250 phones, at the moment the room is busiest.
+        u = round(float(pos["u"]), 4)
+        v = round(float(pos["v"]), 4)
+        positions[device_id] = {"u": u, "v": v}
 
         ws = connections.get(device_id)
         if ws:
-            if not await _timed_send_json(ws, {
-                "type": "update_position",
-                "u":    pos["u"],
-                "v":    pos["v"],
-            }):
+            unicasts.append((device_id, ws,
+                             {"type": "update_position", "u": u, "v": v}))
+
+        located_batch[str(blink_id)] = {"u": u, "v": v}
+
+    # Concurrent, for the same reason as end_show: the controller posts every
+    # position in one call at detection end, and a serial per-phone await let
+    # one stalled socket delay update_position for every phone after it — the
+    # likely root of "phone left blinking" when the controller's own 1s POST
+    # timeout expired while this loop was still grinding.
+    if unicasts:
+        sent_ok = await asyncio.gather(*(_timed_send_json(ws, m) for _, ws, m in unicasts))
+        for (device_id, ws, _), ok in zip(unicasts, sent_ok):
+            if not ok:
                 # Dead or stalled socket — drop it now so the phone reconnects
                 # immediately rather than waiting for TCP keepalive.
                 _drop_connection(device_id)
                 asyncio.create_task(_close_quietly(ws))
-
-        located_batch[str(blink_id)] = {"u": pos["u"], "v": pos["v"]}
 
     if located_batch:
         await broadcast({
@@ -927,6 +940,11 @@ def _mode_snapshot() -> dict:
             for name in MODES
         },
         "supported": list(MODES),
+        # How many humans are actually watching the camera feed (WS viewers
+        # plus MJPEG streams). The controller polls this route every 0.6s
+        # anyway, so the stream worker learns it for free and can stop
+        # JPEG-encoding 60fps for an audience of zero.
+        "feed_viewers": _feed_viewers,
     }
 
 
@@ -1128,17 +1146,29 @@ async def latest_recording(request: Request):
     if not _is_local_request(request):
         raise HTTPException(403, "this route is only served to local clients")
 
-    try:
-        files = [os.path.join(_REC_DIR, f) for f in os.listdir(_REC_DIR)
-                 if f.endswith(".mp4")]
-    except FileNotFoundError:
-        raise HTTPException(404, "no recordings directory")
+    def _pick() -> str | None:
+        # listdir + a stat per file + up to 512KB of reads per candidate:
+        # real filesystem work, so it runs on the threadpool rather than
+        # blocking the event loop that is holding every phone socket.
+        try:
+            files = [os.path.join(_REC_DIR, f) for f in os.listdir(_REC_DIR)
+                     if f.endswith(".mp4")]
+        except FileNotFoundError:
+            return None
+        for path in sorted(files, key=os.path.getmtime, reverse=True):
+            if _is_finalised(path):
+                return path
+        return None
 
-    for path in sorted(files, key=os.path.getmtime, reverse=True):
-        if _is_finalised(path):
-            return FileResponse(path, media_type="video/mp4",
-                                headers={"Cache-Control": "no-store"})
-    raise HTTPException(404, "no finished recordings yet")
+    newest = await run_in_threadpool(_pick)
+    if newest is None:
+        raise HTTPException(404, "no finished recordings yet")
+    # Content-Encoding: identity short-circuits GZipMiddleware, which would
+    # otherwise gzip the whole file on the event loop (video compresses ~0%)
+    # and strip Content-Length, breaking Range for any fetch()-style consumer.
+    return FileResponse(newest, media_type="video/mp4",
+                        headers={"Cache-Control": "no-store",
+                                 "Content-Encoding": "identity"})
 
 
 @app.post("/admin/mode/ack")
@@ -1287,12 +1317,27 @@ async def end_show(request: Request):
         "found_slowest_ms": _t[-1]           if _t else None,
     }
 
-    for device_id, ws in list(connections.items()):
-        await _timed_send_json(ws, {
+    # Concurrent, like broadcast() and /admin/detect — this was the one fan-out
+    # still sending serially, and it is the most visible moment of the show:
+    # every stalled phone (backgrounded iOS, zero-window) added its full 1s
+    # timeout to everyone behind it in dict order, staggering the closing card
+    # across the room and hanging the deck's POST /admin/end for the duration.
+    #
+    # The crowd positions ride along here rather than on every hello: the end
+    # card's room map is the only thing that ever reads them, so sending the
+    # 13KB crowd_map to each of 250 joins all show long paid for one render.
+    crowd = {blink_assignments[dev]: pos
+             for dev, pos in positions.items() if dev in blink_assignments}
+    sends = [
+        (device_id, ws, {
             "type":            "show_end",
             "total_connected": total,
             "found_ms":        found_ms.get(device_id),
+            "positions":       crowd,
         })
+        for device_id, ws in list(connections.items())
+    ]
+    await asyncio.gather(*(_timed_send_json(ws, m) for _, ws, m in sends))
     print(f"[end] show ended, {total} phones", flush=True)
     return {"ok": True, "total_connected": total}
 
@@ -1346,14 +1391,21 @@ _NO_CACHE = {
 # (two stacked 33ms poll cadences and ~8GB/h of /tmp SSD writes).
 _feed_frame: bytes | None = None
 _feed_event = asyncio.Event()
+_feed_seq = 0          # bumped per ingested frame; lets a viewer that missed
+                       # the event pulse tell a new frame from the one it just
+                       # sent, instead of re-sending a stale frame after the
+                       # 1s keep-warm timeout
+_feed_viewers = 0      # live viewer count (WS + MJPEG); exposed on /admin/mode
+                       # so the controller can stop encoding 60fps for nobody
 
 
 @app.post("/admin/feed_frame")
 async def feed_frame(request: Request):
     # Legacy/fallback ingest - the controller normally pushes frames over
     # /admin/feed_ws and only POSTs here if the WebSocket is unavailable.
-    global _feed_frame
+    global _feed_frame, _feed_seq
     _feed_frame = await request.body()
+    _feed_seq += 1
     _feed_event.set()     # pulse: wake current waiters,
     _feed_event.clear()   # new waiters block until the next frame
     return Response(status_code=204)
@@ -1368,10 +1420,11 @@ async def feed_ws_in(ws: WebSocket):
         await ws.close(code=4401)
         return
     await ws.accept()
-    global _feed_frame
+    global _feed_frame, _feed_seq
     try:
         while True:
             _feed_frame = await ws.receive_bytes()
+            _feed_seq += 1
             _feed_event.set()
             _feed_event.clear()
     except WebSocketDisconnect:
@@ -1385,39 +1438,66 @@ async def feed_ws_out(ws: WebSocket):
     latest frame instead of building a queue.  The 1s idle re-send keeps
     connections warm while the show is quiet, same as the MJPEG path."""
     await ws.accept()
+    global _feed_viewers
+    _feed_viewers += 1
+    last_sent_seq = -1
     try:
         while True:
             if _feed_frame is None:
                 await asyncio.sleep(0.2)
                 continue
+            # The event pulse only wakes tasks already inside wait(); a viewer
+            # caught between send_bytes returning and re-entering wait() missed
+            # it entirely and then re-sent the same frame after the timeout.
+            # The seq check turns that into "wait again": the 1s re-send only
+            # happens when the frame genuinely has not changed (the deliberate
+            # keep-warm behaviour), never as a stale duplicate racing a fresh one.
+            if _feed_seq == last_sent_seq:
+                try:
+                    await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
             await ws.send_bytes(_feed_frame)
-            try:
-                await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                pass
+            last_sent_seq = _feed_seq
     except WebSocketDisconnect:
         pass
+    finally:
+        _feed_viewers -= 1
+
+
+_MJPEG_PART_HEAD = b"--frame\r\nContent-Type: image/jpeg\r\n\r\n"
+_MJPEG_PART_TAIL = b"\r\n"
 
 
 async def _mjpeg_generator():
-    """Push each frame to the viewer as it arrives (up to camera rate)."""
-    while True:
-        if _feed_frame is None:
-            await asyncio.sleep(0.2)
-            continue
-        frame = _feed_frame
-        yield (
-            b"--frame\r\n"
-            b"Content-Type: image/jpeg\r\n\r\n" +
-            frame +
-            b"\r\n"
-        )
-        try:
-            # Re-send the last frame after 1s of silence so proxies and
-            # browsers don't time the stream out while the show is idle.
-            await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            pass
+    """Push each frame to the viewer as it arrives (up to camera rate).
+
+    Yields the multipart framing and the JPEG as separate chunks rather than
+    concatenating: the old  head + frame + tail  built a fresh ~120KB bytes
+    object per frame per viewer — pure allocator churn on the loop that also
+    owns every phone socket. StreamingResponse writes multiple yields fine.
+    """
+    global _feed_viewers
+    _feed_viewers += 1
+    last_sent_seq = -1
+    try:
+        while True:
+            if _feed_frame is None:
+                await asyncio.sleep(0.2)
+                continue
+            if _feed_seq == last_sent_seq:
+                try:
+                    # Re-send the last frame after 1s of silence so proxies and
+                    # browsers don't time the stream out while the show is idle.
+                    await asyncio.wait_for(_feed_event.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    pass
+            yield _MJPEG_PART_HEAD
+            yield _feed_frame
+            yield _MJPEG_PART_TAIL
+            last_sent_seq = _feed_seq
+    finally:
+        _feed_viewers -= 1
 
 
 # Canvas viewer for humans hitting the feed URL directly.  Binary frames
@@ -1463,6 +1543,11 @@ async def stream(request: Request):
     return StreamingResponse(
         _mjpeg_generator(),
         media_type="multipart/x-mixed-replace; boundary=frame",
+        # Identity short-circuits GZipMiddleware. Starlette's minimum_size only
+        # guards non-streaming responses, so without this every JPEG frame was
+        # gzipped at level 9 on the event loop — measured 2.26ms per 120KB
+        # frame, ~14% of a core per open dashboard tab, to save zero bytes.
+        headers={"Content-Encoding": "identity"},
     )
 
 

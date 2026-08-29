@@ -133,8 +133,11 @@ class TestBroadcast:
         _sent, per = with_recorder(srv)
         end(srv)
         msg = ends_for(per)[0]
-        assert set(msg) == {"type", "total_connected", "found_ms"}
+        assert set(msg) == {"type", "total_connected", "found_ms", "positions"}
+        # positions ride along for the end-card map, keyed by blink_id — the
+        # device uuid must not leak through them either.
         assert "device-abc" not in repr(msg)
+        assert set(msg["positions"]) == {7}
 
     def test_total_is_not_live_connections(self):
         """Someone who joined and closed the tab still took part."""
