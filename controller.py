@@ -660,6 +660,7 @@ def build_canvas(frame: np.ndarray) -> np.ndarray:
     # below - two 6.2MB writes per frame to produce what one copy gives.
     if nw == PREVIEW_WIDTH and nh == PREVIEW_HEIGHT and (h, w) == (nh, nw):
         canvas = frame.copy()
+        cx = cy = 0   # no crop in the 1:1 path; the state writes below read these
     else:
         resized = cv2.resize(frame, (nw, nh))
         cx = max((nw - PREVIEW_WIDTH) // 2, 0)
