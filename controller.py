@@ -934,9 +934,7 @@ _HUD_ROI_PX     = 14
 # to match: 3x text drawn with a 1px stroke reads as thin, not big.
 _HUD_CV_SCALE     = _HUD_TTF_PX * 0.55 / 14
 _HUD_CV_WEIGHT    = max(1, round(_HUD_TTF_PX / 14))
-_HUD_CV_SHADOW    = max(2, round(_HUD_TTF_PX * 2 / 14))
 _HUD_CV_SHADOW_DX = max(1, round(_HUD_TTF_PX / 14))
-_HUD_GAP          = max(18, round(_HUD_TTF_PX * 18 / 14))   # counter to fps text
 _hud_ttf_fonts  = {}
 _hud_text_cache = {}    # (text, px, color) -> (fg, inv_alpha, w, h)
 
@@ -1023,24 +1021,6 @@ def draw_hud(canvas: np.ndarray, fps: float):
                     (12, 12, 12), 2, cv2.LINE_AA)
         cv2.putText(canvas, label, (x, h - M), FONT, _HUD_CV_SCALE,
                     color, 1, cv2.LINE_AA)
-
-    # detected / connected counter — left of the fps text while
-    # detecting.  Green when caught up, amber while still chasing.
-    if detecting:
-        n_det  = len(_detected_ids)
-        n_conn = len(_valid_blink_ids)
-        count_label = f"{n_det} / {n_conn} found"
-        ccol = (40, 210, 80) if n_conn and n_det >= n_conn else (0, 165, 255)
-        e2 = _ttf_text(count_label, _HUD_TTF_PX, ccol)
-        if e2 is not None:
-            _blit_ttf(canvas, e2, x - _HUD_GAP - e2[2], h - M - e2[3])
-        else:
-            (cw, _), _ = cv2.getTextSize(count_label, FONT, _HUD_CV_SCALE, 1)
-            cx = x - _HUD_GAP - cw
-            cv2.putText(canvas, count_label, (cx + _HUD_CV_SHADOW_DX, h - M + _HUD_CV_SHADOW_DX), FONT,
-                        _HUD_CV_SCALE, (12, 12, 12), _HUD_CV_SHADOW, cv2.LINE_AA)
-            cv2.putText(canvas, count_label, (cx, h - M), FONT, _HUD_CV_SCALE,
-                        ccol, 1, cv2.LINE_AA)
 
 
 # ------------------------------------------------------------------ #
