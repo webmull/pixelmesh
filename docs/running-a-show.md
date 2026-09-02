@@ -33,6 +33,44 @@ because the two phases of a show want opposite things:
 
 Both are applied for you; the ISO slider still overrides either afterwards.
 
+**ISO trim from the floor.** The Spotlight 2 remote adjusts ISO without going back to the
+laptop, which is the only way to tune exposure once the room is full:
+
+| Control | Effect |
+|---------|--------|
+| Tap the touch panel | ISO up one step (5), one buzz |
+| Laser pointer button | ISO down one step, two buzzes |
+| Either, at the end of the range or with Camera Hub down | three buzzes, nothing changes |
+
+The buzz count is the feedback: you never need to look at the screen.
+
+Two separate controls rather than one clever gesture, because the panel gives us nothing else
+to work with. It does not report which half was pressed (both halves send `0x0050`), and it
+reports no press duration (the release arrives immediately however long you hold it), so
+neither up/down nor click-and-hold is possible. Deriving direction from click count fights the
+hand - clicking repeatedly to step up reads as double-clicks and reverses.
+`tools/presenter_probe.py` runs all of those experiments if it ever needs revisiting.
+
+A control only reports over HID++ while it is **diverted**, and pixelmesh diverts both while it
+runs - so while the app is up, the panel does not left-click and the pointer button drives ISO
+rather than its normal action. Each is restored to exactly the state it was found in on exit;
+restoring blindly to "off" silences the panel for everything that runs afterwards, so the prior
+state is read before it is changed.
+
+The control ids are `0x0050` (panel) and `0x01b0` (pointer). Identify a control by pressing
+only that one and watching `--live` output: a census of "press everything" says which ids
+exist but not which button sends which.
+
+Trim is an **offset on whichever baseline the phase uses**, not an absolute gain, so a tune
+made mid-show survives the automatic moves above: +15 gives detection 50 and showtime 115.
+The sidebar slider stays absolute and rebases the trim, so the two never disagree. `Reset
+Server` clears it, since that starts a fresh show.
+
+Setup is `brew install hidapi` plus `pip install hid`; no macOS permission is needed, because
+the remote is opened non-exclusively. Without the `hid` module the controller runs exactly as
+before and logs one line. The remote drops off Bluetooth when idle - press it to wake it, and
+the sidebar's REMOTE row shows the link and battery.
+
 **Watchdog.** `elgato.py` connects to Camera Hub via its local WebSocket API and monitors AE
 throughout the session. Camera Hub occasionally re-enables AE on its own, and the watchdog
 forces it back off within 5 seconds. `run.sh` also keeps the Hub itself alive: it launches it

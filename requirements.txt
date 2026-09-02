@@ -8,3 +8,4 @@ python-multipart>=0.0.9
 pyobjc-framework-AVFoundation>=9.0   # macOS only: direct AVFoundation exposure lock
 python-rtmidi>=1.5                   # MIDI input (Akai LPD8)
 pillow>=10                           # HUD text rasteriser (Verdana; falls back to Hershey without it)
+hid>=1.0.9                           # Spotlight remote ISO trim (needs: brew install hidapi)

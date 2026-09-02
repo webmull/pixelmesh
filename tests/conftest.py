@@ -14,3 +14,9 @@ on the token itself, only that admin routes are gated by it.
 import os
 
 os.environ.setdefault("PIXELMESH_ADMIN_TOKEN", "test-token-not-a-real-secret")
+
+# controller.py refuses to import unless run.sh set this - a guard against
+# starting the controller by hand and getting a half-configured show. The
+# ISO trim tests import controller for its pure helpers, which start no
+# threads and open no camera, so satisfying the guard is enough.
+os.environ.setdefault("PIXELMESH_LAUNCHED", "1")

@@ -60,6 +60,7 @@ import effects
 import game
 import elgato
 import midi
+import presenter
 import report
 
 # ------------------------------------------------------------------ #
@@ -147,6 +148,8 @@ _detection_amplitudes: list[float] = []
 _iso_hint: str = ""                  # surfaced under the ISO slider; cleared on detect-start
 _last_midi_hist_version: int = -1    # sidebar MIDI panel refresh guard
 _last_midi_conn = None               # pedal link indicator guard
+_last_remote_hist_version: int = -1  # sidebar REMOTE row refresh guard
+_last_remote_conn = None             # Spotlight link indicator guard
 
 # Two-phase ISO: detection wants the lowest sensible gain so dark phases
 # read near-zero (sensor noise floor matters more than nominal range —
@@ -157,6 +160,18 @@ _last_midi_conn = None               # pedal link indicator guard
 # still slide either direction via the ISO control afterwards.
 _DETECTION_ISO_GAIN: int = 35
 _AUDIENCE_ISO_GAIN:  int = 100
+
+# Hand-held ISO trim (presenter.py, the Spotlight remote).  An offset on
+# whichever baseline the current phase uses, not an absolute gain: a tune made
+# from the floor mid-show has to survive the automatic moves around the
+# detection toggle, or it is wiped by the next one and the remote is useless.
+# The sidebar slider stays absolute and rebases the trim, so the two controls
+# can never disagree about where ISO actually is.
+_iso_trim: int = 0
+_ISO_TRIM_STEP = 5           # per click / per repeat while held
+_ISO_TRIM_MIN  = -60
+_ISO_TRIM_MAX  = 60
+_ISO_MIN, _ISO_MAX = 0, 160  # matches the sidebar slider's range
 
 # Click-to-ripple state.  Toggled by clicking the Ripple button in the sidebar
 # (which highlights when armed); the button no longer fires the audience effect
@@ -1071,6 +1086,17 @@ def update_ui_from_state():
                  "connected" if _last_midi_conn else "waiting for pedal")
         ui_queue.put(("_midi_conn_color", _last_midi_conn))
 
+    # Same trick for the remote: its own version guard, so an ISO nudge shows
+    # immediately without joining the main snapshot dedup.
+    global _last_remote_conn, _last_remote_hist_version
+    if presenter.presenter.connected != _last_remote_conn:
+        _last_remote_conn = presenter.presenter.connected
+        safe_set("remote_conn_text", presenter.presenter.status_line())
+    if presenter.presenter.history_version != _last_remote_hist_version:
+        _last_remote_hist_version = presenter.presenter.history_version
+        hist = presenter.presenter.history()
+        safe_set("remote_last_text", hist[0] if hist else "")
+
     global _last_midi_hist_version
     if midi.midi.history_version != _last_midi_hist_version:
         _last_midi_hist_version = midi.midi.history_version
@@ -1130,9 +1156,15 @@ def _toggle_ae():
 
 
 def _set_iso(sender, value):
+    global _iso_trim
     if _ui_syncing:
         return
-    elgato.set_iso(int(value))
+    value = int(value)
+    # The slider is absolute, so rebase the trim onto it.  Without this the
+    # next phase change would snap ISO back to baseline+old_trim and undo
+    # whatever was just dialled in by hand.
+    _iso_trim = max(_ISO_TRIM_MIN, min(_ISO_TRIM_MAX, value - _phase_baseline()))
+    elgato.set_iso(value)
 
 
 def toggle_flip_projection():
@@ -1146,24 +1178,76 @@ def toggle_flip_projection():
     _set_roi()
 
 
+def _phase_baseline() -> int:
+    """The ISO the current phase would sit at with no trim applied."""
+    with state.lock:
+        detecting = state.detecting
+    return _DETECTION_ISO_GAIN if detecting else _AUDIENCE_ISO_GAIN
+
+
+def _trimmed(baseline: int) -> int:
+    return max(_ISO_MIN, min(_ISO_MAX, baseline + _iso_trim))
+
+
+def nudge_iso(direction: int) -> bool:
+    """Move the trim one step and apply it.  Returns False when the press
+    changed nothing, which is what the remote turns into a different buzz.
+
+    The trim is an offset on the phase baseline rather than an absolute
+    value, so a venue tune made mid-show survives the automatic ISO moves
+    around the detection toggle instead of being wiped by the next one.
+    """
+    global _iso_trim
+    if not elgato.connected:
+        set_status("No Camera Hub - ISO unchanged")
+        return False
+    baseline = _phase_baseline()
+    before   = _trimmed(baseline)
+    _iso_trim = max(_ISO_TRIM_MIN, min(_ISO_TRIM_MAX,
+                                       _iso_trim + direction * _ISO_TRIM_STEP))
+    after = _trimmed(baseline)
+    if after == before:
+        set_status(f"ISO {after} - at the limit")
+        return False
+    elgato.set_iso(after)
+    set_status(f"ISO {after} (trim {_iso_trim:+d})")
+    log.info(f"[iso] remote trim {_iso_trim:+d} -> gain {after}")
+    return True
+
+
+def reset_iso_trim():
+    """Back to the plain phase baseline."""
+    global _iso_trim
+    _iso_trim = 0
+    if elgato.connected:
+        elgato.set_iso(_phase_baseline())
+    set_status(f"ISO {_phase_baseline()} (trim reset)")
+
+
 def _apply_detection_iso():
     """Drop ISO to the detection baseline (sensor noise floor matters
     most for clean blink contrast) — but never RAISE it.  If the
     operator already has the slider below _DETECTION_ISO_GAIN we leave
     it; lower ISO is at least as good for blink amplitude as the
     baseline, and bumping back up would throw away a deliberate venue
-    tune."""
+    tune.
+
+    A non-zero trim is a deliberate instruction rather than a leftover, so
+    it is applied outright — otherwise trimming up during detection would
+    be silently refused by the guard above.
+    """
     if not elgato.connected:
         return
-    if elgato.iso_gain > _DETECTION_ISO_GAIN:
-        elgato.set_iso(_DETECTION_ISO_GAIN)
+    target = _trimmed(_DETECTION_ISO_GAIN)
+    if _iso_trim or elgato.iso_gain > target:
+        elgato.set_iso(target)
 
 
 def _apply_audience_iso():
     """Bump ISO so the live camera feed of the crowd reads brightly during
     the show."""
     if elgato.connected:
-        elgato.set_iso(_AUDIENCE_ISO_GAIN)
+        elgato.set_iso(_trimmed(_AUDIENCE_ISO_GAIN))
 
 
 # ------------------------------------------------------------------ #
@@ -2199,6 +2283,7 @@ def _save_report(auto_open: bool = False):
 
 def reset_server():
     global _detected_ids, _detection_start_time, _render_order, _detection_timings, _iso_hint
+    global _iso_trim
     # Save the run report to disk but don't auto-open it on reset — popping
     # the file viewer mid-show is jarring.  Detection-end still opens.
     _save_report(auto_open=False)
@@ -2211,6 +2296,9 @@ def reset_server():
         _detection_start_time = 0.0
         _detection_amplitudes.clear()
         _iso_hint = ""
+    # A reset is a fresh show, so the venue trim goes with it rather than
+    # quietly biasing the next run's ISO.
+    _iso_trim = 0
     _forget_positions()
     with state.lock:
         state.detecting = False
@@ -2662,6 +2750,17 @@ def setup_ui(holder: dict):
                         dpg.add_text("", tag="rec_filename_text",
                                      color=(150, 150, 150), indent=_PAD, show=False,
                                      wrap=300)
+
+                        # ---- Remote (Spotlight ISO trim) ----
+                        dpg.add_spacer(height=8)
+                        with dpg.group(horizontal=True):
+                            _heading("REMOTE")
+                            dpg.add_text("waiting for remote", tag="remote_conn_text",
+                                         color=(120, 120, 120))
+                        dpg.add_text("click = ISO up, hold = ISO down",
+                                     color=(120, 120, 120), indent=_PAD)
+                        dpg.add_text("", tag="remote_last_text",
+                                     color=(200, 200, 200), indent=_PAD, wrap=290)
 
                         # ---- MIDI panel ----
                         dpg.add_spacer(height=8)
@@ -3196,6 +3295,11 @@ def main():
         reset          = reset_server,
         toggle_overlays= toggle_all_overlays,
     )
+
+    # The Spotlight remote: click the panel for ISO up, hold it for ISO down.
+    # Narrow on purpose - the pedal owns detection, effects and overlays, and
+    # the remote does one job Adam cannot do from the floor today.
+    presenter.presenter.start(nudge_iso=nudge_iso)
 
     threading.Thread(target=_stream_worker, daemon=True,
                      name="stream").start()
