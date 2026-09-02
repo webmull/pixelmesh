@@ -34,12 +34,18 @@ and unambiguous.
 DIVERT IS WHAT MAKES A CONTROL REPORT
 
 Neither control reaches us unless it is diverted. The panel ships diverted
-already, which is why it seemed to report "for free"; 0x00fc does not, and
-is silent until asked. Diverting also stops the panel emitting a left click
-into whatever is under the cursor, which matters when the sidebar is full of
-buttons. Both are put back exactly as they were found - restoring blindly to
-"off" silences the panel for whatever runs next, which cost an afternoon
-once already.
+already, which is why it seemed to report "for free"; the pointer button
+does not, and is silent until asked.
+
+Diverting does NOT suppress the control's normal function on this remote -
+tested, the panel still left-clicks and still advances a web page while we
+read it - so the remote goes on being a remote while pixelmesh trims ISO
+from it. Worth knowing in both directions: a panel tap is still a click
+landing wherever the cursor sits.
+
+Both are put back exactly as they were found - restoring blindly to "off"
+silences the panel for whatever runs next, which cost an afternoon once
+already.
 
 The device is opened NON-exclusively. hidapi's macOS backend seizes by
 default, which needs an Input Monitoring grant AND takes the remote away
@@ -302,10 +308,10 @@ class Presenter:
         return bool(r[6] & 0x01) if r else None
 
     def _set_divert(self, cid, on: bool):
-        """Divert is what makes a control report over HID++ at all, and it is
-        also what stops the panel emitting a left click into whatever is under
-        the cursor - the sidebar has buttons, and a stray click mid-show is
-        not worth the risk.
+        """Divert is what makes a control report over HID++ at all. It does
+        not suppress the control's normal function here - the panel still
+        left-clicks while diverted - so this only adds a reporting channel
+        rather than taking the remote over.
 
         The prior state is remembered and put back on the way out. Restoring
         to "off" unconditionally would be wrong: this remote ships with its

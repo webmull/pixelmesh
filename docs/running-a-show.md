@@ -52,10 +52,14 @@ hand - clicking repeatedly to step up reads as double-clicks and reverses.
 `tools/presenter_probe.py` runs all of those experiments if it ever needs revisiting.
 
 A control only reports over HID++ while it is **diverted**, and pixelmesh diverts both while it
-runs - so while the app is up, the panel does not left-click and the pointer button drives ISO
-rather than its normal action. Each is restored to exactly the state it was found in on exit;
-restoring blindly to "off" silences the panel for everything that runs afterwards, so the prior
-state is read before it is changed.
+runs. Diverting does not take the controls away: tested on this remote, the panel still
+left-clicks and still advances the stage page while pixelmesh is driving ISO from it, so the
+remote stays a working remote. Each control is restored to exactly the state it was found in on
+exit; restoring blindly to "off" silences the panel for everything that runs afterwards, so the
+prior state is read before it is changed.
+
+The one thing to keep in mind is that a panel tap is still a left click, so it lands wherever
+the cursor happens to be sitting - park it somewhere harmless before trimming ISO mid-show.
 
 The control ids are `0x0050` (panel) and `0x01b0` (pointer). Identify a control by pressing
 only that one and watching `--live` output: a census of "press everything" says which ids
