@@ -86,8 +86,14 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
 # this machine. Overlays are cosmetic - the worst this allows is markers
 # flickering on the feed. Detection and recording stay behind the token,
 # because those can stop a show.
+#
+# /admin/game/start is here so the deck can start the avatar race as it arrives
+# on the race slide, three seconds in, which is the beat the room needs to be
+# told what is about to happen. It can start a race and nothing else; stopping
+# one still goes through the token, or through /admin/end.
 _ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays", "/admin/end",
-                 "/admin/recording", "/admin/recording/latest"}
+                 "/admin/recording", "/admin/recording/latest",
+                 "/admin/game/start"}
 
 # Admin routes a browser on another origin may call.  Being in here only makes
 # the browser willing to send the request and read the reply; it does NOT
@@ -330,6 +336,19 @@ LIVE_TIMEOUT      = 45     # seconds of silence before a phone stops being count
 # below ~35s would drop phones that are present and behaving. 45s clears that
 # with margin and still halves the window a ghost can survive.
 
+
+def live_devices() -> set[str]:
+    """Phones with a socket that have actually said something recently.
+
+    A device with no last_seen at all counts as live: hello stamps it in the
+    same breath as it adds the connection, so the gap is a scheduling artefact
+    rather than silence. Defaulting the other way would let a phone flicker out
+    of the count in the moment it joins, and under-counting a real phone
+    mid-show is a worse failure than briefly over-counting a ghost.
+    """
+    now = time.time()
+    return {d for d in connections if now - last_seen.get(d, now) <= LIVE_TIMEOUT}
+
 # A phone that can't accept one frame in this long is effectively gone; drop
 # it rather than let it stall anyone else. Its identity survives (_drop_connection)
 # so it resumes cleanly on reconnect.
@@ -454,6 +473,8 @@ game.server_init(
     enable_sync       = _enable_sync,
     stop_effects      = _stop_effects,
     start_effect      = lambda name, params: start_effect(name, params),
+    is_local          = _is_local_request,
+    live_devices      = live_devices,
 )
 
 
@@ -485,19 +506,6 @@ async def cleanup_device(device_id: str):
         # can block close() indefinitely, and this runs inside the reaper's
         # sweep loop — one wedged phone would stall reaping for the whole show.
         asyncio.create_task(_close_quietly(ws))
-
-
-def live_devices() -> set[str]:
-    """Phones with a socket that have actually said something recently.
-
-    A device with no last_seen at all counts as live: hello stamps it in the
-    same breath as it adds the connection, so the gap is a scheduling artefact
-    rather than silence. Defaulting the other way would let a phone flicker out
-    of the count in the moment it joins, and under-counting a real phone
-    mid-show is a worse failure than briefly over-counting a ghost.
-    """
-    now = time.time()
-    return {d for d in connections if now - last_seen.get(d, now) <= LIVE_TIMEOUT}
 
 
 # ------------------------------------------------------------------ #
@@ -1332,6 +1340,11 @@ async def end_show(request: Request):
 
     global current_effect_state
     current_effect_state = None
+    # A race still running would keep the stage page moving under a closing
+    # card, and keep taps counting for a show that is over. start_effect stops
+    # one for the same reason; ending is at least as final as an effect.
+    if game.game_active:
+        await game.game_stop()
     await set_mode(MODE_ENDED)
     await broadcast({"type": "effect_stop"})
 

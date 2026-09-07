@@ -34,7 +34,7 @@ import threading
 import time
 
 import dearpygui.dearpygui as dpg
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter()
 
@@ -42,6 +42,8 @@ router = APIRouter()
 # Wiring                                                              #
 # ------------------------------------------------------------------ #
 
+_is_local          = None   # server's local-only test, for the token-free start
+_live_devices      = None   # server's liveness rule, so ghosts get no lane
 _blink_to_device   = None
 _connections       = None
 _positions         = None
@@ -63,12 +65,16 @@ _ui_queue         = None    # controller's DPG queue — poll worker routes UI o
 
 def server_init(blink_to_device, connections, positions, blink_assignments,
                 broadcast, enable_sync, stop_effects, start_effect=None,
-                broadcast_spectators=None, send_safe=None):
+                broadcast_spectators=None, send_safe=None,
+                is_local=None, live_devices=None):
     global _blink_to_device, _connections, _positions, _blink_assignments
     global _broadcast, _enable_sync, _stop_effects, _start_effect
     global _broadcast_spectators, _send_safe
+    global _is_local, _live_devices
     _broadcast_spectators = broadcast_spectators
     _send_safe            = send_safe
+    _is_local          = is_local
+    _live_devices      = live_devices
     _blink_to_device   = blink_to_device
     _connections       = connections
     _positions         = positions
@@ -124,9 +130,22 @@ _race_progress_task: asyncio.Task | None = None
 # ------------------------------------------------------------------ #
 
 @router.post("/admin/game/start")
-async def game_start(payload: dict):
-    """Start a race round: {"blink_ids": [<int>, ...]}"""
-    return await _start_race_round(payload)
+async def game_start(request: Request, payload: dict | None = None):
+    """Start a race round: {"blink_ids": [<int>, ...]}
+
+    blink_ids is optional. Sent empty, the round is every live phone the camera
+    has placed, in u order, which is what the sidebar button works out for
+    itself. That is what lets the talk deck start the race as it arrives on the
+    race slide: it knows nothing about who is in the room.
+
+    Token-free but LOCAL ONLY, the same exemption /admin/end carries and for
+    the same reason - the deck is a static file and cannot hold a token run.sh
+    regenerates every launch. The worst this route can do is start a race, and
+    it is refused outright for anything arriving through the tunnel.
+    """
+    if _is_local and not _is_local(request):
+        raise HTTPException(403, "this route is only served to local clients")
+    return await _start_race_round(payload or {})
 
 
 @router.post("/admin/game/stop")
@@ -152,6 +171,22 @@ async def handle_tap(device_id: str, reaction_ms: float = 0.0):
 # Race game — server                                                   #
 # ------------------------------------------------------------------ #
 
+def _room_blink_ids() -> list[int]:
+    """Every live phone the camera has placed, ordered left to right.
+
+    The same crowd and the same order start_race_game() works out on the
+    controller, derived here instead so a caller that knows nothing about the
+    room - the deck - can still start a round. Live rather than merely
+    connected: a phone that dropped and came back under a new identity would
+    otherwise be given a lane nobody is standing in.
+    """
+    live = set(_live_devices()) if _live_devices else set(_connections)
+    placed = [(dev, pos) for dev, pos in _positions.items()
+              if dev in live and dev in _blink_assignments]
+    placed.sort(key=lambda dp: (dp[1].get("u", 0.5), _blink_assignments[dp[0]]))
+    return [_blink_assignments[dev] for dev, _ in placed]
+
+
 async def _start_race_round(payload: dict) -> dict:
     """Each phone in blink_ids starts at position 0.0.  Every tap nudges
     the phone forward by 1/RACE_TAPS_PER_PLAYER.  First to 1.0 wins."""
@@ -162,7 +197,7 @@ async def _start_race_round(payload: dict) -> dict:
     # Cancel anything still running from a previous round
     await _cancel_race_progress()
 
-    blink_ids = [int(b) for b in payload.get("blink_ids", [])]
+    blink_ids = [int(b) for b in payload.get("blink_ids", [])] or _room_blink_ids()
     race_positions    = {bid: 0.0 for bid in blink_ids}
     race_taps_total   = {bid: 0   for bid in blink_ids}
     race_winner       = None

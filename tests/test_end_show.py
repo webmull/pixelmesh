@@ -395,3 +395,28 @@ class TestRoster:
         asyncio.run(srv.reset())
         assert srv.show_roster == set() and srv.show_totals == {}
         assert asyncio.run(srv.show_stats())["total_connected"] == 1
+
+
+class TestEndingStopsTheRace:
+    """The race now sits between the demo and the end of the talk, so ending
+    the show has to end a round that is still running. Without this the stage
+    page keeps the runners moving under a closing card, and taps keep counting
+    for a show that is over. start_effect already stops a round for the same
+    reason; ending is at least as final as an effect."""
+
+    def test_a_running_race_is_stopped(self):
+        srv = fresh_server()
+        import game
+        add_phone(srv, "a", 1)
+        asyncio.run(game._start_race_round({"blink_ids": [1]}))
+        assert game.game_active
+        end(srv)
+        assert not game.game_active
+
+    def test_ending_with_no_race_running_is_fine(self):
+        srv = fresh_server()
+        import game
+        add_phone(srv, "a", 1)
+        assert not game.game_active
+        end(srv)
+        assert not game.game_active
