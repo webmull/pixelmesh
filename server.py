@@ -316,6 +316,19 @@ available_blinks = list(range(2 ** NUM_BITS))  # pool of unassigned blink IDs
 
 HEARTBEAT_TIMEOUT = 90     # seconds of silence before the socket is closed
 IDENTITY_TIMEOUT  = 1800   # seconds of silence before blink_id + position are recycled
+LIVE_TIMEOUT      = 45     # seconds of silence before a phone stops being counted
+
+# LIVE_TIMEOUT is what "connected right now" means, and it is deliberately far
+# below HEARTBEAT_TIMEOUT. A socket that dies without a close frame - a screen
+# locked, a phone that switched network, a tab reopened under a new identity -
+# stays in `connections` until the reaper notices, so for 90s a ghost counted
+# as a phone: on the deck's join slide, and worse, in the id set the detector
+# scores itself against, where it showed up as a phone that was never found.
+#
+# The floor is the client's own traffic. It sends sync_ping every 30s in steady
+# state and suppresses the 15s heartbeat while sync is recent, so anything
+# below ~35s would drop phones that are present and behaving. 45s clears that
+# with margin and still halves the window a ghost can survive.
 
 # A phone that can't accept one frame in this long is effectively gone; drop
 # it rather than let it stall anyone else. Its identity survives (_drop_connection)
@@ -472,6 +485,19 @@ async def cleanup_device(device_id: str):
         # can block close() indefinitely, and this runs inside the reaper's
         # sweep loop — one wedged phone would stall reaping for the whole show.
         asyncio.create_task(_close_quietly(ws))
+
+
+def live_devices() -> set[str]:
+    """Phones with a socket that have actually said something recently.
+
+    A device with no last_seen at all counts as live: hello stamps it in the
+    same breath as it adds the connection, so the gap is a scheduling artefact
+    rather than silence. Defaulting the other way would let a phone flicker out
+    of the count in the moment it joins, and under-counting a real phone
+    mid-show is a worse failure than briefly over-counting a ghost.
+    """
+    now = time.time()
+    return {d for d in connections if now - last_seen.get(d, now) <= LIVE_TIMEOUT}
 
 
 # ------------------------------------------------------------------ #
@@ -693,15 +719,26 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.get("/admin/clients")
 async def get_client_count():
-    return {"clients": len(connections)}
+    """Live phones, by the same rule as connected_now.
+
+    This is the number on the controller's own HUD, so counting sockets here
+    while the deck counted talking phones would put a ghost in front of the
+    operator and not the room, which is the worse half to be wrong about.
+    """
+    return {"clients": len(live_devices())}
 
 
 @app.get("/admin/blink_map")
 async def blink_map():
-    """Return blink_id → device_uuid for currently connected clients only."""
+    """Return blink_id → device_uuid for currently connected clients only.
+
+    Live by the same rule as connected_now, not merely socket-present. The
+    detector builds its expected id set from this, so a ghost here is a phone
+    it spends the run hunting for and then reports as missed.
+    """
     return {"map": {
         str(blink_assignments[dev]): dev
-        for dev in connections
+        for dev in live_devices()
         if dev in blink_assignments
     }}
 
@@ -886,9 +923,9 @@ async def show_stats():
     (the talk deck's join slide reads this every few seconds).
 
     Public by design - the one entry in _ADMIN_PUBLIC - so it is deliberately
-    read-only, cheap (four len() calls and two globals, no locks, no
-    iteration) and free of anything identifying: counts and names only, never
-    a device_uuid.
+    read-only, cheap (a few len() calls, two globals and one pass over the
+    connection table, no locks) and free of anything identifying: counts and
+    names only, never a device_uuid.
 
     Keys are additive. total_connected/detected/like_count predate the rest
     and are consumed elsewhere, so nothing here is renamed or removed.
@@ -902,7 +939,7 @@ async def show_stats():
     # latecomer's connection tick the count up under an audience.
     if show_totals:
         return {**show_totals,
-                "connected_now": len(connections),
+                "connected_now": len(live_devices()),
                 "spectators":    len(spectators),
                 "detecting":     detection_active,
                 "effect":        (current_effect_state or {}).get("effect"),
@@ -917,8 +954,10 @@ async def show_stats():
         "detected":         len(positions),           # phones the camera placed
 
         # Live right now. connected_now falls when a phone locks its screen
-        # or walks out, which is why it is separate from total_connected.
-        "connected_now":    len(connections),
+        # or walks out, which is why it is separate from total_connected. It
+        # counts phones still talking, not sockets still open - see
+        # live_devices() for why those are not the same thing.
+        "connected_now":    len(live_devices()),
         "spectators":       len(spectators),
 
         # What the show is doing. effect_started is the ms timestamp

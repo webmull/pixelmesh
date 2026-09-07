@@ -14,6 +14,7 @@ import asyncio
 import importlib
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -271,3 +272,76 @@ class TestFoundTimings:
         srv = fresh_server()
         srv.found_ms.update({"device-uuid-aaaa": 10_300})
         assert "device-uuid-aaaa" not in repr(stats(srv))
+
+
+# ------------------------------------------------------------------ #
+# Liveness                                                            #
+# ------------------------------------------------------------------ #
+
+class TestLiveness:
+    """connected_now counts phones still talking, not sockets still open.
+
+    A socket that dies without a close frame sits in `connections` until the
+    reaper notices it 90s later. For that window it was counted as a phone,
+    which is how one phone in the room read as two on the deck's join slide:
+    it had reconnected under a new identity while the old one still held a
+    seat. These pin the rule that closed that window.
+    """
+
+    def test_a_silent_phone_stops_counting(self):
+        srv = fresh_server()
+        srv.connections["ghost"] = object()
+        srv.last_seen["ghost"] = time.time() - (srv.LIVE_TIMEOUT + 5)
+        assert stats(srv)["connected_now"] == 0
+
+    def test_a_talking_phone_still_counts(self):
+        srv = fresh_server()
+        srv.connections["here"] = object()
+        srv.last_seen["here"] = time.time() - 5
+        assert stats(srv)["connected_now"] == 1
+
+    def test_the_window_clears_the_clients_own_cadence(self):
+        """The client sends sync_ping every 30s in steady state, so a phone
+        behaving perfectly can be silent for 30s. The window has to sit above
+        that or a present phone drops out of its own show."""
+        srv = fresh_server()
+        assert srv.LIVE_TIMEOUT > 30
+        srv.connections["quiet-but-fine"] = object()
+        srv.last_seen["quiet-but-fine"] = time.time() - 31
+        assert stats(srv)["connected_now"] == 1
+
+    def test_a_phone_with_no_timestamp_yet_counts(self):
+        """hello stamps last_seen as it adds the connection. A missing stamp is
+        a scheduling artefact, and dropping the phone would be the worse bug."""
+        srv = fresh_server()
+        srv.connections["just-arrived"] = object()
+        assert stats(srv)["connected_now"] == 1
+
+    def test_the_ghost_from_the_talk(self):
+        """One phone, reconnected under a new identity 80s in: the shape that
+        made the join slide read two and the detector report a missed phone."""
+        srv = fresh_server()
+        now = time.time()
+        srv.connections["old-identity"] = object()
+        srv.last_seen["old-identity"] = now - 80
+        srv.blink_assignments["old-identity"] = 1
+        srv.connections["new-identity"] = object()
+        srv.last_seen["new-identity"] = now - 2
+        srv.blink_assignments["new-identity"] = 2
+
+        assert stats(srv)["connected_now"] == 1
+        assert stats(srv)["total_connected"] == 2      # cumulative, unchanged
+
+    def test_blink_map_hides_the_ghost_from_the_detector(self):
+        """The detector builds its expected id set from this map, so a ghost
+        here is a phone it hunts for all run and then reports as missed."""
+        srv = fresh_server()
+        now = time.time()
+        srv.connections["old-identity"] = object()
+        srv.last_seen["old-identity"] = now - 80
+        srv.blink_assignments["old-identity"] = 1
+        srv.connections["new-identity"] = object()
+        srv.last_seen["new-identity"] = now - 2
+        srv.blink_assignments["new-identity"] = 2
+
+        assert asyncio.run(srv.blink_map()) == {"map": {"2": "new-identity"}}
