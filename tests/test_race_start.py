@@ -145,3 +145,80 @@ class TestTheRouteIsOpenButOnlyLocally:
         asyncio.run(game.game_start(_Req()))
         assert game.game_active
         assert sorted(game.race_positions) == [1]
+
+
+class TestPuttingThePhonesOut:
+    """The deck calls /admin/effect/stop as it leaves the effects section. The
+    last effect used to keep playing in every hand through the video that
+    follows, which is a room full of lit screens during the one slide that
+    wants the room dark."""
+
+    def test_stop_is_token_free_and_cors_reachable(self):
+        srv = fresh_server()
+        assert "/admin/effect/stop" in srv._ADMIN_PUBLIC
+        assert "/admin/effect/stop" in srv._ADMIN_CORS
+
+    def test_firing_an_effect_is_not(self):
+        """Only taking an effect away is opened up."""
+        srv = fresh_server()
+        assert "/admin/effect/fire" not in srv._ADMIN_PUBLIC
+
+    def test_a_tunnelled_stop_is_refused(self):
+        srv = fresh_server()
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as e:
+            asyncio.run(srv.effect_stop(_Req({"x-forwarded-for": "203.0.113.7"})))
+        assert e.value.status_code == 403
+
+    def test_a_local_stop_clears_the_effect(self):
+        srv = fresh_server()
+        sent = []
+        async def rec(msg): sent.append(msg)
+        srv.broadcast = rec
+        srv.current_effect_state = {"effect": "wave"}
+        asyncio.run(srv.effect_stop(_Req()))
+        assert srv.current_effect_state is None
+        assert {"type": "effect_stop"} in sent
+
+
+class TestOneColourPerPhone:
+    """The projection and the phone draw the same character, so the colour has
+    to come from one place. It briefly did not: the stage coloured by lane while
+    the phone hashed the blink id, and a runner on the big screen stopped
+    matching the avatar in the hand it belonged to."""
+
+    def test_hues_travel_with_the_round(self):
+        srv = fresh_server()
+        import game
+        sent = []
+        async def rec(msg): sent.append(msg)
+        srv.broadcast = rec
+        game.server_init(
+            blink_to_device=lambda b: None, connections=srv.connections,
+            positions=srv.positions, blink_assignments=srv.blink_assignments,
+            broadcast=rec, enable_sync=None, stop_effects=None,
+            live_devices=srv.live_devices,
+        )
+        phone(srv, "left", 1, 0.0)
+        phone(srv, "right", 2, 1.0)
+        asyncio.run(game._start_race_round({}))
+        start = [m for m in sent if m.get("type") == "race_start"]
+        assert start, "no race_start broadcast"
+        assert start[0]["hues"] == {"1": game.RACE_HUE_FROM, "2": game.RACE_HUE_TO}
+
+    def test_the_hue_follows_where_the_phone_is(self):
+        srv = fresh_server()
+        import game
+        phone(srv, "left", 1, 0.0)
+        phone(srv, "middle", 2, 0.5)
+        phone(srv, "right", 3, 1.0)
+        h = game._race_hues([1, 2, 3])
+        assert h["1"] < h["2"] < h["3"]
+
+    def test_a_phone_the_camera_never_placed_is_left_to_the_hash(self):
+        """Left out of the map entirely, so both renderers fall back together
+        and still agree with each other."""
+        srv = fresh_server()
+        import game
+        srv.blink_assignments["nowhere"] = 9
+        assert game._race_hues([9]) == {}

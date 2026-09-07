@@ -378,9 +378,17 @@ function _raceHsl(h, s, l) {
 }
 const RACE_SKIN_TONES = ["#f1c9a5", "#d9a07e", "#a87049", "#6d4524"];
 const RACE_HAT_STYLES = ["beanie", "cap", "top", "none"];
+/* Body colour comes from the round, not from a hash of the id: the projection
+   draws this same character, and if the two work the colour out separately they
+   drift apart. raceHues is what the server sent, keyed by blink id, taken from
+   where each phone is standing. No entry (a phone the camera never placed) and
+   both sides fall back to the hash together, so they still match. */
+let raceHues = {};
+
 function _raceAvatarFeatures(bid) {
+  const hue = raceHues[bid];
   return {
-    bodyHue:  _raceHashF(bid),
+    bodyHue:  hue == null ? _raceHashF(bid) : hue,
     hatHue:   _raceHashF(bid * 7 + 11),
     skin:     RACE_SKIN_TONES[Math.floor(_raceHashF(bid * 13 + 5) * RACE_SKIN_TONES.length)],
     hatStyle: RACE_HAT_STYLES[Math.floor(_raceHashF(bid * 23 + 3) * RACE_HAT_STYLES.length)],
@@ -885,6 +893,13 @@ function handleMessage(msg) {
   }
 
   if (msg.type === "effect") {
+    // The server re-sends the current effect every few seconds so a phone that
+    // missed the first one - a buffered send on a bad link, a socket dead
+    // without saying so - catches up instead of holding the previous effect for
+    // the rest of the section. Already have this one, ignore it: rendering is
+    // keyed on start_time, so re-applying would draw the same frame anyway, but
+    // this keeps the resend genuinely free of view and game churn.
+    if (msg.effect === currentEffect && msg.start_time === effectStartTime) return;
     _cleanupGame();
     currentEffect     = msg.effect;
     effectStartTime   = msg.start_time;
@@ -945,6 +960,7 @@ function handleMessage(msg) {
 
   if (msg.type === "race_start") {
     currentEffect = null;
+    raceHues      = msg.hues || {};
     raceActive    = true;
     raceInRoster  = (msg.blink_ids || []).includes(myBlinkId);
     raceRosterSize = (msg.blink_ids || []).length;

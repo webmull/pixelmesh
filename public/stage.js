@@ -49,6 +49,7 @@ const game = {
     runners:   [],          // [{ blink_id, pos, draw }] kept sorted by current pos
     winner:    null,        // blink_id | null
     winnerAt:  0,
+    hues:      {},          // blink_id -> hue, from the server, shared with the phones
   },
   confetti:   [],
 };
@@ -74,6 +75,7 @@ function handleMessage(msg) {
     const g = msg.game || {};
     if (g.active) {
       game.active = true;
+      game.race.hues = g.hues || {};
       game.race.runners = [];
       _raceApplyPositions(g.positions);
       for (const r of game.race.runners) r.draw = r.pos;
@@ -82,6 +84,7 @@ function handleMessage(msg) {
   }
   if (msg.type === "race_start") {
     game.active  = true;
+    game.race.hues = msg.hues || {};
     game.race.runners = (msg.blink_ids || []).map((bid, i) => ({
       blink_id: bid, pos: 0, draw: 0, lane: i,
     }));
@@ -333,18 +336,29 @@ function _hsl(h, s, l) {
 const SKIN_TONES = ["#f1c9a5", "#d9a07e", "#a87049", "#6d4524"];
 const HAT_STYLES = ["beanie", "cap", "top", "none"];
 
-function _avatarFeatures(bid) {
+/* Warm at one end of the room, cool at the other, so the field reads as a
+   gradient of where people are actually standing and neighbours share a colour.
+
+   The hue arrives with the round rather than being worked out here. The phone
+   draws this same character, and the moment the two derive its colour
+   separately they drift: colouring by lane on this side while the phone kept
+   hashing the blink id put a runner on the big screen in a different colour
+   from the avatar in the hand it belonged to. The server sends one map, both
+   read it, and a phone with no position falls back to the hash on both sides
+   together. Hat, skin and the rest still come from the id, so runners stay
+   individuals. */
+function _avatarFeatures(bid, hue) {
   return {
-    bodyHue:   _hashF(bid),
+    bodyHue:   hue == null ? _hashF(bid) : hue,
     hatHue:    _hashF(bid * 7 + 11),
     skin:      SKIN_TONES[Math.floor(_hashF(bid * 13 + 5) * SKIN_TONES.length)],
     hatStyle:  HAT_STYLES[Math.floor(_hashF(bid * 23 + 3) * HAT_STYLES.length)],
   };
 }
 
-function drawAvatar(cx, cy, sizePx, bid, running, runningPhase) {
+function drawAvatar(cx, cy, sizePx, bid, running, runningPhase, hue) {
   // sizePx = total avatar height in canvas pixels.  Avatar = head + body.
-  const f = _avatarFeatures(bid);
+  const f = _avatarFeatures(bid, hue);
   const headR = sizePx * 0.22;
   const bodyW = sizePx * 0.45;
   const bodyH = sizePx * 0.50;
@@ -447,7 +461,8 @@ function drawRaceTrack(t) {
     // Running animation phase from this runner's progress
     const running = game.active && r.draw < 1.0;
     const runningPhase = t * 0.012 + r.blink_id * 0.7;
-    drawAvatar(cx, cy, ss(avatarSize), r.blink_id, running, runningPhase);
+    drawAvatar(cx, cy, ss(avatarSize), r.blink_id, running, runningPhase,
+               game.race.hues[r.blink_id]);
     // Phone number label to the right of the avatar
     if (avatarSize >= 18) {
       drawLabel(`#${r.blink_id + 1}`, xScene + 3.5, laneY,

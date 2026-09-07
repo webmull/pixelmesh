@@ -187,6 +187,35 @@ def _room_blink_ids() -> list[int]:
     return [_blink_assignments[dev] for dev, _ in placed]
 
 
+# Warm at one end of the room, cool at the other. Sent with the round rather
+# than worked out by each renderer: the projector and the phone both draw the
+# same character, and the moment they derive its colour separately they drift.
+# They did - the stage started colouring by lane and the phone kept hashing the
+# blink id, so a runner on the big screen no longer matched the avatar in the
+# hand it belonged to. One mapping, here, and both just read it.
+RACE_HUE_FROM = 0.02   # red
+RACE_HUE_TO   = 0.62   # blue
+
+
+def _race_hues(blink_ids: list[int]) -> dict[str, float]:
+    """blink_id -> hue, taken from where the phone is standing.
+
+    Keyed by u, the same fact the lane order comes from, so the field reads as
+    a gradient of the room and neighbours share a colour. A phone with no
+    position (never placed by the camera) is left out, and both renderers fall
+    back to their hash for it, together, so they still agree.
+    """
+    by_blink = {bid: dev for dev, bid in _blink_assignments.items()}
+    hues = {}
+    for bid in blink_ids:
+        pos = _positions.get(by_blink.get(bid))
+        if not pos:
+            continue
+        u = min(1.0, max(0.0, float(pos.get("u", 0.5))))
+        hues[str(bid)] = round(RACE_HUE_FROM + u * (RACE_HUE_TO - RACE_HUE_FROM), 4)
+    return hues
+
+
 async def _start_race_round(payload: dict) -> dict:
     """Each phone in blink_ids starts at position 0.0.  Every tap nudges
     the phone forward by 1/RACE_TAPS_PER_PLAYER.  First to 1.0 wins."""
@@ -211,11 +240,14 @@ async def _start_race_round(payload: dict) -> dict:
     if _enable_sync:
         await _enable_sync()
 
+    hues = _race_hues(blink_ids)
+
     if _broadcast:
         await _broadcast({
             "type":      "race_start",
             "blink_ids": blink_ids,
             "start_at":  int(race_start_at * 1000),
+            "hues":      hues,
         })
 
     _race_progress_task = asyncio.create_task(_race_progress_loop())

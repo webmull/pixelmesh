@@ -91,9 +91,14 @@ class BlockBotsMiddleware(BaseHTTPMiddleware):
 # on the race slide, three seconds in, which is the beat the room needs to be
 # told what is about to happen. It can start a race and nothing else; stopping
 # one still goes through the token, or through /admin/end.
+#
+# /admin/effect/stop likewise, so the deck can put the phones out as it leaves
+# the effects section. Without it the last effect keeps playing in every hand
+# through the video that follows, which is a room full of lit screens during
+# the one slide that wants the room dark. It can only take an effect away.
 _ADMIN_PUBLIC = {"/admin/show_stats", "/admin/overlays", "/admin/end",
                  "/admin/recording", "/admin/recording/latest",
-                 "/admin/game/start"}
+                 "/admin/game/start", "/admin/effect/stop"}
 
 # Admin routes a browser on another origin may call.  Being in here only makes
 # the browser willing to send the request and read the reply; it does NOT
@@ -172,6 +177,7 @@ class AdminTokenMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     asyncio.create_task(reap_dead_clients())
     asyncio.create_task(heart_broadcast_loop())
+    asyncio.create_task(effect_resend_loop())
     yield
     await broadcast({"type": "shutdown"})
 
@@ -527,6 +533,41 @@ async def heart_broadcast_loop():
             print(f"[heart] broadcast loop error: {e}")
 
 
+# How often the current effect is sent again to everyone. Effects are events:
+# a phone applies one when the message arrives and holds it until the next one,
+# so a single miss leaves that phone on the previous effect for the rest of the
+# section. A miss is not hypothetical on a tethered or hotel link - send_text
+# returning only means the bytes reached a buffer, and a socket can be silently
+# dead for far longer than a slide lasts. Re-sending the state fixes it without
+# anyone noticing: rendering is keyed on start_time, an absolute instant, so a
+# phone that already has this effect draws exactly the same frame it would have
+# drawn anyway. Faster for the first few seconds, when a fresh effect is most
+# likely to have been missed and most obviously wrong on screen.
+EFFECT_RESEND_FAST_S  = 1.0
+EFFECT_RESEND_IDLE_S  = 4.0
+EFFECT_RESEND_BURST_S = 6.0
+
+
+async def effect_resend_loop():
+    last = 0.0
+    while True:
+        await asyncio.sleep(EFFECT_RESEND_FAST_S)
+        try:
+            if mode != MODE_SHOWTIME or not current_effect_state:
+                continue
+            now = time.time()
+            age = now - current_effect_state.get("start_time", 0) / 1000
+            due = EFFECT_RESEND_FAST_S if age < EFFECT_RESEND_BURST_S else EFFECT_RESEND_IDLE_S
+            if now - last < due:
+                continue
+            last = now
+            await broadcast(current_effect_state)
+        except Exception as e:
+            # Same reasoning as heart_broadcast_loop: one bad send must not end
+            # the task and leave the room without resends for the whole show.
+            print(f"[effect] resend loop error: {e}", flush=True)
+
+
 async def reap_dead_clients():
     while True:
         await asyncio.sleep(5)
@@ -579,6 +620,11 @@ async def websocket_endpoint(ws: WebSocket):
                         "active":    game.game_active,
                         "mode":      game.game_mode,
                         "positions": {str(b): p for b, p in game.race_positions.items()},
+                        # The stage page is opened fresh every time the deck
+                        # reaches the race slide, which can be mid-round. Without
+                        # the hues here it would fall back to hashed colours for
+                        # everyone while the phones kept the ones they were sent.
+                        "hues":      game._race_hues(list(game.race_positions)),
                     },
                 })
                 continue
@@ -1412,10 +1458,18 @@ async def end_show(request: Request):
 
 
 @app.post("/admin/effect/stop")
-async def effect_stop():
+async def effect_stop(request: Request):
     """Clear any currently-broadcast effect.  Audience clients null out
     currentEffect on receipt so phones go dark instead of rendering the
-    last frame indefinitely."""
+    last frame indefinitely.
+
+    Token-free but LOCAL ONLY, the same exemption /admin/end carries: the deck
+    calls this as it leaves the effects section, so the room goes dark for the
+    video rather than sitting under the last effect. Taking an effect away is
+    the least it could do; putting one up still needs the token.
+    """
+    if not _is_local_request(request):
+        raise HTTPException(403, "this route is only served to local clients")
     global current_effect_state
     current_effect_state = None
     await set_mode(MODE_WAITING)
