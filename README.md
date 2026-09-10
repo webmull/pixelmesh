@@ -252,7 +252,7 @@ pool, and all three have to move together. Changes there want measuring, not rea
 Three generations of one idea, a crowd's phones as pixels:
 
 - **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
-  (Seb Lee-Delisle, 2011) — phones held up and positioned by hand.
+  (Seb Lee-Delisle, 2011) — a crowd's phones held up as one coordinated display.
 - **pixelmesh V1** — AprilTags on lock screens with homography calibration. It worked. Printing
   the tags was the friction.
 - **pixelmesh V2** (this repo) — the phones find themselves. Each screen blinks its ID and one
