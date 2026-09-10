@@ -108,6 +108,26 @@ confidence penalised for every bit it had to assume.
 - **An HTTPS tunnel** (ngrok or equivalent) if phones join over the internet. Phones need a
   secure context; several browser features the client relies on are HTTPS-only.
 
+### Without the hardware
+
+Most of this runs on any machine with Python. Detection is the part that needs the rig.
+
+| Works anywhere | Needs the hardware |
+|----------------|--------------------|
+| Server, phone client, effects | Locating phones with a camera |
+| The full test suite, no camera or network | The Dear PyGui controller window (macOS) |
+| `./sim.sh 12`, a crowd of simulated phones | Elgato exposure lock, MIDI pedal, Spotlight remote |
+| | The avatar race, which needs phones the camera has placed |
+
+`./sim.sh 12 --local` spawns twelve real browser instances against a local server, each with
+its own profile and therefore its own device id, so the server sees twelve genuinely distinct
+phones rather than twelve tabs. Fire effects at them from the controller and you can see most
+of the system work without a camera, a venue or an audience.
+
+The macOS-shaped parts are the controller UI (Dear PyGui), the AVFoundation exposure lock,
+the HID++ Spotlight integration and the zsh scripts. The server and the phone client are
+plain Python and plain web.
+
 ```bash
 pip install -r requirements.txt --break-system-packages
 ./run.sh
@@ -227,7 +247,7 @@ foot pedal; three need a mouse because they take a point or a colour per column.
 python3 -m pytest tests/ -q
 ```
 
-203 tests, no network and no camera required. They cover the Manchester codec round-trip across
+247 tests, no network and no camera required. They cover the Manchester codec round-trip across
 frame rates, the decode pipeline, show state, shutdown behaviour and the admin routes.
 
 Two areas are marked **frozen zone** in the roadmap: the blink protocol and the detection
@@ -244,6 +264,7 @@ pool, and all three have to move together. Changes there want measuring, not rea
 | [docs/operations.md](docs/operations.md) | Debug capture, logs, load testing, crowd simulation, tuning knobs |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is next, and what was deliberately not done |
 | [docs/TODO.md](docs/TODO.md) | Known gaps |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change, and the two files that are frozen |
 
 ---
 
@@ -265,6 +286,38 @@ Three generations of one idea, a crowd's phones as pixels:
 - **Fast join over precision.** A phone joining five seconds late should still play.
 - **Robustness over perfection.** Partial detections, dropped frames and reconnects are the
   norm, not the exception.
+
+---
+
+## Security, and what is deliberately open
+
+Read this before putting the server on anything but loopback.
+
+**Most admin routes need a token.** `run.sh` generates `PIXELMESH_ADMIN_TOKEN` on every
+launch and the controller sends it as `X-Admin-Token`.
+
+**Seven do not.** They are listed in `_ADMIN_PUBLIC` and are guarded by
+`_is_local_request()` instead: `/admin/show_stats`, `/admin/overlays`, `/admin/end`,
+`/admin/recording`, `/admin/recording/latest`, `/admin/game/start` and `/admin/effect/stop`.
+The talk deck driving a show is a static HTML file. It cannot hold a token that is regenerated
+every launch, so these are exempted and the locality check is the only thing in front of them.
+
+**How locality is decided, and where it breaks.** ngrok forwards the public address to
+127.0.0.1, so a tunnelled request also arrives from loopback. The forwarding headers are what
+separate the two, and `_is_local_request()` refuses anything carrying them. That is sound for
+a tunnel that always sets them. It is **not** sound if you bind the server to a LAN address,
+or front it with a reverse proxy that does not set forwarding headers: on that network,
+anyone can end your show, start a race, stop your effects, and read
+`/internal/feed/v1` and `/admin/recording/latest`, which are the live camera and the recording
+of a room full of people.
+
+If you run this anywhere but a laptop at the front of a room, put the whole thing behind
+authentication you control.
+
+**What the audience gives you.** A device id in their own `localStorage`, taps, and a position
+in a camera frame. No accounts, no personal data, and the closing card is rendered from what
+the phone already knows. The recordings on disk are a different matter: they are video of
+identifiable people, they are gitignored for that reason, and they are yours to look after.
 
 ---
 
