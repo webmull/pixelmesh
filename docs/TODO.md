@@ -4,27 +4,23 @@ Findings from a full multi-agent review, verified against source. Ordered by sev
 Items marked **frozen zone** touch `blink_detector.py` / `blink_encoder.py` and need explicit
 sign-off. `file:line` are from the review; re-check before editing.
 
-## Critical — before Brighton
+## Critical
 
-- [ ] **Public exposure of internal/admin surface.** `AdminTokenMiddleware` only guards
-  `/admin/*`; `/internal/feed/v1`, `/internal/feed/ws`, `/internal/dashboard`,
-  `/internal/debug`, and the `/debug-files/*` mount are unauthenticated, and
-  `ngrok.cloud-policy.yml` forwards every path to the agent. While the stack is up, anyone with
-  the URL can watch the audience camera, pull debug videos + calibration logs, and open
-  unlimited MJPEG streams (also a cheap DoS). Fix: gate `/internal/*` + `/debug-files` behind
-  the admin token, or path-allowlist the cloud policy to `/`, `/app`, `/ws`, `/admin/show_stats`.
-  (`server.py:105,812,890,936,978`)
+- [ ] **Operator surface is not behind the admin token.** `AdminTokenMiddleware` covers
+  `/admin/*` only; the rest of the operator surface leans on the deployment being a laptop on
+  loopback, which the README states as a deliberate limit rather than an accident. Fix: gate it
+  behind the admin token, and narrow the tunnel's path allowlist to the audience routes so the
+  edge enforces it too. Worth doing regardless of the token work. (`server.py`,
+  `ngrok.cloud-policy.yml`; see [SECURITY.md](../SECURITY.md))
 - [ ] **Secure `/admin/overlays`.** Added 16 Aug 2026 as a deliberate stopgap so the talk deck
   can turn overlays on when it reaches the camera slide. It is a WRITE route exempt from the
   admin token (`_ADMIN_PUBLIC`), because a static HTML file cannot hold a token that `run.sh`
-  regenerates every launch. Not wide open: `_is_local_request()` serves only loopback clients
-  with no ngrok forwarding headers, so tunnelled traffic gets a 403. But any page open in a
-  browser on the show laptop can still poke it, since CORS is `*` and a preflight succeeds for
-  any origin. Blast radius is cosmetic — device markers flicker on the feed; it cannot stop
-  detection or recording. Fix properly by either serving the deck from the pixelmesh server so
-  it is same-origin and can be handed a token, or having `run.sh` write a per-session token
-  where the deck can read it. The path-allowlist in the item above would also block it at the
-  ngrok edge, which is worth doing regardless. (`server.py` `_ADMIN_PUBLIC`, `set_overlays`)
+  regenerates every launch. `_is_local_request()` is the only thing in front of it, and that
+  check is weaker than a token. Blast radius is cosmetic: device markers flicker on the feed,
+  it cannot stop detection or recording. Fix properly by either serving the deck from the
+  pixelmesh server so it is same-origin and can be handed a token, or having `run.sh` write a
+  per-session token where the deck can read it. The path-allowlist in the item above helps at
+  the edge too. (`server.py` `_ADMIN_PUBLIC`, `set_overlays`)
 - [ ] **Video recording freezes the app on a slow/full disk.** `video_recorder.record()` writes
   full raw frames to ffmpeg stdin synchronously on the render thread, no writer thread; a wedged
   (not dead) ffmpeg blocks the pipe forever, freezing camera + projection + detection. Only
@@ -129,9 +125,8 @@ sign-off. `file:line` are from the review; re-check before editing.
 
 ## Low
 
-- [ ] Fix the 2 failing tests (`tests/test_server_pool.py`) — **test bug**: they write
-  `blink_assignments` directly and bypass the `blink_reverse` index from `a57aa02`. Write both
-  dicts (or a helper). Also: file `sys.exit`s at import without `PIXELMESH_ADMIN_TOKEN`.
+- [x] The 2 failing `tests/test_server_pool.py` cases are fixed; the suite is green at 247
+  passed, 2 skipped with no environment set (`tests/conftest.py` supplies the import guards).
 - [x] `"PixelMesh V2"` casing fixed everywhere (the line-6 title was already lowercase; the h1 and five source headers were not).
 - [ ] `state.*` reads outside `state.lock` (GIL-atomic, benign) — tidy for discipline.
   (`controller.py:945-948,981,1262,1390,1496,2413,2742`)
