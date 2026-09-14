@@ -37,12 +37,14 @@ games and a post-show report.
 
 - [How detection works](#how-detection-works) — the interesting part
 - [Quick start](#quick-start)
+- [The controller](#the-controller)
 - [HTTP API](#http-api)
 - [Architecture](#architecture)
 - [Effects](#effects)
 - [Development](#development)
 - [Documentation](#documentation)
 - [Origins](#origins)
+- [Security](#security-and-what-is-deliberately-open)
 - [Status and licence](#status-and-licence)
 
 ---
@@ -107,6 +109,10 @@ confidence penalised for every bit it had to assume.
   for the blink and flattens it. An Elgato Facecam 4K is auto-selected if present.
 - **An HTTPS tunnel** (ngrok or equivalent) if phones join over the internet. Phones need a
   secure context; several browser features the client relies on are HTTPS-only.
+- **`tmux`.** `run.sh` wraps itself in a session named `pixelmesh` and will not start without
+  it. `brew install tmux`.
+- **`hidapi`**, only if you want the Spotlight remote's ISO trim. `brew install hidapi`, which
+  the `hid` package in `requirements.txt` binds to. Everything else runs without it.
 
 ### Without the hardware
 
@@ -158,6 +164,47 @@ polling twice a second for up to 10 s before launching anyway.
 | `/internal/dashboard` | Admin dashboard |
 | `/internal/feed/v1` | Live camera feed. A canvas viewer in browsers, raw MJPEG to curl |
 | `/internal/debug` | Debug runs: annotated video and calibration logs |
+
+---
+
+## The controller
+
+The operator window is a Dear PyGui app. The camera feed fills it, overlays are drawn onto
+the frame with cv2 rather than as UI widgets, and `Tab` shows or hides a sidebar that floats
+over the preview instead of reflowing it. The sidebar has three tabs:
+
+| Tab | Holds |
+|-----|-------|
+| `SCENE` | Camera Hub exposure and ISO, frame ROI trim, capture and recording, remote and pedal status |
+| `RUN` | Detection start and stop, server reset, the effect buttons, end of show |
+| `GAME` | The rope climb race and the hearts counter |
+
+There is no mouse-only path through a show. Every control that matters during one is also on
+a key, a MIDI pedal or the Spotlight remote, because the operator is usually standing away
+from the laptop.
+
+| Key | Action |
+|-----|--------|
+| `D` | Start or stop detection |
+| `S` | Start or stop clock sync |
+| `R` | Reset the server: drop every phone, clear positions, fresh run |
+| `V` | Start or stop video recording |
+| `G` | Debug capture on or off |
+| `H` | Hide or show all overlays |
+| `O` | Device marker overlay |
+| `P` | Cycle overlay mode |
+| `F` | Flip the projection |
+| `Tab` | Collapse or expand the sidebar |
+| `Q` | Quit |
+
+Two hardware inputs sit alongside the keys. An Akai LPD8 pedal fires effects and toggles
+detection without looking down, and a Logitech Spotlight remote trims camera ISO from the
+floor mid-show. Both are optional: `midi.py` and `presenter.py` report as disconnected and
+everything else carries on.
+
+The HUD text is rendered with cv2 onto the camera frame, not by Dear PyGui, which is why
+every string reaching it has to be plain ASCII. See
+[CONTRIBUTING.md](CONTRIBUTING.md#what-good-looks-like).
 
 ---
 
@@ -265,6 +312,7 @@ pool, and all three have to move together. Changes there want measuring, not rea
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What is next, and what was deliberately not done |
 | [docs/TODO.md](docs/TODO.md) | Known gaps |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change, and the two files that are frozen |
+| [SECURITY.md](SECURITY.md) | How to report a vulnerability, and which gaps are already known |
 
 ---
 
@@ -313,6 +361,11 @@ of a room full of people.
 
 If you run this anywhere but a laptop at the front of a room, put the whole thing behind
 authentication you control.
+
+**Found something.** Report it privately through the
+[Security tab](https://github.com/webmull/pixelmesh/security/advisories/new), not a public
+issue. [SECURITY.md](SECURITY.md) covers what is worth reporting and what is already a known
+and deliberate trade.
 
 **What the audience gives you.** A device id in their own `localStorage`, taps, and a position
 in a camera frame. No accounts, no personal data, and the closing card is rendered from what
