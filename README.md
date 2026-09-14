@@ -114,6 +114,45 @@ confidence penalised for every bit it had to assume.
 - **`hidapi`**, only if you want the Spotlight remote's ISO trim. `brew install hidapi`, which
   the `hid` package in `requirements.txt` binds to. Everything else runs without it.
 
+### Recommended hardware
+
+This is the rig the code is shaped around. Only the first two are needed to run a show. The
+rest exist because of a specific thing that went wrong in a room.
+
+**Camera: Elgato Facecam 4K.** Auto-selected when present. Detection reads a phone as a
+*change* in brightness, which makes auto-exposure the enemy: it hunts for the flicker and
+flattens the thing being measured. This camera is the recommendation despite being awkward
+about it. Its firmware runs an internal AE loop and ignores both the OpenCV and the
+AVFoundation exposure locks, so the only reliable way to pin exposure is Elgato Camera Hub.
+`elgato.py` talks to Camera Hub over its local WebSocket API, re-disables AE every 5 s when
+Camera Hub flips it back on by itself, and exposes live ISO. What you get in exchange is
+exposure that does not move for the length of a show.
+
+Any wired USB webcam works. Other cameras get `AVCaptureExposureModeLocked` at startup,
+re-applied if fps drifts, and no ISO control. Resolution matters far less than holding
+exposure still: 1080p that does not drift beats 4K that does.
+
+**Laptop: a Mac.** The controller UI (Dear PyGui), the AVFoundation exposure lock, the HID++
+Spotlight integration and the zsh scripts are all macOS-shaped. The server and the phone
+client are plain Python and plain web and run anywhere.
+
+**Remote: Logitech Spotlight 2.** ISO is set automatically around the detection toggle, 35
+while detecting and 100 at showtime, which leaves the manual override on a slider at the
+laptop. That is the wrong place for it. A room changes exposure when it fills up, and by
+then you are standing in front of it. The Spotlight puts the trim in your hand: one control
+each way, one buzz for up and two for down, so the direction is confirmed without looking at
+anything. `tools/presenter_probe.py` records how the HID++ side was worked out.
+
+**Footswitch: BOSS FS-1-WL.** Three switches, hands-free: a fresh detection run, cycle
+effects, and hide or show the camera overlays. It is wireless and may wake after the app
+starts, so the port scanner retries every 5 s in the background rather than giving up at
+boot. The switch messages differ by power-on mode, so mappings are learned once with
+`python3 midi.py --learn` and stored in `midi_map.json`, not hardcoded.
+
+**Projector, connected before `run.sh`.** The stage view is a browser page. Plug the display
+in first and stop the controller before unplugging it: disconnecting a display while the
+controller runs wedges the GUI, because GLFW does not survive macOS display reconfiguration.
+
 ### Without the hardware
 
 Most of this runs on any machine with Python. Detection is the part that needs the rig.
@@ -197,10 +236,11 @@ from the laptop.
 | `Tab` | Collapse or expand the sidebar |
 | `Q` | Quit |
 
-Two hardware inputs sit alongside the keys. An Akai LPD8 pedal fires effects and toggles
-detection without looking down, and a Logitech Spotlight remote trims camera ISO from the
-floor mid-show. Both are optional: `midi.py` and `presenter.py` report as disconnected and
-everything else carries on.
+Two hardware inputs sit alongside the keys, both hands-free by design, because the operator
+is in a dark room and cannot read a screen. A BOSS FS-1-WL wireless footswitch carries the
+three most show-useful actions, and a Logitech Spotlight 2 trims camera ISO from the floor.
+Both are optional: `midi.py` and `presenter.py` report as disconnected and everything else
+carries on. See [Recommended hardware](#recommended-hardware).
 
 The HUD text is rendered with cv2 onto the camera frame, not by Dear PyGui, which is why
 every string reaching it has to be plain ASCII. See
@@ -318,8 +358,33 @@ pool, and all three have to move together. Changes there want measuring, not rea
 
 ## Origins
 
-Three generations of one idea, a crowd's phones as pixels:
+### Why this exists
 
+A side project, built solo by Adam Davis and tested in front of real audiences rather than
+in a lab.
+
+If you have been to an arena show in the last decade you have probably worn a PixMob
+wristband: an LED band handed out at the door, driven by infrared from the lighting rig so a
+whole stadium can be painted on cue. They work beautifully and they need a supply chain.
+Someone has to manufacture them, ship them, hand them out and sweep them up again, for every
+show, on every date of a tour.
+
+The question behind pixelmesh is whether you can get there with the device everyone already
+brought. A phone is a brighter, higher resolution, individually addressable pixel that also
+has a clock, a network connection and a speaker, and nobody has to distribute it. The one
+thing it does not have is a **position**. A wristband is located because the lighting desk
+knows which block it was given to. A phone in a room is not located at all.
+
+So the whole problem collapses into one question: where is each phone, without asking anyone
+to do anything about it. That question is what this repository answers.
+
+### What came before
+
+A crowd's screens as pixels, and where this one picks up:
+
+- **[Junkyard Jumbotron](https://github.com/c4fcm/Junkyard-Jumbotron)**
+  (MIT Media Lab, 2011) — mismatched, unmodified screens stitched into one display by a
+  server-driven calibration pattern.
 - **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
   (Seb Lee-Delisle, 2011) — a crowd's phones held up as one coordinated display.
 - **pixelmesh V1** — AprilTags on lock screens with homography calibration. It worked. Printing
