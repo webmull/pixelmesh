@@ -708,6 +708,14 @@ def no_camera_canvas() -> np.ndarray:
 # Detection overlay helpers
 # ------------------------------------------------------------------ #
 
+# BGR. The project red, #e40014, which reads on a bright phone screen and
+# still carries on the dark of a room.
+_BADGE_TEXT = (20, 0, 228)
+# Stroke width. At 0.9 scale a single-pixel stroke looks thin and washes out
+# against a bright screen, which is the background this has to survive.
+_BADGE_WEIGHT = 2
+
+
 def draw_device_overlay(canvas: np.ndarray, flipped: bool = False):
     """Draw the per-phone ID badge.  When `flipped`, the canvas has
     already been mirrored, so we invert x to land each badge over the
@@ -742,19 +750,29 @@ def draw_device_overlay(canvas: np.ndarray, flipped: bool = False):
         if flipped:
             px = PREVIEW_WIDTH - 1 - px
         label = str(render_map[blink_id]) if show_render else str(blink_id + 1)
-        font_scale = 0.55
-        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, 1)
-        pad = 5
+        # Bigger than the detector's 0.55, and deliberately so. This badge is
+        # read off a projected camera image by someone at the back of a room,
+        # not off a monitor at arm's length.
+        font_scale = 0.9
+        (tw, th), _ = cv2.getTextSize(label, FONT, font_scale, _BADGE_WEIGHT)
+        pad = 9
         x1, y1 = px - tw // 2 - pad, py - th // 2 - pad - 1
         x2, y2 = px + tw // 2 + pad, py + th // 2 + pad + 1
         # Kept in step with _draw_id_box in blink_detector.draw_overlay - the
         # detection labels and these badges are meant to look identical.
         # No fill: the badge is a green outline over the live camera image, so
         # the phone underneath stays visible through it.
+        #
+        # Which is exactly why the number is red rather than white. With no
+        # fill behind it the text sits straight on whatever the camera sees,
+        # and the thing it sits on is usually a phone screen at full
+        # brightness: white on white, invisible at the moment it matters most.
+        # The detector's own labels stay white because they are drawn on a dark
+        # filled box, so they never had this problem.
         rounded_box(canvas, (x1, y1), (x2, y2),
-                    border=(0, 220, 80), thickness=2)
+                    border=(0, 220, 80), thickness=3)
         cv2.putText(canvas, label, (px - tw // 2, py + th // 2),
-                    FONT, font_scale, (255, 255, 255), 1, cv2.LINE_AA)
+                    FONT, font_scale, _BADGE_TEXT, _BADGE_WEIGHT, cv2.LINE_AA)
 
 
 def _overlays_on() -> bool:
