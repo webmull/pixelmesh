@@ -708,9 +708,8 @@ def no_camera_canvas() -> np.ndarray:
 # Detection overlay helpers
 # ------------------------------------------------------------------ #
 
-# BGR. The project red, #e40014, which reads on a bright phone screen and
-# still carries on the dark of a room.
-_BADGE_TEXT = (20, 0, 228)
+# BGR. White, to match the detector's own ID labels.
+_BADGE_TEXT = (255, 255, 255)
 # Stroke width. At 0.9 scale a single-pixel stroke looks thin and washes out
 # against a bright screen, which is the background this has to survive.
 _BADGE_WEIGHT = 2
@@ -761,14 +760,9 @@ def draw_device_overlay(canvas: np.ndarray, flipped: bool = False):
         # Kept in step with _draw_id_box in blink_detector.draw_overlay - the
         # detection labels and these badges are meant to look identical.
         # No fill: the badge is a green outline over the live camera image, so
-        # the phone underneath stays visible through it.
-        #
-        # Which is exactly why the number is red rather than white. With no
-        # fill behind it the text sits straight on whatever the camera sees,
-        # and the thing it sits on is usually a phone screen at full
-        # brightness: white on white, invisible at the moment it matters most.
-        # The detector's own labels stay white because they are drawn on a dark
-        # filled box, so they never had this problem.
+        # the phone underneath stays visible through it. The number is white,
+        # like the detector's labels; the heavier stroke is what keeps it
+        # legible where it lands on a bright phone screen.
         rounded_box(canvas, (x1, y1), (x2, y2),
                     border=(0, 220, 80), thickness=3)
         cv2.putText(canvas, label, (px - tw // 2, py + th // 2),
