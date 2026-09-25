@@ -316,6 +316,13 @@ html, body {
   70% { opacity: 1; }
   100% { opacity: 1; }
 }
+/* motocon: likes hidden. A few hundred phones on the like button is the one
+   load path this rig has never carried (every change of the count fans out to
+   every phone up to three times a second, and each message forces a repaint),
+   and the deck for this show does not use the number. Hidden here, and off on
+   the server, rather than removed: main keeps the feature. */
+#likeBtn, #likeCount, #likeHint { display: none !important; }
+
 #likeBtn {
   /* Centre the like cluster in the free space between the quote box
      and the status bar (paired with #likeHint's margin-bottom) */

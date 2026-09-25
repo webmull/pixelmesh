@@ -211,6 +211,10 @@ projector to display it.
 
 ### 5. Likes
 
+**On the `motocon` branch the like button is hidden on every phone and likes are off by default**
+(a stray tap changes nothing). A few hundred phones on the like button is the one load path this
+rig has never carried, and the MotoCon deck does not show the count. `main` keeps the feature.
+
 A global like counter on the waiting screen. Tap the thumbs-up to add to it, and flying heart
 animations play locally. Taps are batched server-side at roughly three broadcasts per second so
 simultaneous taps from 300 people don't flood connections.

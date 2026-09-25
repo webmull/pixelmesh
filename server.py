@@ -245,7 +245,7 @@ def server_is_stale() -> bool:
 # Last-broadcast effect, replayed to clients that connect mid-session.
 current_effect_state: dict | None = None
 like_count: int    = 0
-like_enabled: bool = True
+like_enabled: bool = False   # motocon: off by default, see public/app.html
 _heart_dirty: bool  = False   # pending broadcast from tap accumulation
 
 
