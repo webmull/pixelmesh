@@ -993,6 +993,13 @@ async def show_stats():
     # latecomer's connection tick the count up under an audience.
     if show_totals:
         return {**show_totals,
+                # Likes stay live even here. The snapshot exists to hold the
+                # audience size and detection times still while people leave;
+                # likes only ever rise, so freezing them protects nothing, and
+                # it hid the count from the join slide between a rehearsal's
+                # /admin/end and the show's first detection run - exactly when
+                # the room was tapping.
+                "like_count":    like_count,
                 "connected_now": len(live_devices()),
                 "spectators":    len(spectators),
                 "detecting":     detection_active,

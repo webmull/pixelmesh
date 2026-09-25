@@ -345,3 +345,45 @@ class TestLiveness:
         srv.blink_assignments["new-identity"] = 2
 
         assert asyncio.run(srv.blink_map()) == {"map": {"2": "new-identity"}}
+
+
+# ------------------------------------------------------------------ #
+# Likes stay live across /admin/end
+# ------------------------------------------------------------------ #
+
+def _local_post(path):
+    """A request the locality check accepts: loopback client, no forwarding
+    headers - what the deck's fetch to localhost looks like to the server."""
+    from starlette.requests import Request
+    return Request({
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+        "method": "POST", "path": path, "raw_path": path.encode(),
+        "query_string": b"", "root_path": "", "scheme": "http",
+        "client": ("127.0.0.1", 40000), "server": ("127.0.0.1", 16924),
+        "headers": [],
+    })
+
+
+class TestLikesAfterEnd:
+    """The frozen snapshot /admin/end leaves behind held like_count too, so
+    from a rehearsal's end until the show's first detection run the join
+    slide read a stale number while the room tapped. Audience size and
+    detection times are settled facts once a show ends; likes only ever
+    rise, so they are served live on both paths."""
+
+    def test_taps_after_end_still_move_the_count(self):
+        srv = fresh_server()
+        srv.like_count = 7
+        asyncio.run(srv.end_show(_local_post("/admin/end")))
+        assert srv.show_totals, "end_show should have frozen the snapshot"
+        srv.like_count += 2656            # the room finds the tap button
+        assert stats(srv)["like_count"] == 2663
+
+    def test_snapshot_still_holds_the_audience_size(self):
+        srv = fresh_server()
+        srv.blink_assignments.update({f"dev{i}": i for i in range(12)})
+        asyncio.run(srv.end_show(_local_post("/admin/end")))
+        srv.blink_assignments.clear()      # everyone leaves after the end
+        s = stats(srv)
+        assert s["total_connected"] == 12  # the show's size, not the room's now
+        assert s["like_count"] == 0
