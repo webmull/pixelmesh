@@ -9,7 +9,7 @@ tunnels:
   # line back to:  hostname: pixelmesh.show
   audience:
     proto: http
-    addr: 8000
+    addr: 16924
     hostname: pixelmesh-agent.internal
     inspect: false
     compression: true

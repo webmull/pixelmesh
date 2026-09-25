@@ -36,7 +36,7 @@ _PUBLIC_DIR = os.path.join(_BASE_DIR, "public")
 
 _ADMIN_TOKEN = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")
 if not _ADMIN_TOKEN:
-    # Admin routes are otherwise unauthenticated on 0.0.0.0:8000.  run.sh
+    # Admin routes are otherwise unauthenticated on 0.0.0.0:16924.  run.sh
     # always sets the token before launch; refuse to start without it so
     # nobody accidentally exposes /admin/* by running uvicorn directly.
     print("PIXELMESH_ADMIN_TOKEN is empty — refusing to start (run via run.sh)",
@@ -112,7 +112,7 @@ def _is_local_request(request: Request) -> bool:
     """True only for a request that originated on this machine.
 
     Loopback alone does not prove it. ngrok forwards the public
-    pixelmesh.show to 127.0.0.1:8000, so tunnelled traffic also arrives from
+    pixelmesh.show to 127.0.0.1:16924, so tunnelled traffic also arrives from
     a loopback address - and the traffic policy forwards every path, so
     /admin/* is reachable from the internet. The forwarding headers are what
     separate the two, and ngrok always sets them.
@@ -1128,7 +1128,7 @@ async def set_mode_request(payload: dict):
 async def set_overlays(request: Request):
     """Turn the device overlay on or off. Token-free, but local only.
 
-        curl -X POST http://localhost:8000/admin/overlays \\
+        curl -X POST http://localhost:16924/admin/overlays \\
              -H 'Content-Type: application/json' -d '{"enabled": true}'
 
     Exists for the talk deck, which turns overlays on when it reaches the
@@ -1176,7 +1176,7 @@ _REC_DIR = os.path.join(_BASE_DIR, "debug", "recordings")
 async def set_recording_request(request: Request):
     """Start or stop the recording. Token-free, but LOCAL ONLY.
 
-        curl -X POST http://localhost:8000/admin/recording \\
+        curl -X POST http://localhost:16924/admin/recording \\
              -H 'Content-Type: application/json' -d '{"enabled": true}'
 
     Same compromise, and the same shape, as /admin/overlays: the recorder lives

@@ -70,11 +70,10 @@ sign-off. `file:line` are from the review; re-check before editing.
 - [ ] **MJPEG stream gzipped level-9 on the event loop.** starlette 1.3.1 compresses streaming
   responses; every JPEG per viewer deflates in the send path, stealing loop time from the
   broadcast. Fix: exclude the feed from GZipMiddleware. (`server.py:894-897`)
-- [ ] **`run.sh` reload can kill the projector / misjudge liveness.**
-  `lsof -ti tcp:8000 | xargs kill -9` kills whatever is *connected* to :8000 (projection
-  browser holding the feed); `pgrep/pkill -f controller.py` substring-matches `vim controller.py`
-  or a second checkout. Fix: kill by listener PID only; tighten pgrep patterns.
-  (`run.sh:66-67,115-118`)
+- [ ] **`run.sh` reload can misjudge liveness.** `pgrep/pkill -f controller.py`
+  substring-matches `vim controller.py` or a second checkout. Fix: tighten pgrep patterns.
+  (The other half of this, `lsof -ti tcp:<port> | xargs kill -9` killing whatever was
+  *connected* to the port, projection browser included, is done: it kills listeners only.)
 - [ ] **Zombie phone sockets after a broadcast timeout.** A send-timeout drops a phone but the
   wedged transport also times out the fire-and-forget close; the ping handler only refreshes
   `last_seen` without re-adding to `connections`, so the phone pings forever, receives nothing,

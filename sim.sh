@@ -13,8 +13,8 @@
 #
 #    ./sim.sh              # 2 phones against pixelmesh.show
 #    ./sim.sh 12           # 12 phones
-#    ./sim.sh 6 --local    # against http://127.0.0.1:8000
-#    ./sim.sh 6 --url http://192.168.1.20:8000
+#    ./sim.sh 6 --local    # against http://127.0.0.1:16924
+#    ./sim.sh 6 --url http://192.168.1.20:16924
 #    ./sim.sh --kill       # stop every sim phone
 #    ./sim.sh 40 --fill    # tile edge to edge (load/UI work, not detection)
 #    ./sim.sh 20 --jitter  # phones drift a few px, like hands that aren't still
@@ -49,7 +49,7 @@ while (( $# )); do
     ''|*[!0-9]*)
       case "$1" in
         --url)     URL="$2"; shift 2 ;;
-        --local)   URL="http://127.0.0.1:8000"; shift ;;
+        --local)   URL="http://127.0.0.1:${PIXELMESH_PORT:-16924}"; shift ;;
         --gap)     GAP="$2"; shift 2 ;;
         --fresh)   FRESH=1; shift ;;
         --detach)  DETACH=1; shift ;;

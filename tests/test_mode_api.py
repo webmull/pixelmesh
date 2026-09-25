@@ -260,7 +260,7 @@ def call(srv, method, path, headers=None, body=b"{}", client=("127.0.0.1", 12345
         "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
         "method": method, "path": path, "raw_path": path.encode(),
         "query_string": b"", "root_path": "", "scheme": "http",
-        "client": client, "server": ("127.0.0.1", 8000),
+        "client": client, "server": ("127.0.0.1", 16924),
         "headers": [(k.lower().encode(), v.encode()) for k, v in hdrs.items()],
     }
     asyncio.run(srv.app(scope, receive, send))

@@ -96,6 +96,16 @@ debug/autumn-fox-42/
     0000.json         ← grid point brightness data
 ```
 
+### The server port
+
+The server listens on **16924**. `run.sh` exports it as `PIXELMESH_PORT` and the controller,
+`sim.sh` and the health wait read it; `ngrok.pixelmesh.yml` carries the literal. It is not
+8000 on purpose: a dev server from another project left on 8000 took a show's audience tunnel
+with it (ngrok dials `localhost:<port>`, and a loopback bind beats the wildcard one), and the
+controller logged thousands of 404s asking a Laravel app for `/admin/mode`. `run.sh` now
+refuses to start if the port is held and prints who holds it. The talk decks hardcode
+`localhost:16924` and must match.
+
 ### Logs
 
 | File | Contents |
@@ -132,7 +142,7 @@ Universal Gateway, Endpoints, `pixelmesh.show`, Traffic Policy).
 | Traffic policy | Pasted from `ngrok.cloud-policy.yml` | `forward-internal` to the agent; holding page when the forward fails **or** returns a 5xx (agent up, app closed) |
 | Internal endpoint `pixelmesh-agent.internal` | Claimed by the agent at start | Private rendezvous between edge and laptop, not publicly reachable |
 | Agent authtoken | `~/Library/Application Support/ngrok/ngrok.yml` | Default agent config; `run.sh` passes it alongside the project config |
-| Tunnel definition | `ngrok.pixelmesh.yml` | Binds the internal endpoint to `localhost:8000`, inspection off, compression on |
+| Tunnel definition | `ngrok.pixelmesh.yml` | Binds the internal endpoint to `localhost:16924`, inspection off, compression on |
 
 **One-time setup on a new ngrok account:**
 
@@ -177,7 +187,7 @@ Windows open in app mode (no tab strip, no URL bar) and tile across every displa
 ```
 ./sim.sh                # 2 phones against pixelmesh.show
 ./sim.sh 20             # 20 phones
-./sim.sh 6 --local      # against http://127.0.0.1:8000
+./sim.sh 6 --local      # against http://127.0.0.1:16924
 ./sim.sh --kill         # stop the crowd
 ./sim.sh 40 --fill      # tile edge to edge: load and UI work only, not detection
 ./sim.sh 20 --jitter    # phones drift a few px, like hands that are not still

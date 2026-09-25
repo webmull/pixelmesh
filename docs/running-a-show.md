@@ -98,6 +98,12 @@ unplugging. If it happens mid-show, a watchdog in `run.sh` notices a dead contro
 and restarts it automatically, bounded at 3 restarts per 60 s and then giving up loudly in
 `/tmp/pixelmesh-controller.log` so a crash-loop is visible. `r` remains the manual fallback.
 
+**Nothing else on the server port.** The server listens on 16924 (`PIXELMESH_PORT`), and
+`run.sh` refuses to start if another process holds it, naming the process. A dev server from
+another project on the same port does not fail loudly: ngrok dials `localhost:<port>`, and the
+phones are served that project's site instead of the show. Stop it first. The talk decks reach
+the server at `localhost:16924`.
+
 ### 2. Detection
 
 Press **D** to start detection. The camera decodes each blinking screen and maps it to a
@@ -208,6 +214,10 @@ projector to display it.
 A global like counter on the waiting screen. Tap the thumbs-up to add to it, and flying heart
 animations play locally. Taps are batched server-side at roughly three broadcasts per second so
 simultaneous taps from 300 people don't flood connections.
+
+The count on the deck's join slide is live even after a rehearsal has been ended with
+`/admin/end`. It used to freeze at the rehearsal's number until the show's first detection
+run, which is exactly when the room is tapping.
 
 **Sidebar controls:** Reset Like Counter, Enable/Disable Likes
 

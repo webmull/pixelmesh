@@ -13,7 +13,7 @@
 # Three states are covered:
 #   1. Agent offline (tunnel not running): forward-internal fails ->
 #      on_error: continue -> request-phase holding page.
-#   2. Agent up but app closed (server.py not on :8000): the forward
+#   2. Agent up but app closed (server.py not on :16924): the forward
 #      "succeeds" and ngrok's upstream error (a 5xx) comes back through
 #      the tunnel -> the on_http_response rule replaces it.
 #   3. Everything up: the app streams through untouched.

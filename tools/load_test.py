@@ -148,7 +148,7 @@ async def monitor_server(samples: list, stop: asyncio.Event):
 async def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--clients", type=int, default=500)
-    ap.add_argument("--host", default="127.0.0.1:8000",
+    ap.add_argument("--host", default="127.0.0.1:16924",
                     help="host[:port], or a bare domain with --wss")
     ap.add_argument("--wss", action="store_true",
                     help="connect wss:// (TLS) - use for the public domain")

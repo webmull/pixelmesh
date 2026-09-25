@@ -409,6 +409,15 @@ Read this before putting the server on anything but loopback.
 **Most admin routes need a token.** `run.sh` generates `PIXELMESH_ADMIN_TOKEN` on every
 launch and the controller sends it as `X-Admin-Token`.
 
+**The server listens on 16924, not 8000.** `run.sh` exports `PIXELMESH_PORT` (default
+16924, which is P-I-X) and everything local reads it: the controller, `sim.sh`, the health
+wait. The ngrok tunnel definition carries the literal. The number is deliberately one nothing
+else defaults to. 8000 is every framework's dev port, and a server from another project left
+on it takes the show with it: ngrok dials `localhost:<port>`, a loopback bind beats the
+wildcard one, and every phone is served that project's site with no error anywhere. `run.sh`
+refuses to start if anything else holds the port and names the process. The talk decks
+hardcode the address, so a port change has to be made there too.
+
 **Seven do not.** They are listed in `_ADMIN_PUBLIC` and are guarded by
 `_is_local_request()` instead: `/admin/show_stats`, `/admin/overlays`, `/admin/end`,
 `/admin/recording`, `/admin/recording/latest`, `/admin/game/start` and `/admin/effect/stop`.
@@ -416,7 +425,7 @@ The talk deck driving a show is a static HTML file. It cannot hold a token that 
 every launch, so these are exempted and the locality check is the only thing in front of them.
 
 **How locality is decided, and where it breaks.** ngrok forwards the public address to
-127.0.0.1, so a tunnelled request also arrives from loopback. The forwarding headers are what
+127.0.0.1:16924, so a tunnelled request also arrives from loopback. The forwarding headers are what
 separate the two, and `_is_local_request()` refuses anything carrying them. That is sound for
 a tunnel that always sets them. It is **not** sound if you bind the server to a LAN address,
 or front it with a reverse proxy that does not set forwarding headers: on that network,

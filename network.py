@@ -6,7 +6,7 @@ import requests
 
 from log import log
 
-SERVER_BASE = "http://localhost:8000"
+SERVER_BASE = "http://localhost:" + os.environ.get("PIXELMESH_PORT", "16924")
 
 session = requests.Session()
 _token = os.environ.get("PIXELMESH_ADMIN_TOKEN", "")

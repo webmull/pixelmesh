@@ -4,6 +4,12 @@
 
 cd "$(dirname "$0")"
 
+# The server's port. Not 8000: that is every framework's default, and a dev
+# server from another project left on it takes the audience tunnel with it -
+# ngrok dials localhost:<port>, and a loopback bind beats the wildcard one, so
+# the phones get that project's site and no error anywhere. 16924 is P-I-X.
+export PIXELMESH_PORT="${PIXELMESH_PORT:-16924}"
+
 # ─────────────────────────────────────────────
 #  Wrap in tmux so the session persists across
 #  detach/attach.
@@ -87,7 +93,7 @@ status_line() {
   local clients=""
   if [[ -n $srv ]]; then
     local count
-    count=$(curl -s --max-time 1 -H "X-Admin-Token: $PIXELMESH_ADMIN_TOKEN" http://localhost:8000/admin/clients 2>/dev/null | grep -o '"clients":[0-9]*' | grep -o '[0-9]*')
+    count=$(curl -s --max-time 1 -H "X-Admin-Token: $PIXELMESH_ADMIN_TOKEN" http://localhost:$PIXELMESH_PORT/admin/clients 2>/dev/null | grep -o '"clients":[0-9]*' | grep -o '[0-9]*')
     [[ -n $count ]] && clients="  ${DIM}(${count} connected)${RESET}"
   fi
 
@@ -99,7 +105,7 @@ status_line() {
     echo "  ${DIM}last started  $LAST_STARTED${RESET}"
     echo ""
   fi
-  echo "  ${DIM}feed     → http://localhost:8000/internal/feed/v1${RESET}"
+  echo "  ${DIM}feed     → http://localhost:$PIXELMESH_PORT/internal/feed/v1${RESET}"
   echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
   echo ""
 }
@@ -173,7 +179,7 @@ kill_all() {
 
   # Last resort for the port itself: a stray listener that is none of the
   # above still blocks the next start.
-  lsof -ti tcp:8000 | xargs kill -9 2>/dev/null || true
+  lsof -ti "tcp:$PIXELMESH_PORT" -sTCP:LISTEN | xargs kill -9 2>/dev/null || true
   sleep 0.3
 }
 
@@ -237,6 +243,21 @@ start_all() {
     sleep 2
   fi
 
+  # Refuse to start over someone else's listener. Before the bespoke port
+  # this was the failure that ends a show before it starts: a dev server from
+  # another project sat on the same port, ngrok dialled it, and every phone
+  # was served that project's site with no error anywhere. Starting uvicorn
+  # anyway just fails "address in use" after the health wait times out, which
+  # is the same outcome with less to go on.
+  local holder
+  holder=$(lsof -nP -iTCP:"$PIXELMESH_PORT" -sTCP:LISTEN 2>/dev/null \
+             | awk 'NR>1 {print $1" (pid "$2")"}' | sort -u | tr '\n' ' ')
+  if [[ -n $holder ]]; then
+    echo "${R}  port $PIXELMESH_PORT is already held by: ${holder}${RESET}"
+    echo "${R}  not starting - the audience tunnel would reach that instead of pixelmesh${RESET}"
+    return 1
+  fi
+
   echo "${Y}→ Starting server...${RESET}"
   # --ws-per-message-deflate false: uvicorn's default keeps ~163KB of zlib
   #   state per connection (~41MB at 250 phones) and per-connection deflate on
@@ -248,7 +269,7 @@ start_all() {
   #   default was just an oversized buffering ceiling per socket.
   # --no-access-log: the controller polls admin routes ~5 req/s all show;
   #   each poll was a synchronous log write on the event loop.
-  $PYTHON -m uvicorn server:app --host 0.0.0.0 --port 8000 \
+  $PYTHON -m uvicorn server:app --host 0.0.0.0 --port "$PIXELMESH_PORT" \
     --ws-per-message-deflate false --ws-max-size 1048576 --no-access-log \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
@@ -269,7 +290,7 @@ start_all() {
 
   echo "${Y}→ Starting controller...${RESET}"
   local i=0
-  while ! curl -s --max-time 1 http://localhost:8000/health &>/dev/null && (( i < 20 )); do
+  while ! curl -s --max-time 1 http://localhost:$PIXELMESH_PORT/health &>/dev/null && (( i < 20 )); do
     sleep 0.5; (( i++ ))
   done
   launch_controller
