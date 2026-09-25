@@ -1133,7 +1133,8 @@ def update_ui_from_state():
     safe_set("iso_hint_text",    _iso_hint)
     ui_queue.put(("_iso_hint_show", bool(_iso_hint)))
     _safe_set_chk("chk_detection",    detecting)
-    _safe_set_chk("chk_sync",         state.syncing)
+    safe_set("txt_sync", "clock sync: on" if state.syncing
+             else "clock sync: OFF - phones scrambled")
     _safe_set_chk("chk_overlays_all", state.show_overlays)
     _safe_set_chk("chk_overlays",     state.show_device_overlay)
     _safe_set_chk("chk_overlay_pos",  state.overlay_show_render)
@@ -1276,25 +1277,48 @@ def _no_camera() -> bool:
     return False
 
 
-def toggle_sync():
+def resync():
+    """Re-sync every phone's clock. Idempotent: this never switches sync off.
+
+    The S key and the checkbox used to flip sync, and sync is already on after
+    every detection run, so the first press turned it OFF: every phone dropped
+    into the deliberate pre-show scramble, and the next press landed each one a
+    different distance from the room. The Leeds footage (24 Sep 2026) has that
+    fingerprint nineteen times. Off is now its own deliberate control; this only
+    ever sends a fresh sync_start, which the phones treat as "ping now", and a
+    fresh ping cannot move what a phone is showing, only refine it. There is
+    no hotkey any more: a key is too easy to catch mid-show, and the button
+    sits next to the state it changes.
+    """
     if _no_camera():
         return
     with state.lock:
-        state.syncing = not state.syncing
-        val = state.syncing
-    post_json_async("/admin/sync", {"sync": val})
+        state.syncing = True
+    post_json_async("/admin/sync", {"sync": True})
+    log.info("[sync] resync requested")
+    set_status("Clock sync: re-sync sent to every phone")
+
+
+def sync_off():
+    """Switch clock sync OFF: every phone drops into the pre-show scramble until
+    the next re-sync. A pre-show effect, never a show-time one, so it lives on
+    its own button with no hotkey, and it says so loudly."""
+    with state.lock:
+        state.syncing = False
+    post_json_async("/admin/sync", {"sync": False})
+    log.warning("[sync] switched OFF - every phone scrambled until re-sync")
+    set_status("Clock sync OFF - phones scrambled. Use Re-sync clocks")
 
 
 def _auto_enable_sync():
-    """Turn clock sync ON when detection ends, so the moment phones are
-    located they're also rendering aligned animations.  No-op if sync was
-    already on."""
+    """Re-sync every phone when detection ends, so the moment phones are
+    located they are also rendering aligned animations. Sent every time, not
+    only on the off->on edge: a sync_start is now a "ping now" on every phone,
+    which is exactly what the room wants at the end of a run."""
     with state.lock:
-        already_on = state.syncing
         state.syncing = True
-    if not already_on:
-        post_json_async("/admin/sync", {"sync": True})
-        log.info("[sync] auto-enabled after detection")
+    post_json_async("/admin/sync", {"sync": True})
+    log.info("[sync] re-sync sent after detection")
 
 
 def toggle_detection():
@@ -2436,9 +2460,6 @@ def on_key_press(key, holder):
     elif key == dpg.mvKey_D:
         toggle_detection()
 
-    elif key == dpg.mvKey_S:
-        toggle_sync()
-
     elif key == dpg.mvKey_R:
         reset_server()
 
@@ -2796,7 +2817,15 @@ def setup_ui(holder: dict):
                         dpg.add_spacer(height=4)
                         _heading("DETECTION")
                         _chk("Detection  [D]",     "chk_detection",    lambda: toggle_detection())
-                        _chk("Clock Sync  [S]",    "chk_sync",         lambda: toggle_sync())
+                        # Not a checkbox: a checkbox is a flip, and flipping sync
+                        # off mid-show is what scrambled Manchester and Leeds.
+                        dpg.add_button(label="Re-sync clocks", callback=lambda: resync(),
+                                       indent=_PAD, width=-(_PAD + 1))
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("clock sync: on", tag="txt_sync", indent=_PAD,
+                                         color=(120, 120, 120))
+                            dpg.add_button(label="switch off", callback=lambda: sync_off(),
+                                           indent=_KEY_INDENT, small=True)
                         _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
                         _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
                         _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())

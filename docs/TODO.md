@@ -64,9 +64,10 @@ sign-off. `file:line` are from the review; re-check before editing.
 - [ ] **Missed phones hard-reload after the red flash.** Liveness "assign lost" branch reloads
   every undetected phone 1-4s after the missed-flash → idle transition. Fix: don't reload on an
   OPEN socket / exclude the deliberate idle-after-missed path. (`app.js:212-214`)
-- [ ] **Clock-sync EMA seeded from 0 → ~1min off-beat after every reconnect.** First pong applies
-  only 25% of true offset while `synced` flips true immediately. Fix: `clockOffset = best.offset`
-  on first sample when `!synced`. (`app.js:617-618`)
+- [x] **Clock-sync EMA seeded from 0 → ~1min off-beat after every reconnect.** Done 25 Sep 2026:
+  the fastest reply's offset is taken as measured, a reconnect keeps its clock, and re-sync is a
+  button that cannot switch sync off (the S key is gone). This was the visible fault at
+  Manchester and Leeds.
 - [ ] **MJPEG stream gzipped level-9 on the event loop.** starlette 1.3.1 compresses streaming
   responses; every JPEG per viewer deflates in the send path, stealing loop time from the
   broadcast. Fix: exclude the feed from GZipMiddleware. (`server.py:894-897`)

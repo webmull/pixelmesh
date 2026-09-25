@@ -484,7 +484,6 @@ let synced = false;   // true once we have at least one good clock sample
 const SYNC_INTERVAL_MS      = 5000;   // fast ramp while converging
 const SYNC_INTERVAL_SLOW_MS = 30000;  // steady state after convergence
 const SYNC_BUFFER_SIZE  = 8;      // keep last N samples
-const SYNC_EMA_ALPHA    = 0.25;   // smoothing factor toward new best estimate
 let syncTimer           = null;
 let syncSlow            = false;
 let syncPongCount       = 0;
@@ -492,11 +491,26 @@ let lastSyncPingTs      = 0;
 let syncSamples         = [];     // [{rtt, offset}, ...]
 
 function startSync() {
-  if (syncTimer) return;
+  // A sync_start on a phone that is already syncing is a re-sync: ping now
+  // and restart the fast ramp. It never touches the current offset, so a
+  // press mid-effect cannot move what this phone is showing; the answer can
+  // only refine it. (It used to return early here, which made a re-sync a
+  // no-op on a phone that needed it, so the only way to reach such a phone
+  // was the off-then-on flip that scrambled everyone.)
+  if (syncTimer) clearInterval(syncTimer);
   syncSlow = false;
   syncPongCount = 0;
   _sendSyncPing();
   syncTimer = setInterval(_sendSyncPing, SYNC_INTERVAL_MS);
+}
+
+/* A dropped socket stops the pings but keeps the clock. The phone's offset to
+   the server did not change because the connection did, and zeroing it put
+   every reconnect through the pre-show scramble and a fresh ramp. The
+   sync_start replayed on reconnect pings again and refines what is there. */
+function pauseSync() {
+  if (syncTimer) { clearInterval(syncTimer); syncTimer = null; }
+  syncSlow = false;
 }
 
 function stopSync() {
@@ -659,7 +673,7 @@ function connect() {
     clearTimeout(connectWatchdog);
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
-    stopSync();
+    pauseSync();
     // Pre-show drops keep the waiting card up with an amber status bar
     // instead of cutting to black; a page that has never connected keeps
     // its Connecting state; every other view blacks out as before.
@@ -798,9 +812,16 @@ function handleMessage(msg) {
     const offset = msg.server_time - (msg.client_time + rtt / 2);
     syncSamples.push({ rtt, offset });
     if (syncSamples.length > SYNC_BUFFER_SIZE) syncSamples.shift();
-    // Best estimate = sample with lowest RTT (least network jitter)
+    // Best estimate = sample with lowest RTT (least network jitter), taken as
+    // it is. This used to creep a quarter of the way per answer from an offset
+    // zeroed by every stop, so a phone whose clock was a second off landed
+    // 0.75 s wrong on the first answer and was still 0.13 s off a minute
+    // later, and every phone landed a different distance out: the room-wide
+    // scatter in the Leeds footage after each sync press. The fastest reply
+    // in the buffer is already the least distorted measurement there is;
+    // smoothing it only delayed it.
     const best = syncSamples.reduce((a, b) => a.rtt < b.rtt ? a : b);
-    clockOffset = clockOffset * (1 - SYNC_EMA_ALPHA) + best.offset * SYNC_EMA_ALPHA;
+    clockOffset = best.offset;
     synced = true;
     syncPongCount++;
     // Back off once converged. The EMA is stable after ~6 samples and phone

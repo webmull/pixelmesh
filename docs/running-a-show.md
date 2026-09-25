@@ -284,12 +284,18 @@ pedal") and the last 15 received commands, newest first in gold. Stomps, effect 
 and any unmapped presses all appear, so pedal activity is verifiable at a glance mid-show.
 Keyboard `D` keeps plain toggle semantics for partial re-detection workflows.
 
+**Clock sync.** Every phone re-syncs its clock automatically when detection ends. The sidebar's
+**Re-sync clocks** button sends every phone a fresh ping and is safe at any moment: it cannot move
+what a phone is showing and cannot switch sync off. The small **switch off** button next to the
+status line scrambles every phone deliberately (the pre-show look) until the next re-sync; it is
+for pre-show only. Neither has a key, on purpose: at Manchester and Leeds the old `S` toggle was
+pressed mid-show, and each press scattered the room.
+
 ### Controller hotkeys
 
 | Key | Action |
 |-----|--------|
 | `D` | Toggle detection |
-| `S` | Toggle clock sync |
 | `H` | Toggle all camera overlays (blink streams, device IDs, ROI boundary) |
 | `O` | Toggle device ID overlays |
 | `P` | Toggle overlay mode (blink IDs or render order) |

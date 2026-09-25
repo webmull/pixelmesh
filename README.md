@@ -225,7 +225,6 @@ from the laptop.
 | Key | Action |
 |-----|--------|
 | `D` | Start or stop detection |
-| `S` | Start or stop clock sync |
 | `R` | Reset the server: drop every phone, clear positions, fresh run |
 | `V` | Start or stop video recording |
 | `G` | Debug capture on or off |
@@ -234,6 +233,11 @@ from the laptop.
 | `P` | Cycle overlay mode |
 | `F` | Flip the projection |
 | `Tab` | Collapse or expand the sidebar |
+
+Clock sync has no key, on purpose. Phones re-sync automatically when detection ends; the
+sidebar's **Re-sync clocks** button sends a fresh ping to every phone and is safe at any moment,
+and the small **switch off** beside it is the only way to scramble the room. The old `S` toggle
+was pressed mid-show at Manchester and Leeds, and every press scattered the phones.
 | `Q` | Quit |
 
 Two hardware inputs sit alongside the keys, both hands-free by design, because the operator
