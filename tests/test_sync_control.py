@@ -64,6 +64,13 @@ def test_detection_end_always_resyncs_even_when_already_on(ctl):
     assert posts == [("/admin/sync", {"sync": True})]
 
 
+def test_resync_does_not_need_the_camera(ctl, monkeypatch):
+    controller, posts = ctl
+    monkeypatch.setattr(controller, "_no_camera", lambda: True)
+    controller.resync()
+    assert posts == [("/admin/sync", {"sync": True})]
+
+
 def test_the_flip_is_gone(ctl):
     controller, _ = ctl
     assert not hasattr(controller, "toggle_sync")

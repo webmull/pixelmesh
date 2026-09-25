@@ -1288,10 +1288,10 @@ def resync():
     ever sends a fresh sync_start, which the phones treat as "ping now", and a
     fresh ping cannot move what a phone is showing, only refine it. There is
     no hotkey any more: a key is too easy to catch mid-show, and the button
-    sits next to the state it changes.
+    sits next to the state it changes. No camera gate either: a re-sync is a
+    network action, and the moment the camera drops mid-show is exactly when
+    the button still has to work.
     """
-    if _no_camera():
-        return
     with state.lock:
         state.syncing = True
     post_json_async("/admin/sync", {"sync": True})
