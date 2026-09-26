@@ -61,9 +61,11 @@ sign-off. `file:line` are from the review; re-check before editing.
 - [ ] **MIDI loop thread dies silently.** Unguarded `open_port(idx)` (shifted index raises) and
   bare controller callback dispatch; any raise kills pedal input for the show with `connected`
   stuck. Fix: guard the loop + dispatch. (`midi.py:162,205-227`)
-- [ ] **Missed phones hard-reload after the red flash.** Liveness "assign lost" branch reloads
-  every undetected phone 1-4s after the missed-flash → idle transition. Fix: don't reload on an
-  OPEN socket / exclude the deliberate idle-after-missed path. (`app.js:212-214`)
+- [x] **Missed phones hard-reload after the red flash.** Done 26 Sep 2026: the "assign lost"
+  branch only fires for a phone with no blink id, and the red flash now ends on the waiting card
+  rather than idle. Same session: every reload is gated on a `/health` probe so a phone with no
+  signal is never sent to the browser's error page, a dropped phone keeps its picture for 30 s
+  instead of cutting to black, and the handshake and handover timers were widened for poor 4G.
 - [x] **Clock-sync EMA seeded from 0 → ~1min off-beat after every reconnect.** Done 25 Sep 2026:
   the fastest reply's offset is taken as measured, a reconnect keeps its clock, and re-sync is a
   button that cannot switch sync off (the S key is gone). This was the visible fault at

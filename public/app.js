@@ -243,22 +243,87 @@ const bootTime = Date.now();
 let lastVisibleTs = Date.now();
 
 /* One way out. Four paths independently wanted to reload - the liveness
-   watchdog (three of its own branches), the 8s handover deadline, the
-   build-id check, and a throwing constructor - and none knew about the
-   others. A flapping server could have several in flight at once, which is
-   how a phone ends up reloading in a loop instead of recovering.
+   watchdog (three of its own branches), the handover deadline, the build-id
+   check, and a throwing constructor - and none knew about the others. A
+   flapping server could have several in flight at once, which is how a phone
+   ends up reloading in a loop instead of recovering.
 
    Also latched: once a reload is committed the page is going away, so a
    second caller has nothing useful to add. The reason is kept for the console
-   because "why did that phone reload" is otherwise unanswerable after a show. */
+   because "why did that phone reload" is otherwise unanswerable after a show.
+
+   Never into an outage. A reload was the answer to "the show is down", and it
+   is the right answer when the laptop is gone: the edge serves the holding
+   page, which rejoins on its own. It is the wrong answer when it is the
+   PHONE that has no signal - and in a venue with poor 4G that is the common
+   case. Reloading then lands on the browser's own "not connected" error page,
+   which nothing here can recover from; somebody has to notice and reopen the
+   link. So every reload is gated on a probe of /health first. The show up:
+   reload (the socket is broken, the page is not). The holding page answering:
+   reload (hand over, as before). Anything else - a fetch that throws, a
+   captive portal's HTML - and the page stays put with its socket retry loop
+   running, and the next liveness tick asks again. */
 let _reloadCommitted = false;
+let _reloadProbe     = null;   // in-flight probe; callers never stack them
+let _lastProbeTs     = 0;
+const RELOAD_PROBE_MIN_GAP_MS = 5000;
+const RELOAD_PROBE_TIMEOUT_MS = 4000;
+
 function commitReload(reason) {
   if (_reloadCommitted) return;
   if (view === "ended") return;   // never take the closing card away
-  _reloadCommitted = true;
-  try { console.info("[pixelmesh] reloading:", reason); } catch (e) {}
-  location.reload();
+  if (_reloadProbe) return;
+  const now = Date.now();
+  if (now - _lastProbeTs < RELOAD_PROBE_MIN_GAP_MS) return;
+  _lastProbeTs = now;
+  _reloadProbe = _probeShow().then((verdict) => {
+    _reloadProbe = null;
+    if (_reloadCommitted || view === "ended") return;
+    if (verdict === "unreachable") {
+      try { console.info("[pixelmesh] not reloading (" + reason + "): no route to the show"); } catch (e) {}
+      return;
+    }
+    // The socket may have come back while the probe was out; a reload now
+    // would only throw away a connection that has just recovered.
+    if (ws && (ws.readyState === WebSocket.OPEN ||
+               ws.readyState === WebSocket.CONNECTING)) return;
+    _reloadCommitted = true;
+    try { console.info("[pixelmesh] reloading:", reason, "(" + verdict + ")"); } catch (e) {}
+    location.reload();
+  });
 }
+
+/* "server": /health answered with its JSON, so the show is reachable.
+   "holding": the edge answered for a laptop that is down.
+   "unreachable": no usable answer - most often this phone has no signal. */
+async function _probeShow() {
+  const ctl   = (typeof AbortController === "function") ? new AbortController() : null;
+  const timer = ctl ? setTimeout(() => ctl.abort(), RELOAD_PROBE_TIMEOUT_MS) : null;
+  try {
+    const r = await fetch("/health", { cache: "no-store", signal: ctl ? ctl.signal : undefined });
+    if (r.headers.get("x-pixelmesh-holding")) return "holding";
+    if (r.ok) {
+      const body = await r.json().catch(() => null);
+      if (body && body.ok === true) return "server";
+    }
+    return "unreachable";
+  } catch (e) {
+    return "unreachable";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+/* Sized for a room with poor signal. A congested cell link can take several
+   seconds per handshake (TCP, TLS, then the upgrade through edge and agent),
+   and a page that loaded slowly is already behind when its socket starts. The
+   old 15s and 10s were tuned for hotel wifi on a good day. */
+const CONNECT_WATCHDOG_MS   = 8000;    // was 3s; abort a hung CONNECTING socket
+const FIRST_CONNECT_MS      = 30000;   // was 15s; fresh page with no socket yet
+const OUTAGE_BACKSTOP_MS    = 30000;   // was 10s; frozen-timer backstop for the handover
+const HANDOVER_MIN_MS       = 20000;   // was 8s; hard deadline to hand over to the holding page
+const HANDOVER_JITTER_MS    = 10000;   // was 7s
+const BLACKOUT_GRACE_MS     = 30000;   // how long a dropped phone keeps its picture
+
 function _livenessCheck() {
   if (document.hidden) return;
   if (view !== "idle") return;      // any assigned/show state is alive
@@ -266,17 +331,23 @@ function _livenessCheck() {
   // Grace after returning to foreground: frozen clocks otherwise read
   // as instantly over-limit and reload a socket that is mid-reconnect.
   if (now - lastVisibleTs < 5000) return;
-  // A handshake in flight is never stuck: the 3s connect watchdog
-  // closes hung CONNECTING sockets, so this state is always young.
+  // A handshake in flight is never stuck: the connect watchdog closes hung
+  // CONNECTING sockets, so this state is always young.
   if (ws && ws.readyState === WebSocket.CONNECTING) return;
   if (!everConnected) {
-    if (now - bootTime > 15000) commitReload("never connected in 15s");
+    if (now - bootTime > FIRST_CONNECT_MS) commitReload("never connected in " + FIRST_CONNECT_MS / 1000 + "s");
   } else if (ws && ws.readyState === WebSocket.OPEN) {
-    // open socket but never left idle: assign lost somewhere
-    if (lastOpenTs && now - lastOpenTs > 10000) commitReload("open socket, no assign in 10s");
-  } else if (disconnectedSince && now - disconnectedSince > 10000) {
-    // the 8s reloadTimer should have fired; frozen timers backstop
-    commitReload("outage past the 10s backstop");
+    // Open socket, never assigned: the assign was lost somewhere. Only when
+    // this phone has NO id. It used to fire on any idle view with an old open
+    // timestamp, which is exactly where every phone the camera did not find
+    // lands after its red flash - so every missed phone in the room reloaded
+    // a few seconds into showtime, through whatever signal it had.
+    if (myBlinkId === null && lastOpenTs && now - lastOpenTs > 10000) {
+      commitReload("open socket, no assign in 10s");
+    }
+  } else if (disconnectedSince && now - disconnectedSince > OUTAGE_BACKSTOP_MS) {
+    // the handover reloadTimer should have fired; frozen timers backstop
+    commitReload("outage past the " + OUTAGE_BACKSTOP_MS / 1000 + "s backstop");
   }
 }
 setInterval(_livenessCheck, 3000);
@@ -459,6 +530,7 @@ let lastOpenTs      = 0;      // wall-clock of the most recent successful WS ope
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
 let reloadTimer     = null;  // hard deadline for handing over to the holding page
+let blackoutTimer   = null;  // a dropped phone keeps its picture until this fires
 let connectWatchdog = null;
 let heartbeatTimer  = null;
 let wakeLock        = null;
@@ -560,6 +632,16 @@ document.addEventListener("visibilitychange", async () => {
   if (myBlinkPhases.length > 0) blinkStartMs = Date.now();
 });
 
+/* The radio coming back is the one moment a retry is certain to be worth
+   making, and the backoff may be sitting several seconds into a wait. Not
+   every browser fires this reliably, so it is a shortcut, never the only
+   path: the reconnect chain keeps running regardless. */
+window.addEventListener("online", () => {
+  reconnectDelay = 500;
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  connect();
+});
+
 // ------------------------------------------------------------------ //
 // Clock sync
 // ------------------------------------------------------------------ //
@@ -634,7 +716,7 @@ function connect() {
     if (sock.readyState === WebSocket.CONNECTING) {
       try { sock.close(); } catch {}
     }
-  }, 3000);
+  }, CONNECT_WATCHDOG_MS);
 
   // Every handler drops out if a newer connect() has superseded this socket.
   const stale = () => gen !== wsGen;
@@ -647,7 +729,8 @@ function connect() {
     reconnectDelay = 500;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     disconnectedSince = 0;
-    if (reloadTimer) { clearTimeout(reloadTimer); reloadTimer = null; }
+    if (reloadTimer)   { clearTimeout(reloadTimer);   reloadTimer   = null; }
+    if (blackoutTimer) { clearTimeout(blackoutTimer); blackoutTimer = null; }
 
     ws.send(JSON.stringify({ type: "hello", device_id: deviceId }));
 
@@ -674,23 +757,37 @@ function connect() {
     ws = null;
     if (heartbeatTimer) clearInterval(heartbeatTimer);
     pauseSync();
-    // Pre-show drops keep the waiting card up with an amber status bar
-    // instead of cutting to black; a page that has never connected keeps
-    // its Connecting state; every other view blacks out as before.
+    // The picture stays. The socket is a control channel; nothing on screen
+    // needs it. The blink runs on this phone's own clock, an effect runs on
+    // the clock offset (kept across a drop since 25 Sep) and the effect's
+    // start_time, and the located card is a colour. Cutting to black on close
+    // made every drop visible: a phone on a flapping 4G link flickered in
+    // the mesh, and a phone that dropped mid-detection stopped blinking and
+    // could never finish a cycle. Now it keeps going, and the hello replay on
+    // reconnect (assigned, then effect / detection_started / update_position)
+    // puts the view right; the effect resend loop covers anything that
+    // changed mid-outage. A grace timer still blacks out a phone that stays
+    // gone, so a screen the operator has since put out is not lit for the
+    // rest of the night in someone's hand.
     //
-    // "ended" is exempt for the same reason "waiting" is: the closing card
-    // needs no socket. It is a static souvenir people are being asked to
-    // screenshot, and phones drop constantly - screen lock, a walk to the
-    // exit, conference wifi. Blacking it out on close wiped the card
-    // moments after it appeared, which read as a flicker to black.
-    if (view !== "waiting" && view !== "ended" && everConnected) {
-      goBlack();
-    } else {
+    // The waiting and located cards carry the status bar, so those say
+    // "Reconnecting". A page that has never connected keeps its Connecting
+    // state. "ended" is exempt from all of it: the closing card is a static
+    // souvenir people are being asked to screenshot.
+    if (view === "waiting" || view === "located" || !everConnected) {
       // Text change re-centres the bar and moves the dot; nudge a
       // repaint in the same frame so iOS retires the old layer.
       waitingId.textContent = everConnected ? "Reconnecting…" : "Connecting…";
       statusBar.classList.add("warn");
       statusBar.style.transform = "translateX(-50%) translateZ(0)";
+    }
+    if (everConnected && view !== "waiting" && view !== "idle" &&
+        view !== "ended" && !blackoutTimer) {
+      blackoutTimer = setTimeout(() => {
+        blackoutTimer = null;
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        goBlack();
+      }, BLACKOUT_GRACE_MS);
     }
     // Never on the closing card. This deadline exists to hand a phone over to
     // the holding page once the show is genuinely down - but when the show has
@@ -699,23 +796,22 @@ function connect() {
     // socket fails, 8s later the page reloads, the card paints and dies again.
     if (!disconnectedSince && view !== "ended") {
       disconnectedSince = Date.now();
-      // Hard 8s deadline: reconnects handle short blips, but once the
-      // show is genuinely down, hand over to the holding page fast -
-      // its probe rejoins automatically and identity survives in
-      // localStorage, so an early handover costs nothing. A timer
-      // (not an onclose check) so backoff gaps can't stretch the wait.
-      // 8-15s, jittered. At a fixed 8s every phone in the room reloaded
-      // within the same ~50ms of an outage: 250 TLS handshakes plus 250
-      // no-store HTML fetches (~9MB) in one burst, against a server that had
-      // just come back. The spread costs any one phone at most 7 extra
-      // seconds on a holding page that auto-rejoins.
+      // Hard deadline: reconnects handle short blips, but once the show is
+      // genuinely down, hand over to the holding page - its probe rejoins
+      // automatically and identity survives in localStorage. A timer (not an
+      // onclose check) so backoff gaps can't stretch the wait. Jittered: at a
+      // fixed deadline every phone in the room reloaded within the same
+      // ~50ms of an outage, 250 TLS handshakes plus 250 no-store HTML fetches
+      // in one burst against a server that had just come back. The reload
+      // itself is probe-gated in commitReload, so a phone with no signal is
+      // never sent to the browser's error page by this.
       reloadTimer = setTimeout(() => {
         // CONNECTING is a live handshake (watchdog-bounded), not stuck;
         // the liveness interval backstops if it dies.
         if (ws && (ws.readyState === WebSocket.OPEN ||
                    ws.readyState === WebSocket.CONNECTING)) return;
         commitReload("handover deadline");
-      }, 8000 + Math.random() * 7000);
+      }, HANDOVER_MIN_MS + Math.random() * HANDOVER_JITTER_MS);
     }
     scheduleReconnect();
   };
@@ -1475,7 +1571,12 @@ function updateBlink() {
       const on = Math.floor(age / 0.2) % 2 === 0 && Math.floor(age / 0.2) < 6;
       blinkCard.style.background = on ? "rgb(200,0,0)" : "#000";
     } else {
-      setView("idle");
+      // The waiting card, on purpose. This used to go to idle, and idle with
+      // an open socket tripped the liveness reload, so every missed phone
+      // reloaded and came back on the waiting card anyway - which is what
+      // the audience has seen at every show. Same card, no reload: the phone
+      // is connected and has its id, it just was not found.
+      setView("waiting");
     }
     return;
   }

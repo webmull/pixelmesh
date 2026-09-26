@@ -342,11 +342,24 @@ pixel with an occasional double-blink wink means connected, continuous hard blin
 reconnecting, and a triple-blink means just joined. It shows "Connecting..." from the instant a
 fresh page loads, so startup can never look like a blank screen.
 
-**Connection resilience.** A fresh page that cannot connect reloads to the holding page after
-15 s; a mid-wait disconnect shows the amber state and hands over after 8 s; and a liveness
-watchdog on wall-clock time catches the states no socket event reaches (constructor hangs, iOS
-freezing the page in background), with grace periods so a mid-handshake socket is never
-reloaded.
+**Connection resilience.** Built for a room with poor signal. A phone that loses its socket
+keeps whatever it was showing: the blink runs on the phone's own clock, an effect runs on the
+kept clock offset, and the located card is a colour, so a drop is invisible in the mesh. The
+waiting and located cards show the amber "Reconnecting" state. Only a phone that stays gone
+for 30 s goes black. Reconnects are jittered with backoff, and the hello replay puts the view
+right the moment the socket is back.
+
+A reload is only ever made towards something that can answer. Before any reload the page probes
+`/health`: the show answering means reload (the socket is broken, the page is not); the holding
+page answering means the laptop is down, so hand over to it; anything else, including a fetch
+that fails because the phone has no signal, and the page stays put with its retry loop running.
+This is what keeps a phone off the browser's "not connected" error page, which nothing can
+recover from. The handshake watchdog allows 8 s per attempt, a fresh page gets 30 s before it
+asks to reload, and a dropped phone gets 20 to 30 s (jittered) before the handover is attempted.
+A liveness watchdog on wall-clock time catches the states no socket event reaches (constructor
+hangs, iOS freezing the page in background), with grace periods so a mid-handshake socket is
+never reloaded. A phone the camera did not find goes to the waiting card after its red flash,
+without a reload.
 
 **Located screen.** "Found you!" with a position map: white dots for other detected phones, a
 large animated green dot for this phone, and the pre-show reminders ("Hold your screen up when
