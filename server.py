@@ -702,6 +702,23 @@ async def websocket_endpoint(ws: WebSocket):
                     })
                 # MODE_WAITING: no message needed — client stays on idle screen
 
+                # A race in progress is replayed too. race_start is a one-shot
+                # broadcast, so a phone whose socket dropped as the round began
+                # - and on a poor link that is a coin toss - came back to its
+                # located card and sat there for the whole race while its lane
+                # on the stage stood empty. The roster and the hues are the
+                # round's own state, so a late joiner draws the same character
+                # the projector already has. Same shape the spectator hello
+                # carries the round in, just in the message the phone handles.
+                if game.game_active and game.race_positions:
+                    roster = list(game.race_positions)
+                    await ws.send_json({
+                        "type":      "race_start",
+                        "blink_ids": roster,
+                        "start_at":  int(game.race_start_at * 1000),
+                        "hues":      game._race_hues(roster),
+                    })
+
                 if sync_active:
                     await ws.send_json({"type": "sync_start"})
 
@@ -746,6 +763,15 @@ async def websocket_endpoint(ws: WebSocket):
             elif data.get("type") == "ping":
                 if device_id:
                     last_seen[device_id] = time.time()
+                # Answered, so the phone can tell a live socket from a dead one.
+                # The client heartbeat used to be send-only: a phone that came
+                # back from the background with a socket this end had already
+                # dropped believed it was connected, sent pings into the void,
+                # received nothing, and missed every effect until iOS gave up
+                # on the socket for it. With a reply, the phone has inbound
+                # traffic to expect - this or a sync_pong - and closes a socket
+                # that has gone quiet for too long so the normal reconnect runs.
+                await ws.send_json({"type": "pong"})
 
     except WebSocketDisconnect:
         pass
