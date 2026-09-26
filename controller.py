@@ -2492,6 +2492,8 @@ def on_key_press(key, holder):
 # ------------------------------------------------------------------ #
 
 _PAD        = 8     # left/right padding for sidebar content
+# motocon: the sync "switch off" button is not built. See the RUN tab below.
+_MOTOCON_HIDE_SYNC_OFF = True
 _CHK_INDENT = 284   # checkbox x position
 _KEY_INDENT = 252   # hotkey label x position (flush left of checkbox)
 
@@ -2824,8 +2826,14 @@ def setup_ui(holder: dict):
                         with dpg.group(horizontal=True):
                             dpg.add_text("clock sync: on", tag="txt_sync", indent=_PAD,
                                          color=(120, 120, 120))
-                            dpg.add_button(label="switch off", callback=lambda: sync_off(),
-                                           indent=_KEY_INDENT, small=True)
+                            # motocon: no switch-off button. It was the last control
+                            # left that could scramble the room from one press, and
+                            # this deck never wants the pre-show scramble on demand -
+                            # phones arrive unsynced anyway until the first detection
+                            # run ends. sync_off() stays for main; only the button goes.
+                            if not _MOTOCON_HIDE_SYNC_OFF:
+                                dpg.add_button(label="switch off", callback=lambda: sync_off(),
+                                               indent=_KEY_INDENT, small=True)
                         _chk("Overlays  [H]",      "chk_overlays_all", lambda: toggle_all_overlays())
                         _chk("ID Overlays  [O]",   "chk_overlays",     lambda: toggle_device_overlay())
                         _chk("Render Order  [P]",  "chk_overlay_pos",  lambda: toggle_overlay_mode())

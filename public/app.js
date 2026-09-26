@@ -323,11 +323,31 @@ const OUTAGE_BACKSTOP_MS    = 30000;   // was 10s; frozen-timer backstop for the
 const HANDOVER_MIN_MS       = 20000;   // was 8s; hard deadline to hand over to the holding page
 const HANDOVER_JITTER_MS    = 10000;   // was 7s
 const BLACKOUT_GRACE_MS     = 30000;   // how long a dropped phone keeps its picture
+/* The server answers every ping with a pong and every sync_ping with a
+   sync_pong, and one or the other goes out at least every 30s, so an OPEN
+   socket that has delivered nothing for this long is not a quiet socket, it
+   is a dead one this end has not been told about. 75s is two missed answers
+   plus slack for a slow link. */
+const INBOUND_SILENCE_MS    = 75000;
 
 function _livenessCheck() {
   if (document.hidden) return;
-  if (view !== "idle") return;      // any assigned/show state is alive
   const now = Date.now();
+  // Half-open sockets, in any view. A phone resumed from the background, or
+  // one whose link changed under it, can hold a socket the server dropped
+  // long ago: OPEN as far as the browser knows, receiving nothing, sending
+  // pings into the void, missing every effect until the OS gives up on it.
+  // The socket-level events never fire for that, so it is caught here on
+  // silence, and closed so the ordinary reconnect chain runs. Grace after a
+  // return to the foreground, since the timestamp was frozen with the page.
+  if (ws && ws.readyState === WebSocket.OPEN && lastInboundTs &&
+      now - lastVisibleTs > 5000 && now - lastInboundTs > INBOUND_SILENCE_MS) {
+    try { console.info("[pixelmesh] socket silent for " + Math.round((now - lastInboundTs) / 1000) + "s, closing it"); } catch (e) {}
+    lastInboundTs = now;   // one close per silence, not one per tick
+    try { ws.close(); } catch (e) {}
+    return;
+  }
+  if (view !== "idle") return;      // any assigned/show state is alive
   // Grace after returning to foreground: frozen clocks otherwise read
   // as instantly over-limit and reload a socket that is mid-reconnect.
   if (now - lastVisibleTs < 5000) return;
@@ -527,6 +547,7 @@ let ws              = null;
 let wsGen           = 0;
 let reconnectTimer  = null;   // at most one pending reconnect, ever
 let lastOpenTs      = 0;      // wall-clock of the most recent successful WS open
+let lastInboundTs   = 0;      // wall-clock of the last message this socket delivered
 let reconnectDelay  = 500;
 let disconnectedSince = 0;   // wall-clock start of the current outage, 0 while connected
 let reloadTimer     = null;  // hard deadline for handing over to the holding page
@@ -623,6 +644,10 @@ document.addEventListener("visibilitychange", async () => {
   // Restart the disconnect clock too: it may have aged while frozen, and the
   // reconnect deserves its full window in the foreground.
   if (disconnectedSince) disconnectedSince = Date.now();
+  // And the silence clock, for the same reason: a socket that is genuinely
+  // alive after a long background gets a full window to prove it before the
+  // liveness check would close it as half-open.
+  if (lastInboundTs) lastInboundTs = Date.now();
   await requestWakeLock();
   // Resync after a brief background: re-open the socket if it died, and
   // restart the blink cycle anchor so we begin a clean guard-run from now
@@ -726,6 +751,7 @@ function connect() {
     clearTimeout(connectWatchdog);
     everConnected = true;
     lastOpenTs = Date.now();
+    lastInboundTs = Date.now();
     reconnectDelay = 500;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     disconnectedSince = 0;
@@ -740,6 +766,7 @@ function connect() {
 
   sock.onmessage = (ev) => {
     if (stale()) return;
+    lastInboundTs = Date.now();
     // Contained on purpose. handleMessage is a long if-chain over a payload
     // this page does not control, and an unexpected shape used to throw out of
     // the socket handler - losing that message and anything it would have done
@@ -947,6 +974,9 @@ function handleMessage(msg) {
 
   if (msg.type === "sync_start") { startSync(); return; }
   if (msg.type === "sync_stop")  { stopSync();  return; }
+  // The answer to a heartbeat ping. Its arrival is the whole point (it is what
+  // stamps lastInboundTs in onmessage); there is nothing in it to act on.
+  if (msg.type === "pong") return;
 
   if (msg.type === "update_position") {
     myU        = msg.u ?? myU;

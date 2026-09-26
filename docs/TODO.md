@@ -110,8 +110,10 @@ sign-off. `file:line` are from the review; re-check before editing.
   server only replays a live effect. (`app.js:596-600`, `server.py:431-432`)
 - [ ] **Unsynced ripple smeared by preSyncOffset** — `serverNow()` still adds the 0-8s desync
   offset when `!synced`, defeating the ripple exemption. (`app.js:457-459,1001`)
-- [ ] **Half-open zombie socket after iOS resume undetected** — heartbeat is send-only, no pong
-  deadline, `_livenessCheck` exits for any non-idle view. (`app.js:466-473,202`)
+- [x] **Half-open zombie socket after iOS resume undetected.** Done 26 Sep 2026: the server
+  answers `ping` with `pong`, and the liveness check closes an OPEN socket that has delivered
+  nothing for 75 s in any view, so the ordinary reconnect runs. A race in progress is also
+  replayed on hello now, so a phone that drops as the round starts gets its lane back.
 - [ ] **stage.js has no CONNECTING watchdog / liveness backstop** — a hung handshake freezes the
   projector with no retry. (`stage.js:18-28`)
 - [ ] **Duplicate-watchdog race on `[r]`** — flag removed+recreated inside the old watchdog's
