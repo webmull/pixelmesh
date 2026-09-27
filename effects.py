@@ -78,10 +78,10 @@ def _groups_color_params():
 # (param, label, widget, kwargs)
 EFFECT_PARAMS = {
     "wave": [
-        ("color",        "Colour",    "color",        {"default_value": (53,  224, 255, 255)}),
-        ("speed",        "Speed",     "slider_float", {"default_value": 0.4,  "min_value": 0.05, "max_value": 4.0}),
-        ("angle",        "Direction", "slider_float", {"default_value": 0.0,  "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
-        ("spatial_freq", "Frequency", "slider_float", {"default_value": 2.0,  "min_value": 0.5,  "max_value": 10.0}),
+        ("color",        "Colour",    "color",        {"default_value": (252, 255, 255, 255)}),
+        ("speed",        "Speed",     "slider_float", {"default_value": 0.477, "min_value": 0.05, "max_value": 4.0}),
+        ("angle",        "Direction", "slider_float", {"default_value": 0.0,   "min_value": 0.0,  "max_value": 360.0, "format": "%.0f°"}),
+        ("spatial_freq", "Frequency", "slider_float", {"default_value": 3.433, "min_value": 0.5,  "max_value": 10.0}),
     ],
     "gradient": [
         ("color",  "Colour",    "color",        {"default_value": (255, 255, 255, 255)}),
