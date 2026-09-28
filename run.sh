@@ -19,15 +19,6 @@ export PIXELMESH_PORT="${PIXELMESH_PORT:-16924}"
 # in app.js. navigator.share goes the same way and the end card quietly drops
 # its share button.
 export PIXELMESH_LOCAL="${PIXELMESH_LOCAL:-}"
-# Local mode runs the tunnel as well by default, and this turns that off for a
-# genuinely disconnected room. Both front ends reach the same server and share
-# all state, so a phone arriving through either is the same participant. The
-# tunnel is what catches Android: it marks a wifi network with no internet as
-# unvalidated, keeps its default route on mobile data, and so resolves
-# pixelmesh.show through the carrier instead of through the router, landing on
-# the edge. Without a tunnel that is the holding page, which is a dead end.
-# With one it is the real show. iOS keeps wifi as its default route either way.
-export PIXELMESH_NO_TUNNEL="${PIXELMESH_NO_TUNNEL:-}"
 export PIXELMESH_CERT="${PIXELMESH_CERT:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/fullchain.pem}"
 export PIXELMESH_KEY="${PIXELMESH_KEY:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/privkey.pem}"
 # joinmesh.io is the name in the QR for a local show: a public A record pointing
@@ -209,10 +200,6 @@ status_line() {
     local certnote=""
     [[ -n $days ]] && certnote="  ${DIM}(cert ${days}d left)${RESET}"
     echo "  ${W}front door ${RESET}$cad_s$certnote"
-    # The tunnel row still matters in local mode: it is the route an Android
-    # phone that stayed on mobile data will take, so a stopped one here means
-    # those phones get the holding page.
-    [[ -z $PIXELMESH_NO_TUNNEL ]] && echo "  ${W}ngrok      ${RESET}$ngk_s"
   else
     echo "  ${W}ngrok      ${RESET}$ngk_s"
   fi
@@ -384,12 +371,16 @@ start_local_front_door() {
     return 0
   fi
 
-  # This used to stop the tunnel, on the grounds that two front ends answering
-  # for one name would split the audience. They do not: both reverse onto the
-  # same server and the same state, so it only decides which way in a given
-  # phone takes. Killing it cost the Android phones their only working route.
-  if [[ -n $PIXELMESH_NO_TUNNEL && -n $(pid_of_ngrok) ]]; then
-    echo "${Y}→ PIXELMESH_NO_TUNNEL: stopping the ngrok tunnel...${RESET}"
+  # A local show has no use for the tunnel. The QR sends everyone to
+  # joinmesh.io, which resolves to this laptop from any resolver on earth, so
+  # nobody is pointed at pixelmesh.show and a tunnel would only serve a name
+  # nothing is asking for. It briefly earned its place as the fallback for
+  # Android phones that stayed on mobile data, but a public record for the LAN
+  # address solved that properly: those phones now resolve to this laptop too
+  # and reach it over wifi, because a LAN-subnet destination beats the default
+  # route.
+  if [[ -n $(pid_of_ngrok) ]]; then
+    echo "${Y}→ Local mode: stopping the ngrok tunnel...${RESET}"
     pkill -f "ngrok.pixelmesh.yml" 2>/dev/null || true
     sleep 1
   fi
@@ -431,11 +422,6 @@ start_all() {
   # settled before a single process is started.
   if [[ -n $PIXELMESH_LOCAL ]]; then
     _CERT_DAYS=$(local_mode_preflight) || return 1
-  elif [[ -n $PIXELMESH_NO_TUNNEL ]]; then
-    # Honouring this on its own would start no front end at all, so it is
-    # ignored - but silently ignoring a variable someone deliberately set is
-    # how you end up debugging the wrong thing.
-    echo "${Y}  PIXELMESH_NO_TUNNEL ignored: it only applies with PIXELMESH_LOCAL=1${RESET}"
   fi
 
   # Camera Hub must be up before the controller: it owns the Elgato's
@@ -478,10 +464,7 @@ start_all() {
 
   if [[ -n $PIXELMESH_LOCAL ]]; then
     start_local_front_door || return 1
-  fi
-
-  if [[ -n $PIXELMESH_LOCAL && -n $PIXELMESH_NO_TUNNEL ]]; then
-    echo "${DIM}  no tunnel (PIXELMESH_NO_TUNNEL) - wifi is the only way in${RESET}"
+    echo "${DIM}  no tunnel in local mode - the room's wifi is the only way in${RESET}"
   else
     echo "${Y}→ Starting ngrok (audience tunnel)...${RESET}"
     # ngrok 3.16 doesn't expose --pooling-enabled on the agent CLI (the

@@ -192,45 +192,55 @@ so every audience phone would arrive at 127.0.0.1 looking local. Caddy's `revers
 `X-Forwarded-For`/`Proto`/`Host`, so a phone through the front door is classed exactly like a
 phone through ngrok. Do not swap it for a dumber forwarder.
 
-**Local mode keeps the tunnel running, and should.** An earlier version stopped it, on the
-grounds that two front ends answering for one name would split the audience. They do not:
-both reverse onto the same server and the same state, so a phone arriving through either is
-the same participant, and the clock sync already handles an edge-shaped round trip because
-that is how every normal show runs. `PIXELMESH_NO_TUNNEL=1` suppresses it for a genuinely
-disconnected room, and is ignored without `PIXELMESH_LOCAL=1` since on its own it would
-leave no way in at all.
+**The audience name is `joinmesh.io`, and it is a public A record for a private address.**
+It points at the laptop's static lease on the router. Every resolver on earth then answers
+with that address, so the router needs no DNS configuration and the QR is a fixed string.
+The phone connects straight across the room, one hop, nothing touching the internet. The
+name exists only because TLS validates a name and no public CA will ever issue a certificate
+for a private IP: the CA/Browser Forum baseline requirements forbid reserved ranges, Let's
+Encrypt's IP certificates are public addresses only, and a self-signed one is a full-page
+warning on every phone.
 
-**Android needs the tunnel, or it needs the router to have an uplink.** Android marks a wifi
+Short on purpose. `https://joinmesh.io` encodes to 25x25 modules at error correction M, the
+same QR version as the `pixelmesh.show` it replaced, so the deck's asset is a drop-in at the
+same 44px per module and the same scan distance from the back of the hall.
+
+**Local mode runs no tunnel.** Everyone is sent to `joinmesh.io`, so nothing is asking for
+`pixelmesh.show` and a tunnel would serve a name nobody typed. `start_local_front_door`
+stops one if it finds it running.
+
+**This makes a local show wifi-only, and that is a script change, not just a config one.** A
+phone that is not associated with the router cannot reach the address at all. It does not
+fall back, it fails, and it fails silently: no error worth reading, just a page that never
+arrives. The network instruction has to land before the QR goes up.
+
+**Why the public record rather than only a hosts entry on the router.** Android marks a wifi
 network with no internet as unvalidated and, with "switch to mobile data automatically" on,
-keeps its default route on mobile data. DNS for `pixelmesh.show` then goes to the carrier,
-comes back as ngrok's edge addresses, and the phone loads those over 4G, never consulting the
-router's host entry at all. iOS keeps wifi as its default route either way and is unaffected.
+keeps its default route on mobile data and resolves through the carrier. With only a router
+hosts entry it never saw that entry, resolved `pixelmesh.show` publicly and loaded the edge
+over 4G. A public record fixes it properly: the carrier hands back the LAN address, and the
+phone still connects over wifi because a LAN-subnet destination beats the default route.
+Verified on the handset that showed the original fault. iOS keeps wifi as its default route
+either way and was never affected.
 
-The crux is DNS rather than routing: had the phone asked the router it would have had the LAN
-address, and Android sends LAN-subnet destinations over wifi whatever the default route is.
-So there are two ways to fix it, and they stack:
-
-1. **Give the Flint any uplink.** A tethered phone, the venue wifi in repeater mode, an
-   ethernet drop. Nothing but the validation probe uses it, so it does not need to be fast.
-   Android then validates the wifi, prefers it, uses the router's DNS and lands on the LAN.
-   This is the one that gets every phone onto the fast local path.
-2. **Leave the tunnel up**, so a phone that stays on mobile data still reaches the real show
-   instead of the holding page.
-
-Do not try to satisfy Android's check locally by serving a 204. It runs an HTTPS probe
-against `www.google.com/generate_204` alongside the HTTP one, which cannot be answered
-without a trusted Google certificate, and answering only the HTTP probe produces "partial
-connectivity" and a tap-to-continue notification on every phone in the room.
+Do not try to satisfy Android's connectivity check locally by serving a 204. It runs an
+HTTPS probe against `www.google.com/generate_204` alongside the HTTP one, which cannot be
+answered without a trusted Google certificate, and answering only the HTTP probe produces
+"partial connectivity" and a tap-to-continue notification on every phone in the room.
 
 Worth knowing: a phone with Private DNS set explicitly to a provider rather than Automatic
 bypasses the router's resolver entirely and will always get the edge. Rare, but it explains
 an odd handset.
 
-**The certificate.** Issued out of band by certbot over a DNS-01 challenge, because the
-laptop is not publicly reachable and http-01 would need it to be. It lives in
-`~/.pixelmesh/letsencrypt/live/pixelmesh.show/` and is completely separate from the cert ngrok
-serves at its edge, whose private key is not exportable. Issuing a second cert for the name
-does not disturb the tunnel.
+**The certificates.** There are two, both issued out of band by certbot over DNS-01, because
+the laptop is not publicly reachable and http-01 would need it to be. `joinmesh.io` is the one
+the audience meets, and the one a short expiry refuses on. `pixelmesh.show` is kept for a room
+whose router points that name here instead, and its expiry only warns. Both live under
+`~/.pixelmesh/letsencrypt/live/`, and both are separate from the cert ngrok serves at its edge,
+whose private key is not exportable. Issuing your own for a name does not disturb the tunnel.
+
+Caddy loads both at startup and refuses to start if either file is missing, which is why the
+preflight checks all four paths rather than only the pair in the QR.
 
 Renewing, which needs internet and takes about two minutes:
 
@@ -238,7 +248,7 @@ Renewing, which needs internet and takes about two minutes:
 certbot certonly --manual --preferred-challenges dns \
   --manual-auth-hook  ~/.pixelmesh/acme-auth-hook.sh \
   --manual-cleanup-hook ~/.pixelmesh/acme-cleanup-hook.sh \
-  -d pixelmesh.show \
+  -d joinmesh.io \
   --config-dir ~/.pixelmesh/letsencrypt --work-dir ~/.pixelmesh/work \
   --logs-dir ~/.pixelmesh/logs --agree-tos --non-interactive --key-type ecdsa
 ```
