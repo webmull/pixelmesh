@@ -4,16 +4,17 @@
 #  pixelmesh audience sim
 #
 #  Spawns N fake phones as separate Chrome instances pointed at
-#  pixelmesh.show. Each gets its own --user-data-dir, so each has
+#  joinmesh.io. Each gets its own --user-data-dir, so each has
 #  its own localStorage and therefore its own device_id: the
 #  server sees N genuinely distinct clients, not N tabs.
 #
 #  Windows are tiled across every display (menu bar and Dock
 #  excluded) at phone aspect, never overlapping.
 #
-#    ./sim.sh              # 2 phones against pixelmesh.show
+#    ./sim.sh              # 2 phones against joinmesh.io
 #    ./sim.sh 12           # 12 phones
 #    ./sim.sh 6 --local    # against http://127.0.0.1:16924
+#    ./sim.sh 6 --url https://pixelmesh.show    # the tunnel instead
 #    ./sim.sh 6 --url http://192.168.1.20:16924
 #    ./sim.sh --kill       # stop every sim phone
 #    ./sim.sh 40 --fill    # tile edge to edge (load/UI work, not detection)
@@ -29,7 +30,12 @@ cd "$(dirname "$0")"
 
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 PROFILES="$PWD/.sim-profiles"
-URL="https://pixelmesh.show"
+# joinmesh.io is a public A record for this laptop's address on the show
+# router, so it only resolves to something reachable while you are on that
+# network. --local is the one to use at a desk; the check below says so
+# rather than leaving a dozen Chrome windows staring at nothing.
+URL="https://joinmesh.io"
+URL_EXPLICIT=0
 COUNT=2
 GAP=10
 FRESH=0
@@ -48,7 +54,7 @@ while (( $# )); do
   case "$1" in
     ''|*[!0-9]*)
       case "$1" in
-        --url)     URL="$2"; shift 2 ;;
+        --url)     URL="$2"; URL_EXPLICIT=1; shift 2 ;;
         --local)   URL="http://127.0.0.1:${PIXELMESH_PORT:-16924}"; shift ;;
         --gap)     GAP="$2"; shift 2 ;;
         --fresh)   FRESH=1; shift ;;
@@ -122,6 +128,27 @@ fi
 if (( COUNT < 1 )); then
   echo "${R}Need at least 1 phone.${RESET}" >&2
   exit 1
+fi
+
+# A crowd pointed at an unreachable URL is a dozen blank windows and no clue
+# why, which is the same failure present.sh exists to avoid. Ask once, before
+# spending a Chrome instance on it. Not fatal for anything but the default:
+# an explicit --url is the caller's business and may be up in a moment.
+if ! curl -fsS -m 3 -o /dev/null "$URL" 2>/dev/null; then
+  echo "${R}Nothing is answering at $URL${RESET}" >&2
+  if (( URL_EXPLICIT )); then
+    # You named this one, so you may know it is coming up in a moment.
+    echo "${DIM}  carrying on anyway - you asked for this URL specifically${RESET}" >&2
+  elif [[ "$URL" == "https://joinmesh.io" ]]; then
+    echo "${DIM}  joinmesh.io is a public record for this laptop's address on the" >&2
+    echo "  show router, so it only reaches anything while you are on that" >&2
+    echo "  network, with the front door up (PIXELMESH_LOCAL=1 ./run.sh)." >&2
+    echo "  At a desk you want:  ./sim.sh $COUNT --local${RESET}" >&2
+    exit 1
+  else
+    echo "${DIM}  start the server first:  ./run.sh${RESET}" >&2
+    exit 1
+  fi
 fi
 
 # A previous crowd would fight this one for screen space.
