@@ -10,6 +10,24 @@ cd "$(dirname "$0")"
 # the phones get that project's site and no error anywhere. 16924 is P-I-X.
 export PIXELMESH_PORT="${PIXELMESH_PORT:-16924}"
 
+# Local show mode. Set PIXELMESH_LOCAL=1 when the room has no internet and a
+# router resolves pixelmesh.show to this laptop instead of to ngrok's edge.
+# It swaps the tunnel for a local TLS front door (caddy.pixelmesh.conf) holding
+# a real certificate for the same name, which matters more than it sounds:
+# navigator.wakeLock is secure-context only, so on plain http every phone in
+# the room dims on its own auto-lock timer mid-show, and there is no fallback
+# in app.js. navigator.share goes the same way and the end card quietly drops
+# its share button.
+export PIXELMESH_LOCAL="${PIXELMESH_LOCAL:-}"
+export PIXELMESH_CERT="${PIXELMESH_CERT:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/fullchain.pem}"
+export PIXELMESH_KEY="${PIXELMESH_KEY:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/privkey.pem}"
+
+# Refuse a local show on a certificate with less than this left. It is issued
+# out of band by certbot over DNS-01 and renewing needs internet, which is the
+# one thing a local show does not have. Finding that out in the venue is too
+# late, so the check is a start-time refusal rather than a warning.
+_CERT_MIN_DAYS=7
+
 # ─────────────────────────────────────────────
 #  Wrap in tmux so the session persists across
 #  detach/attach.
@@ -76,19 +94,36 @@ pid_of_controller() { pgrep -f "controller.py"        | head -1; }
 # ngrok tunnels from other projects don't fool the status check or get
 # killed by [r]/[d].
 pid_of_ngrok()      { pgrep -f "ngrok.pixelmesh.yml"  | head -1; }
+# Same scoping for the local TLS front door, so an unrelated caddy is neither
+# reported as ours nor killed by [r]/[d]. Runs as root for ports 443 and 80,
+# hence the sudo on the pkills below.
+pid_of_caddy()      { pgrep -f "caddy.pixelmesh.conf" | head -1; }
+
+# Days until the local-show certificate expires. Empty if there is no cert.
+cert_days_left() {
+  [[ -f $PIXELMESH_CERT ]] || return 1
+  local raw end_ts
+  raw=$(openssl x509 -in "$PIXELMESH_CERT" -noout -enddate 2>/dev/null | cut -d= -f2)
+  [[ -n $raw ]] || return 1
+  end_ts=$(date -j -f "%b %e %T %Y %Z" "$raw" "+%s" 2>/dev/null) || return 1
+  echo $(( (end_ts - $(date "+%s")) / 86400 ))
+}
 
 status_line() {
   local srv=$(pid_of_server)
   local ctl=$(pid_of_controller)
   local ngk=$(pid_of_ngrok)
+  local cad=$(pid_of_caddy)
 
   local srv_s="${R}stopped${RESET}"
   local ctl_s="${R}stopped${RESET}"
   local ngk_s="${R}stopped${RESET}"
+  local cad_s="${R}stopped${RESET}"
 
   [[ -n $srv ]] && srv_s="${G}running${RESET} ${DIM}(pid $srv)${RESET}"
   [[ -n $ctl ]] && ctl_s="${G}running${RESET} ${DIM}(pid $ctl)${RESET}"
   [[ -n $ngk ]] && ngk_s="${G}running${RESET} ${DIM}(pid $ngk)${RESET}"
+  [[ -n $cad ]] && cad_s="${G}running${RESET} ${DIM}(pid $cad)${RESET}"
 
   local clients=""
   if [[ -n $srv ]]; then
@@ -99,14 +134,25 @@ status_line() {
 
   echo "  ${W}server     ${RESET}$srv_s$clients"
   echo "  ${W}controller ${RESET}$ctl_s"
-  echo "  ${W}ngrok      ${RESET}$ngk_s"
+  if [[ -n $PIXELMESH_LOCAL ]]; then
+    local days=$(cert_days_left)
+    local certnote=""
+    [[ -n $days ]] && certnote="  ${DIM}(cert ${days}d left)${RESET}"
+    echo "  ${W}front door ${RESET}$cad_s$certnote"
+  else
+    echo "  ${W}ngrok      ${RESET}$ngk_s"
+  fi
   echo ""
   if [[ -n $LAST_STARTED ]]; then
     echo "  ${DIM}last started  $LAST_STARTED${RESET}"
     echo ""
   fi
   echo "  ${DIM}feed     → http://localhost:$PIXELMESH_PORT/internal/feed/v1${RESET}"
-  echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
+  if [[ -n $PIXELMESH_LOCAL ]]; then
+    echo "  ${DIM}public   → https://pixelmesh.show ${RESET}${DIM}(local, via this laptop)${RESET}"
+  else
+    echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
+  fi
   echo ""
 }
 
@@ -134,6 +180,9 @@ kill_all() {
   pkill -f "uvicorn server:app"  2>/dev/null || true
   pkill -f "controller.py"       2>/dev/null || true
   pkill -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+  # Root-owned, so this needs sudo. -n keeps a stop from hanging on a password
+  # prompt when the credential has timed out and no front door is even up.
+  [[ -n $(pid_of_caddy) ]] && sudo -n pkill -f "caddy.pixelmesh.conf" 2>/dev/null || true
 
   # Wait for a clean exit.  This also guards the next start_all: an async
   # kill can lag, and without the wait the next start races against the
@@ -146,6 +195,7 @@ kill_all() {
     pgrep -f "uvicorn server:app"       &>/dev/null && stuck=1
     pgrep -f "controller.py"            &>/dev/null && stuck=1
     pgrep -f "ngrok.pixelmesh.yml"      &>/dev/null && stuck=1
+    pgrep -f "caddy.pixelmesh.conf"     &>/dev/null && stuck=1
     (( stuck == 0 )) && break
     # Anything past a second means real work is happening — an mp4 being
     # closed — so say so rather than looking hung.  Then count down: a silent
@@ -168,10 +218,11 @@ kill_all() {
   # lost — SIGKILL costs nothing further.
   if (( waited >= max )); then
     echo "${R}  warning: forcing kill after ${_TERM_GRACE_SECS}s${RESET}"
-    pgrep -af "uvicorn server:app|controller.py|ngrok.pixelmesh.yml" || true
+    pgrep -af "uvicorn server:app|controller.py|ngrok.pixelmesh.yml|caddy.pixelmesh.conf" || true
     pkill -9 -f "uvicorn server:app"  2>/dev/null || true
     pkill -9 -f "controller.py"       2>/dev/null || true
     pkill -9 -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+    sudo -n pkill -9 -f "caddy.pixelmesh.conf" 2>/dev/null || true
     sleep 0.5
   else
     echo "${G}  done.${RESET}"
@@ -234,6 +285,49 @@ controller_watchdog() {
   done
 }
 
+# The local-show alternative to the ngrok tunnel. Terminates TLS on 443 and
+# reverse-proxies to the server's ordinary plain-http port, so server.py,
+# network.py and the ngrok config all stay exactly as they are.
+start_local_front_door() {
+  local days
+  days=$(cert_days_left) || {
+    echo "${R}  no certificate at $PIXELMESH_CERT${RESET}"
+    echo "${R}  a local show needs one - see docs/operations.md${RESET}"
+    return 1
+  }
+  if (( days < _CERT_MIN_DAYS )); then
+    echo "${R}  certificate expires in ${days} days - too close for a show${RESET}"
+    echo "${R}  renew it while there is still internet - see docs/operations.md${RESET}"
+    return 1
+  fi
+
+  # ngrok and the front door both answer for pixelmesh.show, and which one a
+  # phone reaches then depends on whose DNS answered it. That is a confusing
+  # way to lose half an audience, so local mode insists on being alone.
+  if [[ -n $(pid_of_ngrok) ]]; then
+    echo "${Y}→ Local mode: stopping the ngrok tunnel first...${RESET}"
+    pkill -f "ngrok.pixelmesh.yml" 2>/dev/null || true
+    sleep 1
+  fi
+
+  echo "${Y}→ Starting local TLS front door (cert has ${days} days left)...${RESET}"
+  # 443 and 80 are privileged, so this one process needs root. Prompt for it
+  # up front rather than letting sudo block behind a repainted menu.
+  sudo -v || { echo "${R}  need sudo to bind 443${RESET}"; return 1; }
+  sudo -b PIXELMESH_CERT="$PIXELMESH_CERT" \
+          PIXELMESH_KEY="$PIXELMESH_KEY" \
+          PIXELMESH_PORT="$PIXELMESH_PORT" \
+          caddy run --adapter caddyfile --config "$(pwd)/caddy.pixelmesh.conf" \
+          >> /tmp/pixelmesh-caddy.log 2>&1
+
+  local i=0
+  while [[ -z $(pid_of_caddy) ]] && (( i < 20 )); do sleep 0.25; (( i++ )); done
+  if [[ -z $(pid_of_caddy) ]]; then
+    echo "${R}  front door did not start - see /tmp/pixelmesh-caddy.log${RESET}"
+    return 1
+  fi
+}
+
 start_all() {
   # Camera Hub must be up before the controller: it owns the Elgato's
   # exposure state and elgato.py connects to its WebSocket at startup.
@@ -273,6 +367,9 @@ start_all() {
     --ws-per-message-deflate false --ws-max-size 1048576 --no-access-log \
     >> /tmp/pixelmesh-server.log 2>&1 &
 
+  if [[ -n $PIXELMESH_LOCAL ]]; then
+    start_local_front_door || return 1
+  else
   echo "${Y}→ Starting ngrok (audience tunnel)...${RESET}"
   # ngrok 3.16 doesn't expose --pooling-enabled on the agent CLI (the
   # ERR_NGROK_334 hint to use it is misleading on this client) and
@@ -287,6 +384,7 @@ start_all() {
     --config "$(pwd)/ngrok.pixelmesh.yml" \
     --log stdout \
     --log-format logfmt >> /tmp/pixelmesh-ngrok.log 2>&1 &
+  fi
 
   echo "${Y}→ Starting controller...${RESET}"
   local i=0

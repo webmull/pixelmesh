@@ -166,6 +166,78 @@ with `python3 tools/load_test.py --host pixelmesh.show --wss`.
 - Full stack running, and it shows the audience app.
 - Tunnel up but server stopped, and it shows the holding page again via the 5xx catch.
 
+### Local show mode (no internet in the room)
+
+`PIXELMESH_LOCAL=1 ./run.sh` runs the show off a router instead of the ngrok tunnel. The
+router (a GL.iNet Flint) resolves `pixelmesh.show` to the laptop's LAN address with a static
+DNS host entry, and the laptop answers on 443 with a real certificate for that name. Phones
+join the router's wifi and the URL is the same one as always.
+
+**Why it has to be https.** `navigator.wakeLock` is secure-context only. Over plain http it
+is simply absent, `app.js` skips it, and every phone in the room dims on its own auto-lock
+timer partway through the show, with no fallback in the client. `navigator.share` goes the
+same way and the closing card drops its share button. Everything else in the client works
+over http, so this is the entire reason for the certificate.
+
+**Why a proxy rather than `uvicorn --ssl-keyfile`.** The controller talks to the server over
+plain loopback (`network.py`), including the camera feed socket carrying ~220KB JPEGs, and
+ngrok dials plain http as well. Putting TLS on 16924 breaks both and runs the feed through a
+cipher for no benefit. `caddy.pixelmesh.conf` terminates TLS on 443 and reverse-proxies to
+16924, so `server.py`, `network.py` and `ngrok.pixelmesh.yml` are all untouched.
+
+**Why Caddy specifically, and not stunnel or socat.** `_is_local_request` in `server.py`
+treats "loopback address AND no forwarding headers" as proof a request came from this
+machine, and gates the sensitive `/admin` routes on it. A raw TCP forwarder adds no headers,
+so every audience phone would arrive at 127.0.0.1 looking local. Caddy's `reverse_proxy` sets
+`X-Forwarded-For`/`Proto`/`Host`, so a phone through the front door is classed exactly like a
+phone through ngrok. Do not swap it for a dumber forwarder.
+
+Local mode and the tunnel are mutually exclusive: `start_local_front_door` stops ngrok before
+binding, because otherwise which one a phone reaches depends on whose DNS answered it.
+
+**The certificate.** Issued out of band by certbot over a DNS-01 challenge, because the
+laptop is not publicly reachable and http-01 would need it to be. It lives in
+`~/.pixelmesh/letsencrypt/live/pixelmesh.show/` and is completely separate from the cert ngrok
+serves at its edge, whose private key is not exportable. Issuing a second cert for the name
+does not disturb the tunnel.
+
+Renewing, which needs internet and takes about two minutes:
+
+```sh
+certbot certonly --manual --preferred-challenges dns \
+  --manual-auth-hook  ~/.pixelmesh/acme-auth-hook.sh \
+  --manual-cleanup-hook ~/.pixelmesh/acme-cleanup-hook.sh \
+  -d pixelmesh.show \
+  --config-dir ~/.pixelmesh/letsencrypt --work-dir ~/.pixelmesh/work \
+  --logs-dir ~/.pixelmesh/logs --agree-tos --non-interactive --key-type ecdsa
+```
+
+The auth hook writes the TXT value to `~/.pixelmesh/acme-state/txt-value` and then polls both
+Namecheap nameservers until it appears, so the sequence is: run the command, add a TXT record
+at Namecheap with host `_acme-challenge` (host field only, Namecheap appends the domain) and
+TTL 1 min, and issuance completes by itself. Delete the record afterwards. Namecheap takes a
+minute or two to publish, which is normal and the hook waits it out.
+
+Automating the DNS write would mean the Namecheap API, which is gated behind their account
+eligibility rules and then IP-allowlisted. The allowlist is the problem: the laptop's public
+address changes at every venue, so the automation would break exactly when it is needed.
+By hand, four times a year, is the deliberate choice.
+
+`run.sh` refuses to start a local show on a certificate with under `_CERT_MIN_DAYS` (7) left,
+rather than warning, because there is no internet in the venue to fix it with. The status
+panel shows the remaining days in local mode.
+
+**Caveats.**
+
+- Caddy binds 443 and 80, so `run.sh` asks for sudo once at start. Only that one process runs
+  as root; the server and controller do not.
+- Put the full `https://pixelmesh.show` on anything the audience scans or types. A bare
+  hostname is not reliably upgraded and lands on port 80, where the redirect saves it, but
+  only if the front door is actually up.
+- The Flint has DNS rebinding protection in the same DNS panel as the host entries. A public
+  hostname resolving to a private address is what that feature exists to block, so it is the
+  first thing to check if resolution goes strange.
+
 ### Load testing
 
 `tools/load_test.py` simulates a crowd against a running server with the real protocol per
