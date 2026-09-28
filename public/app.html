@@ -229,6 +229,17 @@ html, body {
   font-weight: 600;
   font-size: 11px;
 }
+
+/* The host's mark, sitting under the steps. Quiet on purpose: this screen
+   belongs to the instructions above it, and the pixelmesh logo is already
+   doing the branding at the top. */
+.wm-planet {
+  width: min(58px, 16vw);
+  aspect-ratio: 430.982 / 454.922;
+  margin-top: 2px;
+  opacity: 0.8;
+  flex: none;
+}
 /* Sticky connection status bar: system chrome pinned above the home
    indicator. Shown only on the waiting and located views (setView). */
 #statusBar {
@@ -744,6 +755,22 @@ html, body {
     <div><b>2</b><span>Screen brightness to full, auto-lock off.</span></div>
     <div><b>3</b><span>When asked, hold your phone up with the screen facing the front.</span></div>
   </div>
+
+  <!-- Ministry of Testing's planet, inlined rather than linked to their CDN.
+
+       The whole client is served off this laptop, and a local show has no
+       internet at all, so an external URL would be a broken image on the one
+       screen the room sits looking at while it waits. Nothing else in this
+       client fetches anything off-origin and this is not the place to start.
+
+       Their file carried its white fill in a <style> block keyed on a class
+       called "b". Pasting that in verbatim would have dropped a one-letter
+       global rule into the page, so the fill moved onto the path, where it
+       cannot collide with anything. The geometry is untouched. -->
+  <svg class="wm-planet" role="img" aria-label="Ministry of Testing"
+       xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430.982 454.922">
+    <path fill="#FFFFFF" d="M367.406,114.914c-2.024,3.994-4.21,8.067-6.47,12.172-14.586-21.056-33.607-38.799-55.717-51.878,50.311-32.668,76.319-34.334,80.418-30.519,2.338,2.177,6.439,21.511-18.23,70.225M348.896,227.542c0,71.501-56.525,130.036-127.234,133.298,23.041-20.182,45.759-42.329,66.998-65.148,21.951-23.583,42.201-47.668,60.155-71.408.024,1.087.081,2.166.081,3.258M45.245,410.396c-2.582-2.403-6.701-25.671,24.618-82.325,4.72,6.82,9.938,13.342,15.643,19.513,8.141,8.812,21.882,9.352,30.695,1.209,8.807-8.143,9.348-21.886,1.207-30.693-22.842-24.716-35.424-56.876-35.424-90.557,0-73.589,59.87-133.455,133.457-133.455,52.512,0,98.016,30.495,119.788,74.698-21.454,31.611-48.169,64.864-78.367,97.31-33.295,35.77-67.867,67.381-100.621,92.23-.237.176-.481.344-.712.53-14.283,10.803-28.222,20.334-41.545,28.329-46.822,28.096-66.403,25.385-68.739,23.211M415.233,12.891c-19.868-18.495-63.178-26.272-156.668,41.721-.462.338-.891.702-1.321,1.068-13.41-3.264-27.401-5.034-41.802-5.034-97.541,0-176.897,79.355-176.897,176.897,0,18.515,2.911,36.672,8.43,53.935C-15.131,380.483-4.406,423.533,15.647,442.196c9.405,8.753,21.468,12.727,35.502,12.727,32.997-.002,76.87-21.995,122.573-55.46,13.604,3.29,27.586,4.979,41.719,4.979,97.541,0,176.897-79.355,176.897-176.899,0-18.794-2.972-36.901-8.428-53.906,8.413-13.423,15.881-26.516,22.25-39.095,29.713-58.671,32.766-99.6,9.073-121.651"/>
+  </svg>
   <button id="likeBtn" aria-label="Send a like">
     <svg width="56" height="56" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
       <path fill="#ffffff" d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/>
