@@ -4,6 +4,14 @@
 
 cd "$(dirname "$0")"
 
+# Canonical, case-correct absolute path to this directory. $(pwd) reports
+# whichever case you happened to type, because macOS is case-insensitive, so
+# ./run.sh from ~/desktop and from ~/Desktop produce different strings for the
+# same file. The sudoers rule that stops the front door asking for a password
+# every single time has to match one fixed string, so it gets this one.
+# Exported so the tmux re-exec below does not recompute it from a different cwd.
+export PIXELMESH_DIR="${PIXELMESH_DIR:-${0:A:h}}"
+
 # The server's port. Not 8000: that is every framework's default, and a dev
 # server from another project left on it takes the audience tunnel with it -
 # ngrok dials localhost:<port>, and a loopback bind beats the wildcard one, so
@@ -398,15 +406,26 @@ start_local_front_door() {
   # than from sudo's environment. sudo's env handling depends on sudoers, and
   # a variable quietly dropped on the way to root would surface only as a
   # front door that never came up, minutes before doors.
-  local envfile=/tmp/pixelmesh-caddy.env
+  # Not /tmp: that is world-writable, and this file names the certificate and
+  # key that a root process is about to load. Anything with a sudoers rule
+  # pointing at it wants to live somewhere only this user can write.
+  local envfile="$HOME/.pixelmesh/caddy.env"
   printf 'PIXELMESH_CERT=%s\nPIXELMESH_KEY=%s\nPIXELMESH_LOCAL_CERT=%s\nPIXELMESH_LOCAL_KEY=%s\nPIXELMESH_PORT=%s\n' \
     "$PIXELMESH_CERT" "$PIXELMESH_KEY" "$PIXELMESH_LOCAL_CERT" "$PIXELMESH_LOCAL_KEY" \
     "$PIXELMESH_PORT" > "$envfile" || {
       echo "${R}  could not write $envfile${RESET}"; return 1; }
 
-  sudo -v || { echo "${R}  need sudo to bind 443${RESET}"; return 1; }
+  # sudo -v asks for a password even when a sudoers rule already covers the
+  # command below without one, which would defeat the rule entirely. So only
+  # ask when this exact command is not already permitted. docs/operations.md
+  # has the rule; without it this prompts once per start, as it always did.
+  if ! sudo -n -l "$caddy_bin" run --adapter caddyfile \
+          --config "$PIXELMESH_DIR/caddy.pixelmesh.conf" \
+          --envfile "$envfile" >/dev/null 2>&1; then
+    sudo -v || { echo "${R}  need sudo to bind 443${RESET}"; return 1; }
+  fi
   sudo -b "$caddy_bin" run --adapter caddyfile \
-          --config "$(pwd)/caddy.pixelmesh.conf" --envfile "$envfile" \
+          --config "$PIXELMESH_DIR/caddy.pixelmesh.conf" --envfile "$envfile" \
           >> /tmp/pixelmesh-caddy.log 2>&1
 
   local i=0
