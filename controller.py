@@ -3151,15 +3151,39 @@ def _capture_worker(holder):
                     # explicit lock is needed — at worst we see one frame stale.
                     # Race after detector.reset() (e.g. ROI change + detect-on)
                     # can leave stale integer indices pointing past the rebuilt
-                    # _points array; swallow that one-frame IndexError instead
-                    # of crashing the controller. Recovers on the next frame.
+                    # _points array; swallow that one frame instead of crashing
+                    # the controller. Recovers on the next frame.
+                    #
+                    # ValueError joins IndexError here, and it is the same
+                    # race landing on a different line. The stream-candidate
+                    # filter in draw_overlay re-evaluates self._points[i] and
+                    # .history six times inside one expression, so the
+                    # len(history) >= 2 guard and the history[-N:] slice that
+                    # follows it are not guaranteed to be looking at the same
+                    # object. A reset() rebuilding _points in between hands the
+                    # slice a fresh Point whose history is empty, and max()/min()
+                    # over empty raises ValueError, which went straight past
+                    # this handler and killed the process. That is the same
+                    # reset race the IndexError above was added for.
+                    #
+                    # Not proven to the exact interleaving: prune alone cannot
+                    # do it, since add_sample always keeps the sample it just
+                    # appended. Whatever the precise window, this is lock-free
+                    # state read across two threads and it is meant to cost a
+                    # frame, not a process.
+                    #
+                    # It took the controller down four times in sixty seconds
+                    # on 28 Sep and the watchdog gave up, which is correct
+                    # watchdog behaviour and a bad way to lose a room. A proper
+                    # fix binds the Point once inside that filter, which is a
+                    # frozen file. This does not wait on it.
                     try:
                         detector.draw_overlay(canvas, scale=_scale,
                                               crop_x=_crop_x, crop_y=_crop_y,
                                               show_ids=not show_ov,
                                               valid_ids=_valid_blink_ids or None)
-                    except IndexError as e:
-                        log.info(f"[overlay] skipped one frame after detector reset: {e}")
+                    except (IndexError, ValueError) as e:
+                        log.info(f"[overlay] skipped one frame: {type(e).__name__}: {e}")
 
                     if dbg_cap.active:
                         _dbg_counter += 1
