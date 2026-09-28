@@ -415,18 +415,16 @@ start_local_front_door() {
     "$PIXELMESH_PORT" > "$envfile" || {
       echo "${R}  could not write $envfile${RESET}"; return 1; }
 
-  # sudo -v asks for a password even when a sudoers rule already covers the
-  # command below without one, which would defeat the rule entirely. So only
-  # ask when this exact command is not already permitted. docs/operations.md
-  # has the rule; without it this prompts once per start, as it always did.
-  if ! sudo -n -l "$caddy_bin" run --adapter caddyfile \
-          --config "$PIXELMESH_DIR/caddy.pixelmesh.conf" \
-          --envfile "$envfile" >/dev/null 2>&1; then
-    sudo -v || { echo "${R}  need sudo to bind 443${RESET}"; return 1; }
-  fi
+  # No sudo -v first. It asks for a password even when a sudoers rule already
+  # covers the command without one, which defeats the point of the rule; and
+  # the obvious guard against that, testing sudo -n -l for the command, is
+  # worthless here because it succeeds for anything an admin may run at all,
+  # password or not. sudo -b authenticates before it forks, so it prompts at
+  # this same point when there is no rule and says nothing when there is.
   sudo -b "$caddy_bin" run --adapter caddyfile \
           --config "$PIXELMESH_DIR/caddy.pixelmesh.conf" --envfile "$envfile" \
-          >> /tmp/pixelmesh-caddy.log 2>&1
+          >> /tmp/pixelmesh-caddy.log 2>&1 \
+    || { echo "${R}  sudo refused - cannot bind 443${RESET}"; return 1; }
 
   local i=0
   while [[ -z $(pid_of_caddy) ]] && (( i < 20 )); do sleep 0.25; (( i++ )); done
