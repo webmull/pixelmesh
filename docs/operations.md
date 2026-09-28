@@ -192,8 +192,39 @@ so every audience phone would arrive at 127.0.0.1 looking local. Caddy's `revers
 `X-Forwarded-For`/`Proto`/`Host`, so a phone through the front door is classed exactly like a
 phone through ngrok. Do not swap it for a dumber forwarder.
 
-Local mode and the tunnel are mutually exclusive: `start_local_front_door` stops ngrok before
-binding, because otherwise which one a phone reaches depends on whose DNS answered it.
+**Local mode keeps the tunnel running, and should.** An earlier version stopped it, on the
+grounds that two front ends answering for one name would split the audience. They do not:
+both reverse onto the same server and the same state, so a phone arriving through either is
+the same participant, and the clock sync already handles an edge-shaped round trip because
+that is how every normal show runs. `PIXELMESH_NO_TUNNEL=1` suppresses it for a genuinely
+disconnected room, and is ignored without `PIXELMESH_LOCAL=1` since on its own it would
+leave no way in at all.
+
+**Android needs the tunnel, or it needs the router to have an uplink.** Android marks a wifi
+network with no internet as unvalidated and, with "switch to mobile data automatically" on,
+keeps its default route on mobile data. DNS for `pixelmesh.show` then goes to the carrier,
+comes back as ngrok's edge addresses, and the phone loads those over 4G, never consulting the
+router's host entry at all. iOS keeps wifi as its default route either way and is unaffected.
+
+The crux is DNS rather than routing: had the phone asked the router it would have had the LAN
+address, and Android sends LAN-subnet destinations over wifi whatever the default route is.
+So there are two ways to fix it, and they stack:
+
+1. **Give the Flint any uplink.** A tethered phone, the venue wifi in repeater mode, an
+   ethernet drop. Nothing but the validation probe uses it, so it does not need to be fast.
+   Android then validates the wifi, prefers it, uses the router's DNS and lands on the LAN.
+   This is the one that gets every phone onto the fast local path.
+2. **Leave the tunnel up**, so a phone that stays on mobile data still reaches the real show
+   instead of the holding page.
+
+Do not try to satisfy Android's check locally by serving a 204. It runs an HTTPS probe
+against `www.google.com/generate_204` alongside the HTTP one, which cannot be answered
+without a trusted Google certificate, and answering only the HTTP probe produces "partial
+connectivity" and a tap-to-continue notification on every phone in the room.
+
+Worth knowing: a phone with Private DNS set explicitly to a provider rather than Automatic
+bypasses the router's resolver entirely and will always get the edge. Rare, but it explains
+an odd handset.
 
 **The certificate.** Issued out of band by certbot over a DNS-01 challenge, because the
 laptop is not publicly reachable and http-01 would need it to be. It lives in
