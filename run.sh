@@ -30,6 +30,14 @@ export PIXELMESH_LOCAL="${PIXELMESH_LOCAL:-}"
 export PIXELMESH_NO_TUNNEL="${PIXELMESH_NO_TUNNEL:-}"
 export PIXELMESH_CERT="${PIXELMESH_CERT:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/fullchain.pem}"
 export PIXELMESH_KEY="${PIXELMESH_KEY:-$HOME/.pixelmesh/letsencrypt/live/pixelmesh.show/privkey.pem}"
+# joinmesh.io is the name in the QR for a local show: a public A record pointing
+# at this laptop's static LAN address, so every resolver returns it and the
+# router needs no DNS setup. Short on purpose - it is 33 QR modules against 37
+# for a longer name, which is more pixels per module on the deck's panel and so
+# scan distance from the back of a big hall. This is the certificate the audience actually
+# meets, so it is the one a short expiry refuses on.
+export PIXELMESH_LOCAL_CERT="${PIXELMESH_LOCAL_CERT:-$HOME/.pixelmesh/letsencrypt/live/joinmesh.io/fullchain.pem}"
+export PIXELMESH_LOCAL_KEY="${PIXELMESH_LOCAL_KEY:-$HOME/.pixelmesh/letsencrypt/live/joinmesh.io/privkey.pem}"
 
 # Refuse a local show on a certificate with less than this left. It is issued
 # out of band by certbot over DNS-01 and renewing needs internet, which is the
@@ -118,9 +126,28 @@ local_mode_preflight() {
     echo "${R}  caddy is not installed - brew install caddy${RESET}" >&2
     return 1
   fi
+  # Caddy loads both certificates at startup and refuses to start if either
+  # file is missing, so both are checked here rather than only the one the
+  # audience meets.
+  local f
+  for f in "$PIXELMESH_CERT" "$PIXELMESH_KEY" "$PIXELMESH_LOCAL_CERT" "$PIXELMESH_LOCAL_KEY"; do
+    [[ -f $f ]] && continue
+    echo "${R}  missing $f${RESET}" >&2
+    echo "${R}  a local show needs both certificates - see docs/operations.md${RESET}" >&2
+    return 1
+  done
+
+  # The tunnel's certificate expiring does not stop a local show, so it warns
+  # rather than refuses. The one in the QR is the one that must be good.
+  local other
+  other=$(cert_days_left "$PIXELMESH_CERT")
+  if [[ -n $other ]] && (( other < _CERT_MIN_DAYS )); then
+    echo "${Y}  note: the pixelmesh.show certificate has ${other} days left${RESET}" >&2
+  fi
+
   local days
-  days=$(cert_days_left) || {
-    echo "${R}  no certificate at $PIXELMESH_CERT${RESET}" >&2
+  days=$(cert_days_left "$PIXELMESH_LOCAL_CERT") || {
+    echo "${R}  no certificate at $PIXELMESH_LOCAL_CERT${RESET}" >&2
     echo "${R}  a local show needs one - see docs/operations.md${RESET}" >&2
     return 1
   }
@@ -140,11 +167,13 @@ local_mode_preflight() {
   echo "$days"
 }
 
-# Days until the local-show certificate expires. Empty if there is no cert.
+# Days until the certificate at $1 expires, defaulting to the one in the QR.
+# Empty if there is no such cert.
 cert_days_left() {
-  [[ -f $PIXELMESH_CERT ]] || return 1
+  local cert="${1:-$PIXELMESH_LOCAL_CERT}"
+  [[ -f $cert ]] || return 1
   local raw end_ts
-  raw=$(openssl x509 -in "$PIXELMESH_CERT" -noout -enddate 2>/dev/null | cut -d= -f2)
+  raw=$(openssl x509 -in "$cert" -noout -enddate 2>/dev/null | cut -d= -f2)
   [[ -n $raw ]] || return 1
   end_ts=$(date -j -f "%b %e %T %Y %Z" "$raw" "+%s" 2>/dev/null) || return 1
   echo $(( (end_ts - $(date "+%s")) / 86400 ))
@@ -194,7 +223,7 @@ status_line() {
   fi
   echo "  ${DIM}feed     → http://localhost:$PIXELMESH_PORT/internal/feed/v1${RESET}"
   if [[ -n $PIXELMESH_LOCAL ]]; then
-    echo "  ${DIM}public   → https://pixelmesh.show ${RESET}${DIM}(local, via this laptop)${RESET}"
+    echo "  ${DIM}public   → https://joinmesh.io ${RESET}${DIM}(this laptop, across the room)${RESET}"
   else
     echo "  ${DIM}public   → https://pixelmesh.show${RESET}"
   fi
@@ -379,8 +408,9 @@ start_local_front_door() {
   # a variable quietly dropped on the way to root would surface only as a
   # front door that never came up, minutes before doors.
   local envfile=/tmp/pixelmesh-caddy.env
-  printf 'PIXELMESH_CERT=%s\nPIXELMESH_KEY=%s\nPIXELMESH_PORT=%s\n' \
-    "$PIXELMESH_CERT" "$PIXELMESH_KEY" "$PIXELMESH_PORT" > "$envfile" || {
+  printf 'PIXELMESH_CERT=%s\nPIXELMESH_KEY=%s\nPIXELMESH_LOCAL_CERT=%s\nPIXELMESH_LOCAL_KEY=%s\nPIXELMESH_PORT=%s\n' \
+    "$PIXELMESH_CERT" "$PIXELMESH_KEY" "$PIXELMESH_LOCAL_CERT" "$PIXELMESH_LOCAL_KEY" \
+    "$PIXELMESH_PORT" > "$envfile" || {
       echo "${R}  could not write $envfile${RESET}"; return 1; }
 
   sudo -v || { echo "${R}  need sudo to bind 443${RESET}"; return 1; }
