@@ -46,10 +46,25 @@ _DEFAULT_SHUTTER  = 16667    # µs = 1/60s exactly. See below.
 # Samsung AMOLED runs in that range and was the phone this showed up on, at the
 # Dome on 30 Sep, sitting at signal range 0.27-0.49 where ~0.99 is expected.
 #
-# If the house lights are up and ambient flicker dominates instead, 20000 (1/50s)
-# is the better constant here: UK mains is 50 Hz, so lighting flickers at 100 Hz
-# and 1/50s is exactly 2 cycles of it. It is worse for the panel though, 4.8
-# cycles at 240 Hz. Lights down, the phone screen dominates and this is right.
+# THE RULE, if you ever come back to this: keep it to a whole number of 60ths of
+# a second. 8333, 16667 and 33333 are all safe, because the common panel rates
+# are harmonics of 60. Do not nudge it to a round-looking number: 15000 and
+# 16000 look tidier and are both wrong, in exactly the way 15600 was.
+#
+# Two reasons to break that rule:
+#
+#   1. House lights up, so ambient flicker dominates rather than the panel. UK
+#      mains is 50 Hz and lighting flickers at 100 Hz, which 16667 splits at
+#      1.67 cycles. Use 20000 (1/50s), two whole cycles of it. The trade is 4.8
+#      cycles at 240 Hz, so it is worse for the phone. Lights down, the screen
+#      dominates and 16667 is right.
+#
+#   2. Needing the camera above 60fps. A 16.67ms exposure caps the frame rate at
+#      60 by definition. 8333 (1/120s) buys 120fps and is still exact at 60,
+#      120, 240 and 480 Hz, so the flicker fix survives the move.
+#
+# Also worth a fresh look if the Elgato is ever replaced, since the property IDs
+# and the accepted range are Camera Hub's rather than a standard.
 #
 # Costs 7% more light than 15600, so the ISO slider may want a nudge down, and
 # caps the camera at 60fps. The detector is built around 15fps, so that is still
