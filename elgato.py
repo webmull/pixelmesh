@@ -25,7 +25,35 @@ _PROP_AE          = 7
 _PROP_GAIN        = 11
 _PROP_SHUTTER     = 12
 _DEFAULT_GAIN     = 53       # ≈ ISO 624
-_DEFAULT_SHUTTER  = 15600    # µs
+_DEFAULT_SHUTTER  = 16667    # µs = 1/60s exactly. See below.
+
+# WHY 16667 AND NOT A ROUND NUMBER. Phone OLED panels dim by PWM, switching the
+# emitter on and off far faster than the eye sees. The camera does see it: each
+# exposure integrates whatever fraction of a PWM cycle it happens to span, so
+# unless the shutter is a whole number of cycles the measured brightness wobbles
+# frame to frame, and because the exposure is not phase-locked to the panel that
+# wobble drifts into a slow beat. That beat is noise the detector cannot tell
+# from signal, and its gate is noise_floor * 3.5, so it raises the bar a distant
+# phone has to clear.
+#
+# Common panel PWM rates are harmonics of 60, and 1/60s is a whole number of
+# cycles at every one of them:
+#
+#     60 Hz -> 1 cycle    120 Hz -> 2    240 Hz -> 4    480 Hz -> 8
+#
+# The previous 15600 was a whole number of nothing: 3.74 cycles at 240 Hz and
+# 7.49 at 480 Hz, which is within rounding of the worst case, half a cycle out.
+# Samsung AMOLED runs in that range and was the phone this showed up on, at the
+# Dome on 30 Sep, sitting at signal range 0.27-0.49 where ~0.99 is expected.
+#
+# If the house lights are up and ambient flicker dominates instead, 20000 (1/50s)
+# is the better constant here: UK mains is 50 Hz, so lighting flickers at 100 Hz
+# and 1/50s is exactly 2 cycles of it. It is worse for the panel though, 4.8
+# cycles at 240 Hz. Lights down, the phone screen dominates and this is right.
+#
+# Costs 7% more light than 15600, so the ISO slider may want a nudge down, and
+# caps the camera at 60fps. The detector is built around 15fps, so that is still
+# four times its design point.
 
 # Public state — read by controller for UI
 connected:  bool = False
@@ -276,7 +304,8 @@ def _watchdog():
         with _lock:
             ae_on = False
         _set_connected(True)
-        log.info(f"[elgato] connected — device={device} gain={iso_gain}")
+        log.info(f"[elgato] connected — device={device} gain={iso_gain} "
+                 f"shutter={_DEFAULT_SHUTTER}us")
 
         # --- Poll loop ---
         while True:
