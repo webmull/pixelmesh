@@ -218,6 +218,13 @@ over the preview instead of reflowing it. The sidebar has three tabs:
 | `RUN` | Detection start and stop, server reset, the effect buttons, end of show |
 | `GAME` | The rope climb race and the hearts counter |
 
+![The controller's SCENE tab: Camera Hub exposure and ISO, frame ROI trim, capture and recording, remote and pedal status](public/stats/controller_scene.png)
+
+![The controller's RUN tab: detection toggle, clock re-sync, overlays, server reset, the effect buttons and end of show](public/stats/controller_run.png)
+
+`SCENE` and `RUN` with no camera attached — the preview area behind the sidebar is where the
+feed lands, and the HUD in the corner reads 0 fps until one is found.
+
 There is no mouse-only path through a show. Every control that matters during one is also on
 a key, a MIDI pedal or the Spotlight remote, because the operator is usually standing away
 from the laptop.
