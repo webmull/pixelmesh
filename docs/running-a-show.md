@@ -287,10 +287,9 @@ Keyboard `D` keeps plain toggle semantics for partial re-detection workflows.
 **Clock sync.** Every phone re-syncs its clock automatically when detection ends. The sidebar's
 **Re-sync clocks** button sends every phone a fresh ping and is safe at any moment: it cannot move
 what a phone is showing and cannot switch sync off. It has no key, on purpose: at Manchester and
-Leeds the old `S` toggle was pressed mid-show, and each press scattered the room. On the `motocon`
-branch there is no **switch off** button at all (`_MOTOCON_HIDE_SYNC_OFF` in `controller.py`);
-phones arrive unsynced anyway, so the pre-show scramble happens without it. `main` keeps the
-button next to the status line for a deliberate scramble until the next re-sync.
+Leeds the old `S` toggle was pressed mid-show, and each press scattered the room. A **switch off**
+button sits next to the status line for a deliberate scramble until the next re-sync; it has no key
+either.
 
 **Half-open sockets.** The server answers every heartbeat ping with a pong, and every sync ping
 with a sync pong, so a phone always has something inbound to expect at least every 30 s. A phone
