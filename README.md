@@ -16,6 +16,46 @@ themselves.
   <img src="public/stats/spatial_calibration.gif" width="49%" alt="Phones being located and pinned to positions in the frame">
 </p>
 
+A side project, built solo by Adam Davis and tested in front of real audiences rather than
+in a lab.
+
+If you have been to an arena show in the last decade you have probably worn a PixMob
+wristband: an LED band handed out at the door, driven by infrared from the lighting rig so a
+whole stadium can be painted on cue. They work beautifully and they need a supply chain.
+Someone has to manufacture them, ship them, hand them out and sweep them up again, for every
+show, on every date of a tour.
+
+The question behind pixelmesh is whether you can get there with the device everyone already
+brought. A phone is a brighter, higher resolution, individually addressable pixel that also
+has a clock, a network connection and a speaker, and nobody has to distribute it. The one
+thing it does not have is a **position**. A wristband is located because the lighting desk
+knows which block it was given to. A phone in a room is not located at all.
+
+So the whole problem collapses into one question: where is each phone, without asking anyone
+to do anything about it. That question is what this repository answers.
+
+### What came before
+
+A crowd's screens as pixels, and where this one picks up:
+
+- **[Junkyard Jumbotron](https://github.com/c4fcm/Junkyard-Jumbotron)**
+  (MIT Media Lab, 2011) — mismatched, unmodified screens stitched into one display by a
+  server-driven calibration pattern.
+- **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
+  (Seb Lee-Delisle, 2011) — a crowd's phones held up as one coordinated display.
+- **pixelmesh V1** — AprilTags on lock screens with homography calibration. It worked. Printing
+  the tags was the friction.
+- **pixelmesh V2** (this repo) — the phones find themselves. Each screen blinks its ID and one
+  camera reads the whole room.
+
+### Guiding principles
+
+- **Time over position.** Sync clocks first; spatial layout is optional decoration.
+- **Detection over configuration.** The system finds you; you don't set anything up.
+- **Fast join over precision.** A phone joining five seconds late should still play.
+- **Robustness over perfection.** Partial detections, dropped frames and reconnects are the
+  norm, not the exception.
+
 ---
 
 ## How a show runs
@@ -43,7 +83,6 @@ games and a post-show report.
 - [Effects](#effects)
 - [Development](#development)
 - [Documentation](#documentation)
-- [Origins](#origins)
 - [Security](#security-and-what-is-deliberately-open)
 - [Status and licence](#status-and-licence)
 
@@ -364,52 +403,6 @@ pool, and all three have to move together. Changes there want measuring, not rea
 | [docs/TODO.md](docs/TODO.md) | Known gaps |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to propose a change, and the two files that are frozen |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability, and which gaps are already known |
-
----
-
-## Origins
-
-### Why this exists
-
-A side project, built solo by Adam Davis and tested in front of real audiences rather than
-in a lab.
-
-If you have been to an arena show in the last decade you have probably worn a PixMob
-wristband: an LED band handed out at the door, driven by infrared from the lighting rig so a
-whole stadium can be painted on cue. They work beautifully and they need a supply chain.
-Someone has to manufacture them, ship them, hand them out and sweep them up again, for every
-show, on every date of a tour.
-
-The question behind pixelmesh is whether you can get there with the device everyone already
-brought. A phone is a brighter, higher resolution, individually addressable pixel that also
-has a clock, a network connection and a speaker, and nobody has to distribute it. The one
-thing it does not have is a **position**. A wristband is located because the lighting desk
-knows which block it was given to. A phone in a room is not located at all.
-
-So the whole problem collapses into one question: where is each phone, without asking anyone
-to do anything about it. That question is what this repository answers.
-
-### What came before
-
-A crowd's screens as pixels, and where this one picks up:
-
-- **[Junkyard Jumbotron](https://github.com/c4fcm/Junkyard-Jumbotron)**
-  (MIT Media Lab, 2011) — mismatched, unmodified screens stitched into one display by a
-  server-driven calibration pattern.
-- **[PixelPhones](https://seblee.me/2011/09/pixelphones-a-huge-display-made-with-smart-phones/)**
-  (Seb Lee-Delisle, 2011) — a crowd's phones held up as one coordinated display.
-- **pixelmesh V1** — AprilTags on lock screens with homography calibration. It worked. Printing
-  the tags was the friction.
-- **pixelmesh V2** (this repo) — the phones find themselves. Each screen blinks its ID and one
-  camera reads the whole room.
-
-### Guiding principles
-
-- **Time over position.** Sync clocks first; spatial layout is optional decoration.
-- **Detection over configuration.** The system finds you; you don't set anything up.
-- **Fast join over precision.** A phone joining five seconds late should still play.
-- **Robustness over perfection.** Partial detections, dropped frames and reconnects are the
-  norm, not the exception.
 
 ---
 
