@@ -28,8 +28,13 @@ show, on every date of a tour.
 The question behind pixelmesh is whether you can get there with the device everyone already
 brought. A phone is a brighter, higher resolution, individually addressable pixel that also
 has a clock, a network connection and a speaker, and nobody has to distribute it. The one
-thing it does not have is a **position**. A wristband is located because the lighting desk
-knows which block it was given to. A phone in a room is not located at all.
+thing it does not have is a **position**.
+
+A wristband never knows where it is either. The venue does, and it has two ways of saying so:
+the bands handed out at one door are known to be in that block, and the infrared only reaches
+the seats a blaster is aimed at, so masking one with a stencil paints that shape across the
+crowd whether or not anything knows which band is where. Position lives in the rig and the door
+list, not in the band. A phone in a room has neither. It is not located at all.
 
 So the whole problem collapses into one question: where is each phone, without asking anyone
 to do anything about it. That question is what this repository answers.
